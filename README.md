@@ -1,0 +1,335 @@
+# Labor Management API
+
+A Kotlin backend application for managing employee shift scheduling with optimization based on labor costs, sales forecasts, and employee availability.
+
+## Features
+
+- Employee management (CRUD operations)
+- Automated shift scheduling with optimization
+- Constraint validation (availability, contract hours, labor budget)
+- Sales forecasting integration
+- Productivity-based scheduling
+- Overtime calculation
+
+## Tech Stack
+
+- **Kotlin** 2.2.20
+- **Ktor** 2.3.12 (Web framework)
+- **Gradle** (Build tool)
+- **Gson** (JSON serialization)
+
+## Getting Started
+
+### Prerequisites
+
+- JDK 17 or higher
+- Gradle 8.x
+
+### Running the Application
+
+```bash
+# Build the project
+./gradlew build
+
+# Run the application
+./gradlew run
+```
+
+The server will start on `http://localhost:8080`
+
+### Health Check
+
+```bash
+curl http://localhost:8080/health
+```
+
+## API Endpoints
+
+### Employee Management
+
+#### Create Employee
+```http
+POST /api/employees
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Smith",
+  "middleName": "",
+  "normalPayRate": 15.0,
+  "overtimePayRate": 22.5,
+  "productivity": 150.0,
+  "contract": {
+    "contractedHoursPerWeek": 40.0,
+    "maxHoursPerWeek": 50.0,
+    "maxHoursPerDay": 10.0,
+    "overtimeThreshold": 40.0,
+    "requiresBreak": true,
+    "breakDurationMinutes": 30,
+    "breakThresholdMinutes": 6.0
+  },
+  "availability": [
+    {
+      "dayOfWeek": "MONDAY",
+      "startTime": "09:00",
+      "endTime": "18:00"
+    },
+    {
+      "dayOfWeek": "TUESDAY",
+      "startTime": "09:00",
+      "endTime": "18:00"
+    }
+  ]
+}
+```
+
+#### Get All Employees
+```http
+GET /api/employees
+```
+
+#### Get Employee by ID
+```http
+GET /api/employees/{id}
+```
+
+#### Update Employee
+```http
+PUT /api/employees/{id}
+Content-Type: application/json
+
+{
+  "normalPayRate": 16.0,
+  "productivity": 160.0
+}
+```
+
+#### Delete Employee
+```http
+DELETE /api/employees/{id}
+```
+
+### Scheduling
+
+#### Generate Schedule
+```http
+POST /api/scheduling/generate
+Content-Type: application/json
+
+{
+  "employeeIds": [
+    "employee-uuid-1",
+    "employee-uuid-2"
+  ],
+  "laborCostBudget": 5000.0,
+  "salesForecast": {
+    "MONDAY": {
+      "09:00": 800.0,
+      "12:00": 1200.0,
+      "15:00": 1000.0,
+      "18:00": 600.0
+    },
+    "TUESDAY": {
+      "09:00": 700.0,
+      "12:00": 1100.0,
+      "15:00": 900.0,
+      "18:00": 500.0
+    }
+  },
+  "schedulingPeriod": {
+    "daysToSchedule": ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
+    "operatingHours": {
+      "MONDAY": {
+        "openTime": "09:00",
+        "closeTime": "21:00"
+      },
+      "TUESDAY": {
+        "openTime": "09:00",
+        "closeTime": "21:00"
+      }
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "shifts": [
+    {
+      "id": "shift-uuid",
+      "employeeId": "employee-uuid",
+      "employeeName": "John Smith",
+      "dayOfWeek": "MONDAY",
+      "startTime": "09:00",
+      "endTime": "17:00",
+      "durationHours": 8.0,
+      "payRate": 15.0,
+      "laborCost": 120.0,
+      "isOvertime": false
+    }
+  ],
+  "metrics": {
+    "totalLaborCost": 2500.0,
+    "estimatedTotalSales": 15000.0,
+    "laborCostPercentage": 16.67,
+    "employeeUtilization": {
+      "John Smith": 95.0,
+      "Jane Doe": 87.5
+    }
+  },
+  "violations": [],
+  "isValid": true
+}
+```
+
+#### Get Sample Request
+```http
+GET /api/scheduling/sample-request
+```
+
+## Data Models
+
+### Employee
+- **id**: UUID (auto-generated)
+- **firstName**: String
+- **lastName**: String
+- **middleName**: String (optional)
+- **normalPayRate**: Double (hourly rate)
+- **overtimePayRate**: Double (hourly rate for overtime)
+- **productivity**: Double (sales per hour)
+- **contract**: Contract object
+- **availability**: List of Availability objects
+
+### Contract
+- **contractedHoursPerWeek**: Double
+- **maxHoursPerWeek**: Double
+- **maxHoursPerDay**: Double
+- **overtimeThreshold**: Double
+- **requiresBreak**: Boolean
+- **breakDurationMinutes**: Int
+- **breakThresholdMinutes**: Double
+
+### Availability
+- **dayOfWeek**: String (MONDAY, TUESDAY, etc.)
+- **startTime**: String (HH:mm format)
+- **endTime**: String (HH:mm format)
+
+## Scheduling Algorithm
+
+The scheduling algorithm uses an intelligent greedy approach with productivity-aware staffing:
+
+### Algorithm Strategy
+
+1. **Productivity-Based Sorting**: Employees are sorted by productivity (sales per hour) in descending order to prioritize high-performing staff
+
+2. **Time Slot Generation**: Creates shifts throughout operating hours (default 4-hour blocks with potential overlap)
+
+3. **Dynamic Staffing Calculation**:
+   - Calculates expected sales for each time slot based on sales forecast
+   - Determines staffing needs using **actual employee productivity** rather than fixed estimates
+   - Formula: `employees_needed = ceil(expected_sales / (avg_productivity * shift_duration))`
+   - Considers only employees who are available for that specific time slot
+   - Ensures realistic staffing levels based on team capabilities
+
+4. **Smart Employee Assignment**:
+   - Assigns employees based on productivity-to-cost efficiency
+   - Tracks remaining sales target and stops assigning when target is met
+   - Validates availability, contract hours, and budget constraints for each assignment
+
+5. **Overtime Management**: Automatically applies overtime rates when employee exceeds their weekly overtime threshold
+
+6. **Budget Enforcement**: Continuously tracks remaining budget and prevents over-allocation
+
+### Key Improvements
+
+**Dynamic vs. Fixed Staffing**:
+- ❌ Old approach: Fixed heuristic (e.g., "1 employee per $500 in sales")
+- ✅ New approach: Calculates staffing based on actual team productivity
+- **Benefits**:
+  - More accurate staffing for teams with varying skill levels
+  - Prevents understaffing when team has lower productivity
+  - Prevents overstaffing when team has higher productivity
+  - Adapts to available employee pool for each time slot
+
+### Optimization Goals
+- **Maximize**: Estimated sales through productivity-based assignments
+- **Constraints**:
+  - Labor cost budget
+  - Employee availability
+  - Contract hours (daily and weekly limits)
+  - Break requirements (validated but not enforced in schedule generation)
+
+### Constraint Violations
+The system validates and reports:
+- Budget exceeded
+- Availability conflicts
+- Contract hours exceeded (daily/weekly)
+- Shift overlaps for the same employee
+- Break requirements (informational)
+
+## Example Usage
+
+### Complete Workflow
+
+1. **Create employees**:
+```bash
+curl -X POST http://localhost:8080/api/employees \
+  -H "Content-Type: application/json" \
+  -d @employee1.json
+```
+
+2. **List all employees** to get their IDs:
+```bash
+curl http://localhost:8080/api/employees
+```
+
+3. **Generate schedule** using employee IDs:
+```bash
+curl -X POST http://localhost:8080/api/scheduling/generate \
+  -H "Content-Type: application/json" \
+  -d @schedule-request.json
+```
+
+## Architecture
+
+```
+src/main/kotlin/
+├── Application.kt              # Main application entry point
+├── controller/
+│   ├── EmployeeController.kt   # Employee API endpoints
+│   └── SchedulingController.kt # Scheduling API endpoints
+├── dto/
+│   ├── EmployeeDto.kt          # Employee DTOs and converters
+│   └── SchedulingDto.kt        # Scheduling DTOs and converters
+├── model/
+│   ├── Employee.kt             # Employee domain model
+│   ├── Contract.kt             # Contract domain model
+│   ├── Shift.kt                # Shift domain model
+│   ├── Availability.kt         # Availability domain model
+│   ├── SchedulingInput.kt      # Scheduling input models
+│   └── SchedulingOutput.kt     # Scheduling output models
+├── repository/
+│   └── EmployeeRepository.kt   # In-memory data storage
+└── service/
+    ├── ShiftScheduler.kt       # Scheduling algorithm
+    └── ConstraintValidator.kt  # Constraint validation logic
+```
+
+## Future Enhancements
+
+- [ ] Database integration (PostgreSQL/MongoDB)
+- [ ] Advanced optimization algorithms (genetic algorithms, simulated annealing)
+- [ ] Shift swap functionality
+- [ ] Employee preferences and priorities
+- [ ] Historical data analysis
+- [ ] Real-time schedule updates
+- [ ] Notification system
+- [ ] Multiple location support
+- [ ] Role-based access control
+- [ ] Shift templates
+- [ ] Time-off requests management
+
+## License
+
+MIT License
