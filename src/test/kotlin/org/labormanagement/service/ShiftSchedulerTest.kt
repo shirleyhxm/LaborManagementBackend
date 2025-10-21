@@ -698,4 +698,121 @@ class ShiftSchedulerTest {
             "MINIMIZE_LABOR_COST should use cheap employee or have lower cost"
         )
     }
+
+    @Test
+    fun `generateSchedule with MAXIMIZE_FAIRNESS should balance hours across employees`() {
+        // Create three employees with identical stats except names
+        val employee1 = createEmployee(
+            firstName = "Alice",
+            productivity = 150.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+
+        val employee2 = createEmployee(
+            firstName = "Bob",
+            productivity = 150.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+
+        val employee3 = createEmployee(
+            firstName = "Carol",
+            productivity = 150.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+
+        val input = SchedulingInput(
+            employees = listOf(employee1, employee2, employee3),
+            laborCostBudget = 5000.0,
+            salesForecast = mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(10, 0) to 300.0,
+                    LocalTime.of(11, 0) to 300.0,
+                    LocalTime.of(12, 0) to 300.0,
+                    LocalTime.of(13, 0) to 300.0,
+                    LocalTime.of(14, 0) to 300.0,
+                    LocalTime.of(15, 0) to 300.0
+                ),
+                DayOfWeek.TUESDAY to mapOf(
+                    LocalTime.of(10, 0) to 300.0,
+                    LocalTime.of(11, 0) to 300.0,
+                    LocalTime.of(12, 0) to 300.0,
+                    LocalTime.of(13, 0) to 300.0,
+                    LocalTime.of(14, 0) to 300.0,
+                    LocalTime.of(15, 0) to 300.0
+                ),
+                DayOfWeek.WEDNESDAY to mapOf(
+                    LocalTime.of(10, 0) to 300.0,
+                    LocalTime.of(11, 0) to 300.0,
+                    LocalTime.of(12, 0) to 300.0,
+                    LocalTime.of(13, 0) to 300.0,
+                    LocalTime.of(14, 0) to 300.0,
+                    LocalTime.of(15, 0) to 300.0
+                )
+            ),
+            schedulingPeriod = SchedulingPeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS
+        )
+
+        val output = scheduler.generateSchedule(input)
+        println(output)
+
+        // Calculate hours for each employee
+        val employee1Hours = output.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
+        val employee2Hours = output.shifts.filter { it.employeeId == employee2.id }.sumOf { it.durationHours }
+        val employee3Hours = output.shifts.filter { it.employeeId == employee3.id }.sumOf { it.durationHours }
+
+        // All employees should have at least some hours
+        assertTrue(employee1Hours > 0, "Employee 1 should be scheduled")
+        assertTrue(employee2Hours > 0, "Employee 2 should be scheduled")
+        assertTrue(employee3Hours > 0, "Employee 3 should be scheduled")
+
+        // Calculate standard deviation of hours to measure fairness
+        val hours = listOf(employee1Hours, employee2Hours, employee3Hours)
+        val avgHours = hours.average()
+        val variance = hours.map { (it - avgHours) * (it - avgHours) }.average()
+        val stdDev = kotlin.math.sqrt(variance)
+
+        // Hours should be relatively balanced (standard deviation should be small)
+        // Allow some variance due to rounding and minimum shift constraints
+        assertTrue(stdDev < 3.0, "Hours should be balanced across employees (stdDev: $stdDev, hours: $hours)")
+
+        // Compare with MAXIMIZE_SALES to show different behavior
+        val maxSalesOutput = scheduler.generateSchedule(input.copy(optimizationObjective = OptimizationObjective.MAXIMIZE_SALES))
+        val maxSalesEmployee1Hours = maxSalesOutput.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
+        val maxSalesEmployee2Hours = maxSalesOutput.shifts.filter { it.employeeId == employee2.id }.sumOf { it.durationHours }
+        val maxSalesEmployee3Hours = maxSalesOutput.shifts.filter { it.employeeId == employee3.id }.sumOf { it.durationHours }
+        val maxSalesHours = listOf(maxSalesEmployee1Hours, maxSalesEmployee2Hours, maxSalesEmployee3Hours)
+        val maxSalesAvgHours = maxSalesHours.average()
+        val maxSalesVariance = maxSalesHours.map { (it - maxSalesAvgHours) * (it - maxSalesAvgHours) }.average()
+        val maxSalesStdDev = kotlin.math.sqrt(maxSalesVariance)
+
+        // MAXIMIZE_FAIRNESS should have better (lower) standard deviation than other objectives
+        // when employees have identical stats
+        assertTrue(
+            stdDev <= maxSalesStdDev + 0.5, // Allow small margin for rounding
+            "MAXIMIZE_FAIRNESS should have equal or better hour distribution (fairness stdDev: $stdDev, maxSales stdDev: $maxSalesStdDev)"
+        )
+    }
 }

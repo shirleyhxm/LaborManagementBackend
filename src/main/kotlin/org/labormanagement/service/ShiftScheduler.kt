@@ -553,6 +553,13 @@ class ShiftScheduler(
                     employee.productivity / payRate
                 }
             }
+
+            OptimizationObjective.MAXIMIZE_FAIRNESS -> {
+                // Prioritize employees with fewest scheduled hours to balance workload
+                employees.sortedBy { employee ->
+                    currentWeeklyHours.getOrDefault(employee.id, 0.0)
+                }
+            }
         }
     }
 

@@ -21,5 +21,11 @@ enum class OptimizationObjective {
      * Balance cost and productivity by optimizing for best productivity-to-cost ratio.
      * Best for: General use, balanced approach
      */
-    BALANCED
+    BALANCED,
+
+    /**
+     * Maximize fairness by balancing scheduled hours across employees.
+     * Best for: Ensuring equitable distribution of work hours
+     */
+    MAXIMIZE_FAIRNESS
 }

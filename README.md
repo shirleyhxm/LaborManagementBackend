@@ -217,31 +217,65 @@ GET /api/scheduling/sample-request
 
 ## Scheduling Algorithm
 
-The scheduling algorithm uses an intelligent greedy approach with productivity-aware staffing:
+The scheduling algorithm uses an intelligent hour-by-hour approach with configurable optimization objectives:
 
 ### Algorithm Strategy
 
-1. **Productivity-Based Sorting**: Employees are sorted by productivity (sales per hour) in descending order to prioritize high-performing staff
+1. **Hour-by-Hour Evaluation**: The scheduler evaluates demand and assigns employees hour-by-hour, treating each hour as an independent scheduling decision
 
-2. **Time Slot Generation**: Creates shifts throughout operating hours (default 4-hour blocks with potential overlap)
+2. **Optimization-Based Employee Sorting**: Employees are sorted according to the selected optimization objective (see below)
 
 3. **Dynamic Staffing Calculation**:
-   - Calculates expected sales for each time slot based on sales forecast
+   - Calculates expected sales for each hour based on hour-specific sales forecasts
    - Determines staffing needs using **actual employee productivity** rather than fixed estimates
-   - Formula: `employees_needed = ceil(expected_sales / (avg_productivity * shift_duration))`
-   - Considers only employees who are available for that specific time slot
+   - Formula: `employees_needed = ceil(expected_sales / (avg_productivity * hour_duration))`
+   - Considers only employees who are available for that specific hour
    - Ensures realistic staffing levels based on team capabilities
 
-4. **Smart Employee Assignment**:
-   - Assigns employees based on productivity-to-cost efficiency
-   - Tracks remaining sales target and stops assigning when target is met
-   - Validates availability, contract hours, and budget constraints for each assignment
+4. **Consecutive Shift Preference**: When all employee stats are equal, the scheduler prioritizes employees who worked the previous consecutive hour, naturally creating longer continuous shifts
 
-5. **Overtime Management**: Automatically applies overtime rates when employee exceeds their weekly overtime threshold
+5. **Shift Merging**: After hour-by-hour assignment, consecutive shifts with identical properties (same employee, pay rate, overtime status) are automatically merged into longer shifts
 
-6. **Budget Enforcement**: Continuously tracks remaining budget and prevents over-allocation
+6. **Overtime Management**: Automatically applies overtime rates when employee exceeds their weekly overtime threshold
 
-### Key Improvements
+7. **Budget Enforcement**: Continuously tracks remaining budget and prevents over-allocation
+
+### Optimization Objectives
+
+The scheduler supports four optimization objectives that can be configured via the `optimizationObjective` parameter:
+
+#### 1. MAXIMIZE_SALES (Best for high-demand periods)
+- **Strategy**: Prioritizes employees with highest productivity first
+- **Use case**: Maximizing revenue during peak sales periods
+- **Employee sorting**: Descending by productivity (sales per hour)
+
+#### 2. MINIMIZE_LABOR_COST (Best for tight budgets)
+- **Strategy**: Prioritizes employees with lowest pay rates first
+- **Use case**: Minimizing costs during low-margin periods
+- **Employee sorting**: Ascending by current pay rate (considering overtime status)
+
+#### 3. BALANCED (Best for general use)
+- **Strategy**: Optimizes for best productivity-to-cost ratio
+- **Use case**: Balancing cost efficiency with sales performance
+- **Employee sorting**: Descending by productivity/payRate ratio
+
+#### 4. MAXIMIZE_FAIRNESS (Best for equitable distribution)
+- **Strategy**: Balances scheduled hours across all employees
+- **Use case**: Ensuring fair work distribution and equal opportunity
+- **Employee sorting**: Ascending by current weekly hours (employees with fewer hours get priority)
+- **Key feature**: Dynamically re-prioritizes as hours accumulate throughout the week
+
+### Key Implementation Details
+
+**Hour-by-Hour Scheduling**:
+- Each hour's sales forecast is treated independently
+- Uncovered demand in one hour does not carry over to the next hour (lost sales model)
+- Minimum shift duration defaults to 1 hour, but shifts can extend longer based on consecutive demand
+
+**Shift Continuity**:
+- When multiple employees have identical stats, those who worked the previous hour are prioritized
+- This creates natural shift continuity without explicit multi-hour shift logic
+- Results in more realistic work schedules with fewer fragmented shifts
 
 **Dynamic vs. Fixed Staffing**:
 - ❌ Old approach: Fixed heuristic (e.g., "1 employee per $500 in sales")
@@ -250,15 +284,13 @@ The scheduling algorithm uses an intelligent greedy approach with productivity-a
   - More accurate staffing for teams with varying skill levels
   - Prevents understaffing when team has lower productivity
   - Prevents overstaffing when team has higher productivity
-  - Adapts to available employee pool for each time slot
+  - Adapts to available employee pool for each hour
 
-### Optimization Goals
-- **Maximize**: Estimated sales through productivity-based assignments
-- **Constraints**:
-  - Labor cost budget
-  - Employee availability
-  - Contract hours (daily and weekly limits)
-  - Break requirements (validated but not enforced in schedule generation)
+### Constraints
+- Labor cost budget
+- Employee availability (hour-specific)
+- Contract hours (daily and weekly limits)
+- Break requirements (validated but not enforced in schedule generation)
 
 ### Constraint Violations
 The system validates and reports:
