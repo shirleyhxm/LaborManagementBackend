@@ -7,6 +7,7 @@ import org.labormanagement.model.SchedulingInput
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.SchedulingOutput
 import org.labormanagement.model.Shift
+import org.labormanagement.model.StaffingRequirement
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -40,18 +41,136 @@ class ShiftScheduler(
             staffingRequirements.addAll(dayRequirements)
         }
 
+        // Merge consecutive intervals with identical variables
+        val mergedShifts = mergeConsecutiveShifts(shifts)
+        val mergedRequirements = mergeConsecutiveStaffingRequirements(staffingRequirements)
+
         // Validate constraints
-        val violations = validator.validate(shifts, input.employees, input.laborCostBudget, staffingRequirements)
+        val violations = validator.validate(mergedShifts, input.employees, input.laborCostBudget, mergedRequirements)
 
         // Calculate metrics
-        val metrics = calculateMetrics(shifts, input.employees, input.salesForecast)
+        val metrics = calculateMetrics(mergedShifts, input.employees, input.salesForecast)
 
         return SchedulingOutput(
-            shifts = shifts,
+            shifts = mergedShifts,
             metrics = metrics,
             violations = violations,
-            staffingRequirements = staffingRequirements
+            staffingRequirements = mergedRequirements
         )
+    }
+
+    /**
+     * Merges consecutive shifts with identical properties (same employee, day, pay rate, overtime status).
+     * This consolidates hour-by-hour shifts into longer continuous shifts.
+     */
+    private fun mergeConsecutiveShifts(shifts: List<Shift>): List<Shift> {
+        if (shifts.isEmpty()) return emptyList()
+
+        // Group shifts by employee and day
+        val groupedShifts = shifts.groupBy { shift ->
+            Pair(shift.employeeId, shift.dayOfWeek)
+        }
+
+        val mergedShifts = mutableListOf<Shift>()
+
+        groupedShifts.forEach { (_, shiftsForEmployeeDay) ->
+            // Sort by start time
+            val sortedShifts = shiftsForEmployeeDay.sortedBy { it.startTime }
+
+            var currentMergedShift: Shift? = null
+
+            for (shift in sortedShifts) {
+                if (currentMergedShift == null) {
+                    // Start a new merged shift
+                    currentMergedShift = shift
+                } else {
+                    // Check if this shift can be merged with the current merged shift
+                    val canMerge = currentMergedShift.endTime == shift.startTime &&
+                                   currentMergedShift.payRate == shift.payRate &&
+                                   currentMergedShift.isOvertime == shift.isOvertime
+
+                    if (canMerge) {
+                        // Merge: extend the end time of the current merged shift
+                        currentMergedShift = Shift(
+                            employeeId = currentMergedShift.employeeId,
+                            dayOfWeek = currentMergedShift.dayOfWeek,
+                            startTime = currentMergedShift.startTime,
+                            endTime = shift.endTime,
+                            payRate = currentMergedShift.payRate,
+                            isOvertime = currentMergedShift.isOvertime
+                        )
+                    } else {
+                        // Cannot merge, save the current merged shift and start a new one
+                        mergedShifts.add(currentMergedShift)
+                        currentMergedShift = shift
+                    }
+                }
+            }
+
+            // Add the last merged shift
+            if (currentMergedShift != null) {
+                mergedShifts.add(currentMergedShift)
+            }
+        }
+
+        return mergedShifts
+    }
+
+    /**
+     * Merges consecutive staffing requirements with identical properties.
+     * This consolidates hour-by-hour requirements into longer time blocks.
+     */
+    private fun mergeConsecutiveStaffingRequirements(
+        requirements: List<StaffingRequirement>
+    ): List<StaffingRequirement> {
+        if (requirements.isEmpty()) return emptyList()
+
+        // Group requirements by day
+        val groupedRequirements = requirements.groupBy { it.dayOfWeek }
+
+        val mergedRequirements = mutableListOf<StaffingRequirement>()
+
+        groupedRequirements.forEach { (_, requirementsForDay) ->
+            // Sort by start time
+            val sortedRequirements = requirementsForDay.sortedBy { it.startTime }
+
+            var currentMergedRequirement: StaffingRequirement? = null
+
+            for (requirement in sortedRequirements) {
+                if (currentMergedRequirement == null) {
+                    // Start a new merged requirement
+                    currentMergedRequirement = requirement
+                } else {
+                    // Check if this requirement can be merged with the current merged requirement
+                    val canMerge = currentMergedRequirement.endTime == requirement.startTime &&
+                                   currentMergedRequirement.employeesNeeded == requirement.employeesNeeded &&
+                                   currentMergedRequirement.employeesAssigned == requirement.employeesAssigned
+
+                    if (canMerge) {
+                        // Merge: extend the end time and sum the expected sales
+                        currentMergedRequirement = StaffingRequirement(
+                            dayOfWeek = currentMergedRequirement.dayOfWeek,
+                            startTime = currentMergedRequirement.startTime,
+                            endTime = requirement.endTime,
+                            employeesNeeded = currentMergedRequirement.employeesNeeded,
+                            employeesAssigned = currentMergedRequirement.employeesAssigned,
+                            expectedSales = currentMergedRequirement.expectedSales + requirement.expectedSales
+                        )
+                    } else {
+                        // Cannot merge, save the current merged requirement and start a new one
+                        mergedRequirements.add(currentMergedRequirement)
+                        currentMergedRequirement = requirement
+                    }
+                }
+            }
+
+            // Add the last merged requirement
+            if (currentMergedRequirement != null) {
+                mergedRequirements.add(currentMergedRequirement)
+            }
+        }
+
+        return mergedRequirements
     }
 
     private fun generateShiftsForDay(
@@ -61,7 +180,7 @@ class ShiftScheduler(
         salesForecast: Map<LocalTime, Double>,
         remainingBudget: Double,
         weeklyHours: MutableMap<UUID, Double>, // Shared across all days
-        shiftDurationHours: Double, // Shift duration in hours
+        minShiftDurationHours: Double, // Minimum shift duration in hours
         optimizationObjective: OptimizationObjective // Optimization strategy
     ): Pair<List<Shift>, List<org.labormanagement.model.StaffingRequirement>> {
         val shifts = mutableListOf<Shift>()
@@ -72,22 +191,155 @@ class ShiftScheduler(
 
         var currentBudget = remainingBudget
 
-        // Pre-calculate average productivity for the day (optimization)
+        // Pre-calculate average productivity for the day
         val avgProductivity = if (sortedEmployees.isNotEmpty()) {
             sortedEmployees.map { it.productivity }.average()
         } else {
             0.0
         }
 
-        // For each time slot, assign the most productive available employees
-        val timeSlots = generateTimeSlots(operatingHours.openTime, operatingHours.closeTime, shiftDurationHours)
+        // Generate hourly evaluation intervals for hour-by-hour analysis
+        val evaluationSlots = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, minShiftDurationHours)
 
-        timeSlots.forEach { (startTime, endTime) ->
-            // Calculate expected sales for this time slot
+        // Track sales coverage hour-by-hour: for each hour interval, track remaining uncovered sales
+        val hourlyCoverage = mutableMapOf<Pair<LocalTime, LocalTime>, Double>()
+        evaluationSlots.forEach { interval ->
+            val expectedSales = calculateAverageSales(salesForecast, interval.first, interval.second)
+            if (expectedSales > 0) {
+                hourlyCoverage[interval] = expectedSales  // Initially all sales are uncovered
+            }
+        }
+
+        // Schedule hour-by-hour: go through each hour with demand and assign employees
+        for (interval in evaluationSlots) {
+            val uncoveredSales = hourlyCoverage[interval] ?: 0.0
+            if (uncoveredSales <= 0) continue  // Skip hours with no uncovered demand
+
+            // Sort employees for this specific hour, prioritizing those who worked the previous consecutive hour
+            val previousInterval = evaluationSlots.findPreviousInterval(interval)
+            val employeesForThisHour = sortEmployeesForInterval(
+                sortedEmployees,
+                interval,
+                previousInterval,
+                shifts,
+                day,
+                weeklyHours
+            )
+
+            // Try to assign employees to cover this specific hour
+            for (employee in employeesForThisHour) {
+                // Check if this hour still has uncovered demand
+                val currentUncovered = hourlyCoverage[interval] ?: 0.0
+                if (currentUncovered <= 0) break  // Hour is covered, move to next hour
+
+                // Check if employee is available during this hour
+                val availabilityForHour = employee.availability.find { avail ->
+                    avail.dayOfWeek == day &&
+                    avail.startTime <= interval.first &&
+                    avail.endTime >= interval.second
+                }
+                if (availabilityForHour == null) continue
+
+                // Check contract limits
+                val currentWeeklyHours = weeklyHours.getOrDefault(employee.id, 0.0)
+                val remainingContractHours = employee.contract.maxHoursPerWeek - currentWeeklyHours
+                if (remainingContractHours < minShiftDurationHours) continue
+
+                // Check if we already have a shift for this employee that covers this hour
+                val existingShift = shifts.find { shift ->
+                    shift.employeeId == employee.id &&
+                    shift.dayOfWeek == day &&
+                    shift.startTime <= interval.first &&
+                    shift.endTime >= interval.second
+                }
+
+                if (existingShift != null) {
+                    // Employee already has a shift covering this hour, count their contribution
+                    val intervalHours = ChronoUnit.MINUTES.between(interval.first, interval.second) / 60.0
+                    val contribution = employee.productivity * intervalHours
+                    hourlyCoverage[interval] = maxOf(0.0, currentUncovered - contribution)
+                    continue
+                }
+
+                // Create a shift for this specific hour interval
+                val shiftStart = interval.first
+                val shiftEnd = interval.second
+                val shiftHours = ChronoUnit.MINUTES.between(shiftStart, shiftEnd) / 60.0
+
+                // Check minimum shift duration
+                if (shiftHours < minShiftDurationHours) continue
+
+                // Check contract daily and weekly limits
+                val maxShiftHours = minOf(
+                    shiftHours,
+                    employee.contract.maxHoursPerDay,
+                    remainingContractHours
+                )
+
+                if (maxShiftHours < minShiftDurationHours) continue
+
+                val finalShiftEnd = shiftStart.plusMinutes((maxShiftHours * 60).toLong())
+                val finalShiftHours = ChronoUnit.MINUTES.between(shiftStart, finalShiftEnd) / 60.0
+
+                // Determine pay rate
+                // A shift is considered overtime if the employee has already met or exceeded their overtime threshold
+                // before this shift begins. This is a simplified model - it doesn't split individual shifts into
+                // normal and overtime portions.
+                val isOvertime = currentWeeklyHours >= employee.contract.overtimeThreshold
+                val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
+
+                // Check budget - allow partial shifts if budget is limited
+                val maxAffordableHours = if (payRate > 0) currentBudget / payRate else Double.MAX_VALUE
+
+                if (maxAffordableHours < minShiftDurationHours) continue  // Can't afford minimum shift
+
+                val budgetConstrainedHours = minOf(finalShiftHours, maxAffordableHours)
+                val budgetConstrainedEnd = shiftStart.plusMinutes((budgetConstrainedHours * 60).toLong())
+                val actualShiftHours = ChronoUnit.MINUTES.between(shiftStart, budgetConstrainedEnd) / 60.0
+
+                if (actualShiftHours < minShiftDurationHours) continue
+
+                val shiftCost = actualShiftHours * payRate
+                if (shiftCost > currentBudget) continue
+
+                // Create shift
+                val shift = Shift(
+                    employeeId = employee.id,
+                    dayOfWeek = day,
+                    startTime = shiftStart,
+                    endTime = budgetConstrainedEnd,
+                    payRate = payRate,
+                    isOvertime = isOvertime
+                )
+
+                shifts.add(shift)
+                weeklyHours[employee.id] = currentWeeklyHours + actualShiftHours
+                currentBudget -= shiftCost
+
+                // Update coverage for all hours this shift covers
+                evaluationSlots.forEach { coveredInterval ->
+                    val shiftCovers = shiftStart <= coveredInterval.first && budgetConstrainedEnd >= coveredInterval.second
+                    if (shiftCovers) {
+                        val intervalHours = ChronoUnit.MINUTES.between(coveredInterval.first, coveredInterval.second) / 60.0
+                        val contribution = employee.productivity * intervalHours
+                        val current = hourlyCoverage[coveredInterval] ?: 0.0
+                        hourlyCoverage[coveredInterval] = maxOf(0.0, current - contribution)
+                    }
+                }
+            }
+        }
+
+        // Generate staffing requirements based on evaluation slots
+        evaluationSlots.forEach { (startTime, endTime) ->
             val expectedSales = calculateAverageSales(salesForecast, startTime, endTime)
-            val shiftHours = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
+            val slotHours = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
 
-            // Filter available employees for this specific time slot
+            // Count employees covering this time slot
+            val assignedCount = shifts.count { shift ->
+                shift.startTime <= startTime && shift.endTime >= endTime
+            }
+
+            // Determine how many employees are needed
             val availableEmployees = sortedEmployees.filter { employee ->
                 employee.availability.any { avail ->
                     avail.dayOfWeek == day &&
@@ -96,7 +348,6 @@ class ShiftScheduler(
                 }
             }
 
-            // Determine staffing needs using pre-calculated productivity or slot-specific average
             val slotAvgProductivity = if (availableEmployees.isNotEmpty()) {
                 availableEmployees.map { it.productivity }.average()
             } else {
@@ -106,70 +357,17 @@ class ShiftScheduler(
             val employeesNeeded = determineEmployeesNeeded(
                 expectedSales = expectedSales,
                 avgProductivity = slotAvgProductivity,
-                shiftDurationHours = shiftHours,
+                shiftDurationHours = slotHours,
                 availableCount = availableEmployees.size
             )
 
-            // Assign employees to this shift based on productivity-to-cost ratio
-            var assigned = 0
-            var remainingSalesTarget = expectedSales
-
-            for (employee in sortedEmployees) {
-                if (assigned >= employeesNeeded && remainingSalesTarget <= 0) break
-
-                // Check if employee is available
-                val isAvailable = employee.availability.any { avail ->
-                    avail.dayOfWeek == day &&
-                    avail.startTime <= startTime &&
-                    avail.endTime >= endTime
-                }
-
-                if (!isAvailable) continue
-
-                // Calculate weekly hours
-                val currentWeeklyHours = weeklyHours.getOrDefault(employee.id, 0.0)
-                val totalWeeklyHours = currentWeeklyHours + shiftHours
-
-                // Check contract limits
-                if (totalWeeklyHours > employee.contract.maxHoursPerWeek) continue
-                if (shiftHours > employee.contract.maxHoursPerDay) continue
-
-                // Determine pay rate (overtime vs normal)
-                val isOvertime = currentWeeklyHours >= employee.contract.overtimeThreshold
-                val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
-                val shiftCost = shiftHours * payRate
-
-                // Check budget
-                if (shiftCost > currentBudget) continue
-
-                // Calculate expected contribution
-                val expectedContribution = employee.productivity * shiftHours
-
-                // Create shift
-                val shift = Shift(
-                    employeeId = employee.id,
-                    dayOfWeek = day,
-                    startTime = startTime,
-                    endTime = endTime,
-                    payRate = payRate,
-                    isOvertime = isOvertime
-                )
-
-                shifts.add(shift)
-                weeklyHours[employee.id] = totalWeeklyHours
-                currentBudget -= shiftCost
-                remainingSalesTarget -= expectedContribution
-                assigned++
-            }
-
-            // Track staffing requirement for this time slot
             staffingRequirements.add(
-                org.labormanagement.model.StaffingRequirement(
+                StaffingRequirement(
                     dayOfWeek = day,
                     startTime = startTime,
                     endTime = endTime,
                     employeesNeeded = employeesNeeded,
-                    employeesAssigned = assigned,
+                    employeesAssigned = assignedCount,
                     expectedSales = expectedSales
                 )
             )
@@ -178,17 +376,20 @@ class ShiftScheduler(
         return Pair(shifts, staffingRequirements)
     }
 
-    private fun generateTimeSlots(
+    /**
+     * Generates hourly time intervals for evaluating staffing requirements hour-by-hour.
+     * This ensures we schedule employees for the specific hours when they're needed.
+     * If there's less than an hour remaining at the end, creates a partial interval.
+     */
+    private fun generateEvaluationIntervals(
         openTime: LocalTime,
         closeTime: LocalTime,
-        shiftDurationHours: Double
+        intervalDurationHours: Double
     ): List<Pair<LocalTime, LocalTime>> {
-        val slots = mutableListOf<Pair<LocalTime, LocalTime>>()
+        val intervals = mutableListOf<Pair<LocalTime, LocalTime>>()
 
-        // Validate shift duration
-        if (shiftDurationHours <= 0) {
-            return emptyList()
-        }
+        // Use 1-hour intervals for hour-by-hour evaluation
+        val hourlyIntervalMinutes = 60L
 
         // Handle overnight shifts (e.g., 22:00 to 02:00)
         val isOvernightShift = closeTime <= openTime
@@ -207,31 +408,28 @@ class ShiftScheduler(
             return emptyList()
         }
 
-        val shiftDurationMinutes = (shiftDurationHours * 60).toLong()
         var elapsedMinutes = 0L
 
         // Loop until we've covered all operating hours
-        // Condition: elapsedMinutes must be strictly less than totalMinutes
         while (elapsedMinutes < totalMinutes) {
             val startTime = openTime.plusMinutes(elapsedMinutes)
 
             // Calculate remaining minutes in this operating period
             val remainingMinutes = totalMinutes - elapsedMinutes
 
-            // Determine the actual shift duration for this slot
-            val actualShiftDurationMinutes = minOf(shiftDurationMinutes, remainingMinutes)
+            // Use hourly intervals, but if less than an hour remains, use the remaining duration
+            val actualIntervalDurationMinutes = minOf(hourlyIntervalMinutes, remainingMinutes)
 
-            val endTime = startTime.plusMinutes(actualShiftDurationMinutes)
+            val endTime = startTime.plusMinutes(actualIntervalDurationMinutes)
 
-            // Add the slot
-            slots.add(Pair(startTime, endTime))
+            // Add the interval
+            intervals.add(Pair(startTime, endTime))
 
-            // Move to next time slot
-            // Always advance by at least the shift duration to ensure progress
-            elapsedMinutes += actualShiftDurationMinutes
+            // Move to next interval
+            elapsedMinutes += actualIntervalDurationMinutes
         }
 
-        return slots
+        return intervals
     }
 
     private fun calculateAverageSales(
@@ -246,7 +444,7 @@ class ShiftScheduler(
         }
 
         return if (relevantForecasts.isEmpty()) {
-            salesForecast.values.average()
+            0.0  // No forecast for this hour means no expected sales
         } else {
             relevantForecasts.values.average()
         }
@@ -268,6 +466,55 @@ class ShiftScheduler(
 
         // Cap at available employees count and ensure at least 1
         return maxOf(1, minOf(employeesNeeded, availableCount))
+    }
+
+    /**
+     * Finds the previous consecutive interval in the list.
+     * Returns null if the given interval is the first one.
+     */
+    private fun List<Pair<LocalTime, LocalTime>>.findPreviousInterval(
+        currentInterval: Pair<LocalTime, LocalTime>
+    ): Pair<LocalTime, LocalTime>? {
+        val currentIndex = this.indexOf(currentInterval)
+        return if (currentIndex > 0) this[currentIndex - 1] else null
+    }
+
+    /**
+     * Sorts employees for a specific hour interval, prioritizing employees who worked
+     * the previous consecutive hour when all other stats (pay rate and productivity) are equal.
+     * This naturally creates longer continuous shifts without explicit extension logic.
+     */
+    private fun sortEmployeesForInterval(
+        baseOrderedEmployees: List<Employee>,
+        currentInterval: Pair<LocalTime, LocalTime>,
+        previousInterval: Pair<LocalTime, LocalTime>?,
+        existingShifts: List<Shift>,
+        day: DayOfWeek,
+        weeklyHours: Map<UUID, Double>
+    ): List<Employee> {
+        // If there's no previous interval, return the base ordering
+        if (previousInterval == null) {
+            return baseOrderedEmployees
+        }
+
+        // Find employees who worked the previous consecutive hour
+        val employeesWhoWorkedPreviousHour = existingShifts
+            .filter { shift ->
+                shift.dayOfWeek == day &&
+                shift.startTime <= previousInterval.first &&
+                shift.endTime >= previousInterval.second
+            }
+            .map { it.employeeId }
+            .toSet()
+
+        // Sort employees: prioritize those who worked the previous hour when stats are equal
+        return baseOrderedEmployees.sortedWith(compareBy(
+            // Primary sort: base optimization objective (already sorted)
+            { baseOrderedEmployees.indexOf(it) },
+            // Secondary sort: deprioritize those who worked previous hour (0 = worked, 1 = didn't work)
+            // Using negative to invert (we want workers first)
+            { employee -> if (employee.id in employeesWhoWorkedPreviousHour) 0 else 1 }
+        ))
     }
 
     private fun sortEmployeesByObjective(

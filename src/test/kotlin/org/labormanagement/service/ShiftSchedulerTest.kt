@@ -53,7 +53,7 @@ class ShiftSchedulerTest {
 
         val input = SchedulingInput(
             employees = listOf(employee),
-            laborCostBudget = 500.0,
+            laborCostBudget = 150.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 1000.0,
@@ -249,11 +249,62 @@ class ShiftSchedulerTest {
             employees = listOf(employee),
             laborCostBudget = 10000.0,
             salesForecast = mapOf(
-                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
-                DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
-                DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
-                DayOfWeek.THURSDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
-                DayOfWeek.FRIDAY to mapOf(LocalTime.of(12, 0) to 2000.0)
+                // Each day has sales across 9 hours (8am-5pm), requiring ~9-hour shifts per day
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(8, 0) to 200.0,
+                    LocalTime.of(9, 0) to 200.0,
+                    LocalTime.of(10, 0) to 200.0,
+                    LocalTime.of(11, 0) to 200.0,
+                    LocalTime.of(12, 0) to 200.0,
+                    LocalTime.of(13, 0) to 200.0,
+                    LocalTime.of(14, 0) to 200.0,
+                    LocalTime.of(15, 0) to 200.0,
+                    LocalTime.of(16, 0) to 200.0
+                ),
+                DayOfWeek.TUESDAY to mapOf(
+                    LocalTime.of(8, 0) to 200.0,
+                    LocalTime.of(9, 0) to 200.0,
+                    LocalTime.of(10, 0) to 200.0,
+                    LocalTime.of(11, 0) to 200.0,
+                    LocalTime.of(12, 0) to 200.0,
+                    LocalTime.of(13, 0) to 200.0,
+                    LocalTime.of(14, 0) to 200.0,
+                    LocalTime.of(15, 0) to 200.0,
+                    LocalTime.of(16, 0) to 200.0
+                ),
+                DayOfWeek.WEDNESDAY to mapOf(
+                    LocalTime.of(8, 0) to 200.0,
+                    LocalTime.of(9, 0) to 200.0,
+                    LocalTime.of(10, 0) to 200.0,
+                    LocalTime.of(11, 0) to 200.0,
+                    LocalTime.of(12, 0) to 200.0,
+                    LocalTime.of(13, 0) to 200.0,
+                    LocalTime.of(14, 0) to 200.0,
+                    LocalTime.of(15, 0) to 200.0,
+                    LocalTime.of(16, 0) to 200.0
+                ),
+                DayOfWeek.THURSDAY to mapOf(
+                    LocalTime.of(8, 0) to 200.0,
+                    LocalTime.of(9, 0) to 200.0,
+                    LocalTime.of(10, 0) to 200.0,
+                    LocalTime.of(11, 0) to 200.0,
+                    LocalTime.of(12, 0) to 200.0,
+                    LocalTime.of(13, 0) to 200.0,
+                    LocalTime.of(14, 0) to 200.0,
+                    LocalTime.of(15, 0) to 200.0,
+                    LocalTime.of(16, 0) to 200.0
+                ),
+                DayOfWeek.FRIDAY to mapOf(
+                    LocalTime.of(8, 0) to 200.0,
+                    LocalTime.of(9, 0) to 200.0,
+                    LocalTime.of(10, 0) to 200.0,
+                    LocalTime.of(11, 0) to 200.0,
+                    LocalTime.of(12, 0) to 200.0,
+                    LocalTime.of(13, 0) to 200.0,
+                    LocalTime.of(14, 0) to 200.0,
+                    LocalTime.of(15, 0) to 200.0,
+                    LocalTime.of(16, 0) to 200.0
+                )
             ),
             schedulingPeriod = SchedulingPeriod(
                 daysToSchedule = listOf(
@@ -261,23 +312,22 @@ class ShiftSchedulerTest {
                     DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
                 ),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0))
                 )
             )
         )
 
         val output = scheduler.generateSchedule(input)
 
+        assertTrue(output.shifts.sumOf { it.durationHours } > 40.0)
         val overtimeShifts = output.shifts.filter { it.isOvertime }
-        if (output.shifts.sumOf { it.durationHours } > 40.0) {
-            assertTrue(overtimeShifts.isNotEmpty(), "Should have overtime shifts when exceeding threshold")
-            overtimeShifts.forEach { shift ->
-                assertEquals(30.0, shift.payRate, "Overtime pay rate should be 1.5x normal rate (20 * 1.5 = 30)")
-            }
+        assertTrue(overtimeShifts.isNotEmpty(), "Should have overtime shifts when exceeding threshold")
+        overtimeShifts.forEach { shift ->
+            assertEquals(30.0, shift.payRate, "Overtime pay rate should be 1.5x normal rate (20 * 1.5 = 30)")
         }
     }
 
@@ -439,9 +489,8 @@ class ShiftSchedulerTest {
         // May have understaffing, budget issues, or availability conflicts
         val violationTypes = output.violations.map { it.type }.toSet()
         assertTrue(
-            violationTypes.contains(ViolationType.UNDERSTAFFING) ||
-            violationTypes.contains(ViolationType.BUDGET_EXCEEDED),
-            "Should detect understaffing or budget violations"
+            violationTypes.contains(ViolationType.UNDERSTAFFING),
+            "Should detect understaffing violation"
         )
     }
 
@@ -459,7 +508,7 @@ class ShiftSchedulerTest {
         val productiveEmployee = createEmployee(
             firstName = "Productive",
             productivity = 300.0,
-            payRate = 20.0,
+            payRate = 30.0,
             availability = listOf(
                 Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
@@ -469,7 +518,7 @@ class ShiftSchedulerTest {
             employees = listOf(cheapEmployee, productiveEmployee),
             laborCostBudget = 500.0,
             salesForecast = mapOf(
-                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             ),
             schedulingPeriod = SchedulingPeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
@@ -486,7 +535,7 @@ class ShiftSchedulerTest {
         val productiveHours = output.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
         val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
 
-        assertTrue(productiveHours >= cheapHours, "MAXIMIZE_SALES should prioritize productive employee")
+        assertTrue(productiveHours > cheapHours, "MAXIMIZE_SALES should prioritize productive employee")
         assertTrue(output.metrics.estimatedTotalSales > 0, "Should have positive estimated sales")
     }
 
@@ -512,9 +561,9 @@ class ShiftSchedulerTest {
 
         val input = SchedulingInput(
             employees = listOf(cheapEmployee, expensiveEmployee),
-            laborCostBudget = 1000.0,
+            laborCostBudget = 500.0,
             salesForecast = mapOf(
-                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             ),
             schedulingPeriod = SchedulingPeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
@@ -531,7 +580,7 @@ class ShiftSchedulerTest {
         val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
         val expensiveHours = output.shifts.filter { it.employeeId == expensiveEmployee.id }.sumOf { it.durationHours }
 
-        assertTrue(cheapHours >= expensiveHours, "MINIMIZE_LABOR_COST should prioritize cheaper employee")
+        assertTrue(cheapHours > expensiveHours, "MINIMIZE_LABOR_COST should prioritize cheaper employee")
 
         // Calculate what labor cost would be if we used expensive employee for same hours
         val totalHours = output.shifts.sumOf { it.durationHours }
