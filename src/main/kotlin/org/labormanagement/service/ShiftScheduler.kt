@@ -17,7 +17,8 @@ class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator()
 ) {
 
-    fun generateSchedule(input: SchedulingInput): SchedulingOutput {
+    @Profile
+    fun generateSchedule(input: SchedulingInput): SchedulingOutput = profile {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<org.labormanagement.model.StaffingRequirement>()
 
@@ -25,31 +26,43 @@ class ShiftScheduler(
         val weeklyHours = mutableMapOf<UUID, Double>()
 
         // Generate candidate shifts for each day
-        input.schedulingPeriod.daysToSchedule.forEach { day ->
-            val operatingHours = input.schedulingPeriod.operatingHours[day] ?: return@forEach
-            val (dayShifts, dayRequirements) = generateShiftsForDay(
-                day,
-                operatingHours,
-                input.employees,
-                input.salesForecast[day] ?: emptyMap(),
-                input.laborCostBudget,
-                weeklyHours, // Pass the shared weekly hours tracker
-                input.shiftDurationHours, // Pass the shift duration from input
-                input.optimizationObjective // Pass the optimization objective
-            )
-            shifts.addAll(dayShifts)
-            staffingRequirements.addAll(dayRequirements)
+        profile("generateSchedule.allDays") {
+            input.schedulingPeriod.daysToSchedule.forEach { day ->
+                val operatingHours = input.schedulingPeriod.operatingHours[day] ?: return@forEach
+                val (dayShifts, dayRequirements) = profile("generateSchedule.singleDay") {
+                    generateShiftsForDay(
+                        day,
+                        operatingHours,
+                        input.employees,
+                        input.salesForecast[day] ?: emptyMap(),
+                        input.laborCostBudget,
+                        weeklyHours, // Pass the shared weekly hours tracker
+                        input.shiftDurationHours, // Pass the shift duration from input
+                        input.optimizationObjective // Pass the optimization objective
+                    )
+                }
+                shifts.addAll(dayShifts)
+                staffingRequirements.addAll(dayRequirements)
+            }
         }
 
         // Merge consecutive intervals with identical variables
-        val mergedShifts = mergeConsecutiveShifts(shifts)
-        val mergedRequirements = mergeConsecutiveStaffingRequirements(staffingRequirements)
+        val mergedShifts = profile("generateSchedule.mergeShifts") {
+            mergeConsecutiveShifts(shifts)
+        }
+        val mergedRequirements = profile("generateSchedule.mergeRequirements") {
+            mergeConsecutiveStaffingRequirements(staffingRequirements)
+        }
 
         // Validate constraints
-        val violations = validator.validate(mergedShifts, input.employees, input.laborCostBudget, mergedRequirements)
+        val violations = profile("generateSchedule.validate") {
+            validator.validate(mergedShifts, input.employees, input.laborCostBudget, mergedRequirements)
+        }
 
         // Calculate metrics
-        val metrics = calculateMetrics(mergedShifts, input.employees, input.salesForecast)
+        val metrics = profile("generateSchedule.calculateMetrics") {
+            calculateMetrics(mergedShifts, input.employees, input.salesForecast)
+        }
 
         return SchedulingOutput(
             shifts = mergedShifts,
@@ -187,7 +200,9 @@ class ShiftScheduler(
         val staffingRequirements = mutableListOf<org.labormanagement.model.StaffingRequirement>()
 
         // Sort employees according to the optimization objective
-        val sortedEmployees = sortEmployeesByObjective(employees, optimizationObjective, weeklyHours)
+        val sortedEmployees = profile("generateShiftsForDay.sortEmployees") {
+            sortEmployeesByObjective(employees, optimizationObjective, weeklyHours)
+        }
 
         var currentBudget = remainingBudget
 
@@ -199,19 +214,24 @@ class ShiftScheduler(
         }
 
         // Generate hourly evaluation intervals for hour-by-hour analysis
-        val evaluationSlots = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, minShiftDurationHours)
+        val evaluationSlots = profile("generateShiftsForDay.generateIntervals") {
+            generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, minShiftDurationHours)
+        }
 
         // Track sales coverage hour-by-hour: for each hour interval, track remaining uncovered sales
         val hourlyCoverage = mutableMapOf<Pair<LocalTime, LocalTime>, Double>()
-        evaluationSlots.forEach { interval ->
-            val expectedSales = calculateAverageSales(salesForecast, interval.first, interval.second)
-            if (expectedSales > 0) {
-                hourlyCoverage[interval] = expectedSales  // Initially all sales are uncovered
+        profile("generateShiftsForDay.initCoverage") {
+            evaluationSlots.forEach { interval ->
+                val expectedSales = calculateAverageSales(salesForecast, interval.first, interval.second)
+                if (expectedSales > 0) {
+                    hourlyCoverage[interval] = expectedSales  // Initially all sales are uncovered
+                }
             }
         }
 
         // Schedule hour-by-hour: go through each hour with demand and assign employees
-        for (interval in evaluationSlots) {
+        profile("generateShiftsForDay.hourByHourScheduling") {
+            for (interval in evaluationSlots) {
             val uncoveredSales = hourlyCoverage[interval] ?: 0.0
             if (uncoveredSales <= 0) continue  // Skip hours with no uncovered demand
 
@@ -328,9 +348,11 @@ class ShiftScheduler(
                 }
             }
         }
+        }
 
         // Generate staffing requirements based on evaluation slots
-        evaluationSlots.forEach { (startTime, endTime) ->
+        profile("generateShiftsForDay.generateRequirements") {
+            evaluationSlots.forEach { (startTime, endTime) ->
             val expectedSales = calculateAverageSales(salesForecast, startTime, endTime)
             val slotHours = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
 
@@ -371,6 +393,7 @@ class ShiftScheduler(
                     expectedSales = expectedSales
                 )
             )
+        }
         }
 
         return Pair(shifts, staffingRequirements)
