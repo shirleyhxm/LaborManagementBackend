@@ -8,19 +8,26 @@ import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.SchedulingOutput
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
+import org.labormanagement.repository.SchedulingConfigurationRepository
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 class ShiftScheduler(
-    private val validator: ConstraintValidator = ConstraintValidator()
+    private val validator: ConstraintValidator = ConstraintValidator(),
+    private val configRepository: SchedulingConfigurationRepository = SchedulingConfigurationRepository()
 ) {
 
     @Profile
     fun generateSchedule(input: SchedulingInput): SchedulingOutput = profile {
         val shifts = mutableListOf<Shift>()
-        val staffingRequirements = mutableListOf<org.labormanagement.model.StaffingRequirement>()
+        val staffingRequirements = mutableListOf<StaffingRequirement>()
+
+        // Fetch latest configuration from repository
+        val config = configRepository.getLatest()
+        val minShiftDurationHours = config.minShiftDurationHours
+        val optimizationObjective = config.defaultOptimizationObjective
 
         // Track weekly hours across all days for overtime calculation and contract limits
         val weeklyHours = mutableMapOf<UUID, Double>()
@@ -37,8 +44,8 @@ class ShiftScheduler(
                         input.salesForecast[day] ?: emptyMap(),
                         input.laborCostBudget,
                         weeklyHours, // Pass the shared weekly hours tracker
-                        input.shiftDurationHours, // Pass the shift duration from input
-                        input.optimizationObjective // Pass the optimization objective
+                        minShiftDurationHours, // Use resolved configuration value
+                        optimizationObjective // Use resolved configuration value
                     )
                 }
                 shifts.addAll(dayShifts)
@@ -195,9 +202,9 @@ class ShiftScheduler(
         weeklyHours: MutableMap<UUID, Double>, // Shared across all days
         minShiftDurationHours: Double, // Minimum shift duration in hours
         optimizationObjective: OptimizationObjective // Optimization strategy
-    ): Pair<List<Shift>, List<org.labormanagement.model.StaffingRequirement>> {
+    ): Pair<List<Shift>, List<StaffingRequirement>> {
         val shifts = mutableListOf<Shift>()
-        val staffingRequirements = mutableListOf<org.labormanagement.model.StaffingRequirement>()
+        val staffingRequirements = mutableListOf<StaffingRequirement>()
 
         // Sort employees according to the optimization objective
         val sortedEmployees = profile("generateShiftsForDay.sortEmployees") {

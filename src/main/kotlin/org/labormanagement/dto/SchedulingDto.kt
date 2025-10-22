@@ -12,9 +12,8 @@ data class GenerateScheduleRequest(
     val employeeIds: List<String>,
     val laborCostBudget: Double,
     val salesForecast: Map<String, Map<String, Double>>, // DayOfWeek -> Time -> Sales
-    val schedulingPeriod: SchedulingPeriodDto,
-    val shiftDurationHours: Double? = null, // Optional: defaults to 4.0 if not provided
-    val optimizationObjective: String? = null // Optional: MINIMIZE_LABOR_COST, MAXIMIZE_SALES, MINIMIZE_EMPLOYEES, or BALANCED (default)
+    val schedulingPeriod: SchedulingPeriodDto
+    // Note: Configuration settings (minShiftDurationHours, optimizationObjective) are managed via /api/configuration
 )
 
 data class SchedulingPeriodDto(

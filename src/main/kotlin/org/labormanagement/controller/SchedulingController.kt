@@ -13,7 +13,6 @@ import org.labormanagement.dto.OperatingHoursDto
 import org.labormanagement.dto.SchedulingPeriodDto
 import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
-import org.labormanagement.model.OptimizationObjective
 import org.labormanagement.model.SchedulingInput
 import java.time.DayOfWeek
 import java.time.LocalTime
@@ -56,23 +55,13 @@ class SchedulingController(
                         timeMap.mapKeys { LocalTime.parse(it.key) }
                     }
 
-                    // Parse optimization objective
-                    val objective = request.optimizationObjective?.let {
-                        try {
-                            OptimizationObjective.valueOf(it.uppercase())
-                        } catch (e: Exception) {
-                            OptimizationObjective.BALANCED // Default if invalid
-                        }
-                    } ?: OptimizationObjective.BALANCED
-
                     // Create scheduling input
+                    // Configuration values will be fetched from repository by ShiftScheduler
                     val schedulingInput = SchedulingInput(
                         employees = employees,
                         laborCostBudget = request.laborCostBudget,
                         salesForecast = salesForecast,
-                        schedulingPeriod = request.schedulingPeriod.toModel(),
-                        shiftDurationHours = request.shiftDurationHours ?: 4.0,
-                        optimizationObjective = objective
+                        schedulingPeriod = request.schedulingPeriod.toModel()
                     )
 
                     // Generate schedule
@@ -130,9 +119,8 @@ class SchedulingController(
                                 "22:00"
                             )
                         )
-                    ),
-                    shiftDurationHours = 4.0, // Optional: defaults to 4.0 if not provided
-                    optimizationObjective = "BALANCED" // Optional: MINIMIZE_LABOR_COST, MAXIMIZE_SALES, MINIMIZE_EMPLOYEES, or BALANCED (default)
+                    )
+                    // Note: Configuration settings (minShiftDurationHours, optimizationObjective) are managed via /api/configuration
                 )
                 call.respond(HttpStatusCode.OK, sampleRequest)
             }

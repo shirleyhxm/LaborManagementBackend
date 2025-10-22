@@ -17,10 +17,12 @@ import io.ktor.server.application.install
 import io.ktor.server.application.log
 import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
+import org.labormanagement.controller.ConfigurationController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.SchedulingController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.SchedulingConfigurationRepository
 import org.labormanagement.service.ShiftScheduler
 import org.slf4j.event.Level
 
@@ -32,7 +34,8 @@ fun main() {
 fun Application.module() {
     // Initialize repositories and services
     val employeeRepository = EmployeeRepository()
-    val shiftScheduler = ShiftScheduler()
+    val configurationRepository = SchedulingConfigurationRepository()
+    val shiftScheduler = ShiftScheduler(configRepository = configurationRepository)
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
@@ -40,6 +43,7 @@ fun Application.module() {
         employeeRepository,
         shiftScheduler
     )
+    val configurationController = ConfigurationController(configurationRepository)
     val testDataController = TestDataController(employeeRepository)
 
     // Configure plugins
@@ -116,6 +120,16 @@ fun Application.module() {
                             "description" to "Get a sample scheduling request"
                         ),
                         mapOf(
+                            "path" to "/api/configuration",
+                            "methods" to listOf("GET", "PUT"),
+                            "description" to "View or update scheduling configuration"
+                        ),
+                        mapOf(
+                            "path" to "/api/configuration/reset",
+                            "methods" to listOf("POST"),
+                            "description" to "Reset configuration to default values"
+                        ),
+                        mapOf(
                             "path" to "/api/test/create-sample-employees",
                             "methods" to listOf("POST"),
                             "description" to "Create 10 sample employees for testing"
@@ -137,6 +151,10 @@ fun Application.module() {
 
         with(schedulingController) {
             schedulingRoutes()
+        }
+
+        with(configurationController) {
+            configurationRoutes()
         }
 
         with(testDataController) {

@@ -2,6 +2,7 @@ package org.labormanagement.service
 
 import org.junit.jupiter.api.Test
 import org.labormanagement.model.*
+import org.labormanagement.repository.SchedulingConfigurationRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -84,8 +85,7 @@ class PerformanceProfilerTest {
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
                     DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.BALANCED
+            )
         )
 
         println("\n===== Small Workload Profile (2 employees, 2 days) =====")
@@ -147,8 +147,7 @@ class PerformanceProfilerTest {
                     DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
                     DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS
+            )
         )
 
         println("\n===== Medium Workload Profile (10 employees, 5 days) =====")
@@ -191,8 +190,7 @@ class PerformanceProfilerTest {
                 operatingHours = DayOfWeek.values().associate { day ->
                     day to OperatingHours(LocalTime.of(6, 0), LocalTime.of(22, 0))
                 }
-            ),
-            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
+            )
         )
 
         println("\n===== Large Workload Profile (50 employees, 7 days, 16 hours/day) =====")
@@ -249,8 +247,11 @@ class PerformanceProfilerTest {
 
         for (objective in objectives) {
             println("--- $objective ---")
+            val configRepo = SchedulingConfigurationRepository()
+            configRepo.update(defaultOptimizationObjective = objective)
+            val objectiveScheduler = ShiftScheduler(configRepository = configRepo)
             PerformanceProfiler.profile {
-                scheduler.generateSchedule(baseInput.copy(optimizationObjective = objective))
+                objectiveScheduler.generateSchedule(baseInput)
             }
             println()
         }

@@ -3,6 +3,7 @@ package org.labormanagement.service
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.labormanagement.model.*
+import org.labormanagement.repository.SchedulingConfigurationRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -525,11 +526,13 @@ class ShiftSchedulerTest {
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
+            )
         )
 
-        val output = scheduler.generateSchedule(input)
+        val configRepo = SchedulingConfigurationRepository()
+        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
+        val maxSalesScheduler = ShiftScheduler(configRepository = configRepo)
+        val output = maxSalesScheduler.generateSchedule(input)
 
         // Productive employee should be scheduled more or equal hours
         val productiveHours = output.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
@@ -570,11 +573,13 @@ class ShiftSchedulerTest {
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST
+            )
         )
 
-        val output = scheduler.generateSchedule(input)
+        val configRepo = SchedulingConfigurationRepository()
+        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST)
+        val minCostScheduler = ShiftScheduler(configRepository = configRepo)
+        val output = minCostScheduler.generateSchedule(input)
 
         // Cheap employee should be scheduled more or exclusively
         val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
@@ -622,11 +627,13 @@ class ShiftSchedulerTest {
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.BALANCED
+            )
         )
 
-        val output = scheduler.generateSchedule(input)
+        val configRepo = SchedulingConfigurationRepository()
+        configRepo.update(defaultOptimizationObjective = OptimizationObjective.BALANCED)
+        val balancedScheduler = ShiftScheduler(configRepository = configRepo)
+        val output = balancedScheduler.generateSchedule(input)
 
         // Efficient employee should be scheduled more
         val efficientHours = output.shifts.filter { it.employeeId == efficientEmployee.id }.sumOf { it.durationHours }
@@ -679,8 +686,15 @@ class ShiftSchedulerTest {
         )
 
         // Test with different objectives
-        val maxSalesOutput = scheduler.generateSchedule(baseInput.copy(optimizationObjective = OptimizationObjective.MAXIMIZE_SALES))
-        val minCostOutput = scheduler.generateSchedule(baseInput.copy(optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST))
+        val maxSalesConfigRepo = SchedulingConfigurationRepository()
+        maxSalesConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
+        val maxSalesScheduler = ShiftScheduler(configRepository = maxSalesConfigRepo)
+        val maxSalesOutput = maxSalesScheduler.generateSchedule(baseInput)
+
+        val minCostConfigRepo = SchedulingConfigurationRepository()
+        minCostConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST)
+        val minCostScheduler = ShiftScheduler(configRepository = minCostConfigRepo)
+        val minCostOutput = minCostScheduler.generateSchedule(baseInput)
 
         // Max sales should prioritize productive employee
         val maxSalesProductiveHours = maxSalesOutput.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
@@ -771,11 +785,13 @@ class ShiftSchedulerTest {
                     DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
                     DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            ),
-            optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS
+            )
         )
 
-        val output = scheduler.generateSchedule(input)
+        val configRepo = SchedulingConfigurationRepository()
+        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS)
+        val fairnessScheduler = ShiftScheduler(configRepository = configRepo)
+        val output = fairnessScheduler.generateSchedule(input)
         println(output)
 
         // Calculate hours for each employee
@@ -799,7 +815,10 @@ class ShiftSchedulerTest {
         assertTrue(stdDev < 3.0, "Hours should be balanced across employees (stdDev: $stdDev, hours: $hours)")
 
         // Compare with MAXIMIZE_SALES to show different behavior
-        val maxSalesOutput = scheduler.generateSchedule(input.copy(optimizationObjective = OptimizationObjective.MAXIMIZE_SALES))
+        val maxSalesConfigRepo = SchedulingConfigurationRepository()
+        maxSalesConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
+        val maxSalesScheduler = ShiftScheduler(configRepository = maxSalesConfigRepo)
+        val maxSalesOutput = maxSalesScheduler.generateSchedule(input)
         val maxSalesEmployee1Hours = maxSalesOutput.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
         val maxSalesEmployee2Hours = maxSalesOutput.shifts.filter { it.employeeId == employee2.id }.sumOf { it.durationHours }
         val maxSalesEmployee3Hours = maxSalesOutput.shifts.filter { it.employeeId == employee3.id }.sumOf { it.durationHours }
