@@ -17,52 +17,9 @@ class TestDataController(
     private val employeeRepository: EmployeeRepository
 ) {
 
-    fun Route.testDataRoutes() {
-        route("/api/test") {
-
-            // Create 10 sample employees
-            post("/create-sample-employees") {
-                try {
-                    // Clear existing employees first
-                    val existingEmployees = employeeRepository.findAll()
-                    existingEmployees.forEach { employeeRepository.delete(it.id) }
-
-                    val sampleEmployees = createSampleEmployees()
-                    val createdEmployees = sampleEmployees.map { employee ->
-                        employeeRepository.create(employee)
-                    }
-
-                    call.respond(
-                        HttpStatusCode.Created,
-                        mapOf(
-                            "message" to "Created ${createdEmployees.size} sample employees",
-                            "employees" to createdEmployees.filterNotNull().map { it.toResponse() }
-                        )
-                    )
-                } catch (e: Exception) {
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        mapOf("error" to (e.message ?: "Failed to create sample employees"))
-                    )
-                }
-            }
-
-            // Get IDs of all employees (useful for scheduling requests)
-            get("/employee-ids") {
-                val employees = employeeRepository.findAll()
-                call.respond(
-                    HttpStatusCode.OK,
-                    mapOf(
-                        "count" to employees.size,
-                        "employeeIds" to employees.map { it.id.toString() }
-                    )
-                )
-            }
-        }
-    }
-
-    private fun createSampleEmployees(): List<Employee> {
-        return listOf(
+    companion object {
+        // Static sample employee templates to avoid recreating objects on every API call
+        private val SAMPLE_EMPLOYEE_TEMPLATES = listOf(
             // High performers - Full time
             Employee(
                 firstName = "Alice",
@@ -317,5 +274,48 @@ class TestDataController(
                 )
             )
         )
+    }
+
+    fun Route.testDataRoutes() {
+        route("/api/test") {
+
+            // Create 10 sample employees
+            post("/create-sample-employees") {
+                try {
+                    // Clear existing employees first
+                    val existingEmployees = employeeRepository.findAll()
+                    existingEmployees.forEach { employeeRepository.delete(it.id) }
+
+                    val createdEmployees = SAMPLE_EMPLOYEE_TEMPLATES.map { employee ->
+                        employeeRepository.create(employee)
+                    }
+
+                    call.respond(
+                        HttpStatusCode.Created,
+                        mapOf(
+                            "message" to "Created ${createdEmployees.size} sample employees",
+                            "employees" to createdEmployees.filterNotNull().map { it.toResponse() }
+                        )
+                    )
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to (e.message ?: "Failed to create sample employees"))
+                    )
+                }
+            }
+
+            // Get IDs of all employees (useful for scheduling requests)
+            get("/employee-ids") {
+                val employees = employeeRepository.findAll()
+                call.respond(
+                    HttpStatusCode.OK,
+                    mapOf(
+                        "count" to employees.size,
+                        "employeeIds" to employees.map { it.id.toString() }
+                    )
+                )
+            }
+        }
     }
 }

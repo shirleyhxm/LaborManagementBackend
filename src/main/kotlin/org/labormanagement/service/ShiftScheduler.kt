@@ -6,9 +6,12 @@ import org.labormanagement.model.OptimizationObjective
 import org.labormanagement.model.SchedulingInput
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.SchedulingOutput
+import org.labormanagement.model.SchedulingPeriod
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SchedulingConfigurationRepository
+import org.labormanagement.repository.SchedulingRequestRepository
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -16,8 +19,114 @@ import java.util.UUID
 
 class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator(),
-    private val configRepository: SchedulingConfigurationRepository = SchedulingConfigurationRepository()
+    private val configRepository: SchedulingConfigurationRepository = SchedulingConfigurationRepository(),
+    private val schedulingRequestRepository: SchedulingRequestRepository = SchedulingRequestRepository(),
+    private val employeeRepository: EmployeeRepository = EmployeeRepository()
 ) {
+
+    companion object {
+        // Default sales forecast for Monday-Friday
+        private val DEFAULT_SALES_FORECAST = mapOf(
+            DayOfWeek.MONDAY to mapOf(
+                LocalTime.of(9, 0) to 800.0,
+                LocalTime.of(12, 0) to 1200.0,
+                LocalTime.of(15, 0) to 1000.0,
+                LocalTime.of(18, 0) to 600.0
+            ),
+            DayOfWeek.TUESDAY to mapOf(
+                LocalTime.of(9, 0) to 800.0,
+                LocalTime.of(12, 0) to 1200.0,
+                LocalTime.of(15, 0) to 1000.0,
+                LocalTime.of(18, 0) to 600.0
+            ),
+            DayOfWeek.WEDNESDAY to mapOf(
+                LocalTime.of(9, 0) to 800.0,
+                LocalTime.of(12, 0) to 1200.0,
+                LocalTime.of(15, 0) to 1000.0,
+                LocalTime.of(18, 0) to 600.0
+            ),
+            DayOfWeek.THURSDAY to mapOf(
+                LocalTime.of(9, 0) to 800.0,
+                LocalTime.of(12, 0) to 1200.0,
+                LocalTime.of(15, 0) to 1000.0,
+                LocalTime.of(18, 0) to 600.0
+            ),
+            DayOfWeek.FRIDAY to mapOf(
+                LocalTime.of(9, 0) to 900.0,
+                LocalTime.of(12, 0) to 1300.0,
+                LocalTime.of(15, 0) to 1100.0,
+                LocalTime.of(18, 0) to 700.0
+            )
+        )
+
+        // Default scheduling period for Monday-Friday, 9am-9pm
+        private val DEFAULT_SCHEDULING_PERIOD = SchedulingPeriod(
+            daysToSchedule = listOf(
+                DayOfWeek.MONDAY,
+                DayOfWeek.TUESDAY,
+                DayOfWeek.WEDNESDAY,
+                DayOfWeek.THURSDAY,
+                DayOfWeek.FRIDAY
+            ),
+            operatingHours = mapOf(
+                DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(22, 0))
+            )
+        )
+
+        private const val DEFAULT_LABOR_BUDGET = 5000.0
+    }
+
+    @Profile
+    fun generateSchedule(): SchedulingOutput = profile {
+        // Fetch the latest scheduling request from repository
+        var schedulingRequest = schedulingRequestRepository.getLatest()
+
+        // If no request exists, create a default one
+        if (schedulingRequest == null) {
+            schedulingRequest = createDefaultSchedulingRequest()
+        }
+
+        // Fetch employees
+        val employees = employeeRepository.findByIds(schedulingRequest.employeeIds)
+
+        if (employees.size != schedulingRequest.employeeIds.size) {
+            throw IllegalStateException("Some employees from the scheduling request no longer exist")
+        }
+
+        // Create SchedulingInput from the request
+        val input = SchedulingInput(
+            employees = employees,
+            laborCostBudget = schedulingRequest.laborCostBudget,
+            salesForecast = schedulingRequest.salesForecast,
+            schedulingPeriod = schedulingRequest.schedulingPeriod
+        )
+
+        // Continue with existing scheduling logic
+        generateSchedule(input)
+    }
+
+    /**
+     * Creates a default scheduling request using static default values
+     */
+    private fun createDefaultSchedulingRequest(): org.labormanagement.model.SchedulingRequest {
+        // Get all employees from repository
+        val allEmployees = employeeRepository.findAll()
+
+        // Save the default request using static default values
+        return schedulingRequestRepository.save(
+            name = "Default Scheduling Request",
+            description = "Auto-generated default request",
+            laborCostBudget = DEFAULT_LABOR_BUDGET,
+            salesForecast = DEFAULT_SALES_FORECAST,
+            schedulingPeriod = DEFAULT_SCHEDULING_PERIOD,
+            employeeIds = allEmployees.map { it.id },
+            updatedBy = "system"
+        )
+    }
 
     @Profile
     fun generateSchedule(input: SchedulingInput): SchedulingOutput = profile {

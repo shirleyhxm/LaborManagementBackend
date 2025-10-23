@@ -1,16 +1,19 @@
 package org.labormanagement.service
 
 import org.labormanagement.model.ConstraintViolation
+import org.labormanagement.model.Employee
+import org.labormanagement.model.Shift
+import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.model.ViolationType
 
 class ConstraintValidator {
 
     fun validate(
-        shifts: List<org.labormanagement.model.Shift>,
-        employees: List<org.labormanagement.model.Employee>,
+        shifts: List<Shift>,
+        employees: List<Employee>,
         laborCostBudget: Double,
-        staffingRequirements: List<org.labormanagement.model.StaffingRequirement> = emptyList()
-    ): List<org.labormanagement.model.ConstraintViolation> {
+        staffingRequirements: List<StaffingRequirement> = emptyList()
+    ): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
 
         // Check budget constraint
@@ -54,7 +57,7 @@ class ConstraintValidator {
         return violations
     }
 
-    private fun checkAvailability(employee: org.labormanagement.model.Employee, shifts: List<org.labormanagement.model.Shift>): List<org.labormanagement.model.ConstraintViolation> {
+    private fun checkAvailability(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
 
         shifts.forEach { shift ->
@@ -73,7 +76,7 @@ class ConstraintValidator {
         return violations
     }
 
-    private fun checkContractCompliance(employee: org.labormanagement.model.Employee, shifts: List<org.labormanagement.model.Shift>): List<org.labormanagement.model.ConstraintViolation> {
+    private fun checkContractCompliance(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
         val contract = employee.contract
 
@@ -106,7 +109,7 @@ class ConstraintValidator {
         return violations
     }
 
-    private fun checkShiftOverlaps(employee: org.labormanagement.model.Employee, shifts: List<org.labormanagement.model.Shift>): List<org.labormanagement.model.ConstraintViolation> {
+    private fun checkShiftOverlaps(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
 
         for (i in shifts.indices) {
@@ -126,7 +129,7 @@ class ConstraintValidator {
         return violations
     }
 
-    private fun checkBreakRequirements(employee: org.labormanagement.model.Employee, shifts: List<org.labormanagement.model.Shift>): List<org.labormanagement.model.ConstraintViolation> {
+    private fun checkBreakRequirements(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
         val contract = employee.contract
 
@@ -143,7 +146,7 @@ class ConstraintValidator {
         return violations
     }
 
-    private fun checkUnderstaffing(staffingRequirements: List<org.labormanagement.model.StaffingRequirement>): List<org.labormanagement.model.ConstraintViolation> {
+    private fun checkUnderstaffing(staffingRequirements: List<StaffingRequirement>): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
 
         staffingRequirements.forEach { requirement ->

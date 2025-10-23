@@ -20,11 +20,21 @@ import io.ktor.server.routing.get
 import org.labormanagement.controller.ConfigurationController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.SchedulingController
+import org.labormanagement.controller.SchedulingRequestController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SchedulingConfigurationRepository
+import org.labormanagement.repository.SchedulingRequestRepository
 import org.labormanagement.service.ShiftScheduler
 import org.slf4j.event.Level
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonDeserializer
+import com.google.gson.JsonSerializer
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
@@ -35,13 +45,19 @@ fun Application.module() {
     // Initialize repositories and services
     val employeeRepository = EmployeeRepository()
     val configurationRepository = SchedulingConfigurationRepository()
-    val shiftScheduler = ShiftScheduler(configRepository = configurationRepository)
+    val schedulingRequestRepository = SchedulingRequestRepository()
+    val shiftScheduler = ShiftScheduler(
+        configRepository = configurationRepository,
+        schedulingRequestRepository = schedulingRequestRepository,
+        employeeRepository = employeeRepository
+    )
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
-    val schedulingController = SchedulingController(
-        employeeRepository,
-        shiftScheduler
+    val schedulingController = SchedulingController(shiftScheduler)
+    val schedulingRequestController = SchedulingRequestController(
+        schedulingRequestRepository,
+        employeeRepository
     )
     val configurationController = ConfigurationController(configurationRepository)
     val testDataController = TestDataController(employeeRepository)
@@ -51,6 +67,35 @@ fun Application.module() {
         gson {
             setPrettyPrinting()
             serializeNulls()
+
+            // Register type adapters for Java 8 time types
+            registerTypeAdapter(LocalTime::class.java, JsonSerializer<LocalTime> { src, _, _ ->
+                com.google.gson.JsonPrimitive(src.format(DateTimeFormatter.ISO_LOCAL_TIME))
+            })
+            registerTypeAdapter(LocalTime::class.java, JsonDeserializer { json, _, _ ->
+                LocalTime.parse(json.asString, DateTimeFormatter.ISO_LOCAL_TIME)
+            })
+
+            registerTypeAdapter(LocalDate::class.java, JsonSerializer<LocalDate> { src, _, _ ->
+                com.google.gson.JsonPrimitive(src.format(DateTimeFormatter.ISO_LOCAL_DATE))
+            })
+            registerTypeAdapter(LocalDate::class.java, JsonDeserializer { json, _, _ ->
+                LocalDate.parse(json.asString, DateTimeFormatter.ISO_LOCAL_DATE)
+            })
+
+            registerTypeAdapter(Instant::class.java, JsonSerializer<Instant> { src, _, _ ->
+                com.google.gson.JsonPrimitive(src.toString())
+            })
+            registerTypeAdapter(Instant::class.java, JsonDeserializer { json, _, _ ->
+                Instant.parse(json.asString)
+            })
+
+            registerTypeAdapter(DayOfWeek::class.java, JsonSerializer<DayOfWeek> { src, _, _ ->
+                com.google.gson.JsonPrimitive(src.name)
+            })
+            registerTypeAdapter(DayOfWeek::class.java, JsonDeserializer { json, _, _ ->
+                DayOfWeek.valueOf(json.asString)
+            })
         }
     }
 
@@ -112,12 +157,22 @@ fun Application.module() {
                         mapOf(
                             "path" to "/api/scheduling/generate",
                             "methods" to listOf("POST"),
-                            "description" to "Generate an optimized work schedule"
+                            "description" to "Generate schedule from active scheduling request (no parameters required)"
                         ),
                         mapOf(
                             "path" to "/api/scheduling/sample-request",
                             "methods" to listOf("GET"),
                             "description" to "Get a sample scheduling request"
+                        ),
+                        mapOf(
+                            "path" to "/api/scheduling-request",
+                            "methods" to listOf("GET", "PUT", "DELETE"),
+                            "description" to "View, save, or delete the latest scheduling request"
+                        ),
+                        mapOf(
+                            "path" to "/api/scheduling-request/update",
+                            "methods" to listOf("PUT"),
+                            "description" to "Update specific fields of the latest scheduling request"
                         ),
                         mapOf(
                             "path" to "/api/configuration",
@@ -151,6 +206,10 @@ fun Application.module() {
 
         with(schedulingController) {
             schedulingRoutes()
+        }
+
+        with(schedulingRequestController) {
+            schedulingRequestRoutes()
         }
 
         with(configurationController) {
