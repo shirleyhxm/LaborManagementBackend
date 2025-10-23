@@ -12,6 +12,8 @@ import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SchedulingConfigurationRepository
 import org.labormanagement.repository.SchedulingRequestRepository
+import org.labormanagement.repository.ScheduleHistoryRepository
+import org.labormanagement.model.ScheduleHistory
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -21,7 +23,8 @@ class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator(),
     private val configRepository: SchedulingConfigurationRepository = SchedulingConfigurationRepository(),
     private val schedulingRequestRepository: SchedulingRequestRepository = SchedulingRequestRepository(),
-    private val employeeRepository: EmployeeRepository = EmployeeRepository()
+    private val employeeRepository: EmployeeRepository = EmployeeRepository(),
+    private val scheduleHistoryRepository: ScheduleHistoryRepository = ScheduleHistoryRepository()
 ) {
 
     companion object {
@@ -81,7 +84,7 @@ class ShiftScheduler(
     }
 
     @Profile
-    fun generateSchedule(): SchedulingOutput = profile {
+    fun generateSchedule(generatedBy: String = "system"): SchedulingOutput = profile {
         // Fetch the latest scheduling request from repository
         var schedulingRequest = schedulingRequestRepository.getLatest()
 
@@ -89,6 +92,9 @@ class ShiftScheduler(
         if (schedulingRequest == null) {
             schedulingRequest = createDefaultSchedulingRequest()
         }
+
+        // Fetch the current configuration
+        val configuration = configRepository.getLatest()
 
         // Fetch employees
         val employees = employeeRepository.findByIds(schedulingRequest.employeeIds)
@@ -105,8 +111,20 @@ class ShiftScheduler(
             schedulingPeriod = schedulingRequest.schedulingPeriod
         )
 
-        // Continue with existing scheduling logic
-        generateSchedule(input)
+        // Generate the schedule
+        val output = generateSchedule(input)
+
+        // Save the schedule generation to history for audit trail
+        val historyRecord = ScheduleHistory(
+            generatedBy = generatedBy,
+            schedulingRequest = schedulingRequest,
+            configuration = configuration,
+            scheduleOutput = output
+        )
+        scheduleHistoryRepository.save(historyRecord)
+
+        // Return the output
+        output
     }
 
     /**

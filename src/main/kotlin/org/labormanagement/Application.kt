@@ -21,10 +21,12 @@ import org.labormanagement.controller.ConfigurationController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.SchedulingController
 import org.labormanagement.controller.SchedulingRequestController
+import org.labormanagement.controller.ScheduleHistoryController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SchedulingConfigurationRepository
 import org.labormanagement.repository.SchedulingRequestRepository
+import org.labormanagement.repository.ScheduleHistoryRepository
 import org.labormanagement.service.ShiftScheduler
 import org.slf4j.event.Level
 import com.google.gson.GsonBuilder
@@ -46,10 +48,12 @@ fun Application.module() {
     val employeeRepository = EmployeeRepository()
     val configurationRepository = SchedulingConfigurationRepository()
     val schedulingRequestRepository = SchedulingRequestRepository()
+    val scheduleHistoryRepository = ScheduleHistoryRepository()
     val shiftScheduler = ShiftScheduler(
         configRepository = configurationRepository,
         schedulingRequestRepository = schedulingRequestRepository,
-        employeeRepository = employeeRepository
+        employeeRepository = employeeRepository,
+        scheduleHistoryRepository = scheduleHistoryRepository
     )
 
     // Initialize controllers
@@ -60,6 +64,7 @@ fun Application.module() {
         employeeRepository
     )
     val configurationController = ConfigurationController(configurationRepository)
+    val scheduleHistoryController = ScheduleHistoryController(scheduleHistoryRepository)
     val testDataController = TestDataController(employeeRepository)
 
     // Configure plugins
@@ -193,6 +198,26 @@ fun Application.module() {
                             "path" to "/api/test/employee-ids",
                             "methods" to listOf("GET"),
                             "description" to "Get all employee IDs for scheduling requests"
+                        ),
+                        mapOf(
+                            "path" to "/api/schedule-history",
+                            "methods" to listOf("GET"),
+                            "description" to "View all schedule generation history (with pagination)"
+                        ),
+                        mapOf(
+                            "path" to "/api/schedule-history/latest",
+                            "methods" to listOf("GET"),
+                            "description" to "Get the most recent schedule generation"
+                        ),
+                        mapOf(
+                            "path" to "/api/schedule-history/{id}",
+                            "methods" to listOf("GET", "DELETE"),
+                            "description" to "Get or delete a specific schedule history record"
+                        ),
+                        mapOf(
+                            "path" to "/api/schedule-history/by-user/{user}",
+                            "methods" to listOf("GET"),
+                            "description" to "Get schedule history by user"
                         )
                     )
                 )
@@ -214,6 +239,10 @@ fun Application.module() {
 
         with(configurationController) {
             configurationRoutes()
+        }
+
+        with(scheduleHistoryController) {
+            scheduleHistoryRoutes()
         }
 
         with(testDataController) {
