@@ -96,14 +96,15 @@ class ShiftScheduler(
         // Fetch the current configuration
         val configuration = configRepository.getLatest()
 
-        // Fetch employees
-        val employees = employeeRepository.findByIds(schedulingRequest.employeeIds)
+        // ALWAYS fetch the latest employee data from repository (not from scheduling request)
+        // This ensures we use current pay rates, contracts, availability, etc.
+        val employees = employeeRepository.findAll()
 
-        if (employees.size != schedulingRequest.employeeIds.size) {
-            throw IllegalStateException("Some employees from the scheduling request no longer exist")
+        if (employees.isEmpty()) {
+            throw IllegalStateException("No employees found in the system. Please add employees before generating a schedule.")
         }
 
-        // Create SchedulingInput from the request
+        // Create SchedulingInput from the request with latest employee data
         val input = SchedulingInput(
             employees = employees,
             laborCostBudget = schedulingRequest.laborCostBudget,
