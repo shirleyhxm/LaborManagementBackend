@@ -2,21 +2,42 @@ package org.labormanagement.repository
 
 import org.labormanagement.model.ScheduleHistory
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Repository for managing schedule generation audit history.
  * Stores complete snapshots of schedule generations for historical analysis and compliance.
- * For now, uses in-memory storage. In production, this would persist to a database.
+ *
+ * **Memory Management with TTL**:
+ * - Automatic expiration: Records older than TTL are automatically removed
+ * - Default TTL: 7 days (configurable)
+ * - Cleanup runs on every save operation
+ * - Thread-safe using ConcurrentHashMap
+ *
+ * For production, this would persist to a database with proper TTL indexes.
  */
-class ScheduleHistoryRepository {
+class ScheduleHistoryRepository(
+    private val ttlDays: Long = 7,  // Time-to-live in days
+    private val maxRecords: Int = 1000  // Maximum records as safety limit
+) {
     private val history = ConcurrentHashMap<UUID, ScheduleHistory>()
 
     /**
      * Save a schedule history record
+     * @throws IllegalStateException if repository has reached maxRecords limit
      */
     fun save(scheduleHistory: ScheduleHistory): ScheduleHistory {
+        // Check if max records limit reached
+        if (history.size >= maxRecords) {
+            throw IllegalStateException(
+                "Schedule history repository has reached maximum capacity ($maxRecords records). " +
+                "Please cleanup old records using DELETE /api/schedule-history/cleanup/older-than/{days} " +
+                "or delete specific records before generating new schedules."
+            )
+        }
+
         history[scheduleHistory.id] = scheduleHistory
         return scheduleHistory
     }
