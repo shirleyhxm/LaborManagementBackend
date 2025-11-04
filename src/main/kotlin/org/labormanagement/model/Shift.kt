@@ -14,11 +14,9 @@ data class Shift(
     val payRate: Double,
     val isOvertime: Boolean = false
 ) {
-    val durationHours: Double
-        get() = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
-
-    val laborCost: Double
-        get() = durationHours * payRate
+    // Calculated once during construction, cached for performance and frontend access
+    val durationHours: Double = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
+    val laborCost: Double = durationHours * payRate
 
     fun overlaps(other: Shift): Boolean {
         if (this.dayOfWeek != other.dayOfWeek) return false

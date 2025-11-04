@@ -181,7 +181,12 @@ inline fun <T> profile(operationName: String, block: () -> T): T {
  * ```
  */
 inline fun <T> profile(block: () -> T): T {
-    // Get the calling function name from stack trace
+    // Fast path: if profiling is disabled, skip stack trace creation entirely
+    if (!PerformanceProfiler.enabled) {
+        return block()
+    }
+
+    // Only create Throwable and capture stack trace when profiling is enabled
     val callerName = Throwable().stackTrace[1].let {
         "${it.className.substringAfterLast('.')}.${it.methodName}"
     }

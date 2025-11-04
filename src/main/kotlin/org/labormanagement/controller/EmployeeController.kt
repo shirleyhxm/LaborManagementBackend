@@ -37,7 +37,15 @@ class EmployeeController(
                         call.respond(HttpStatusCode.Created, created.toResponse())
                     }
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    // Log full exception details for debugging
+                    call.application.log.error("Failed to create employee", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf(
+                            "error" to (e.message ?: "Invalid request"),
+                            "type" to e::class.simpleName
+                        )
+                    )
                 }
             }
 

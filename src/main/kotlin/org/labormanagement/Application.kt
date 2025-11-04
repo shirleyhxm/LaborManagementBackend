@@ -70,7 +70,8 @@ fun Application.module() {
     // Configure plugins
     install(ContentNegotiation) {
         gson {
-            setPrettyPrinting()
+            // Pretty printing disabled for performance - adds 3-5x serialization overhead
+            // Use browser extensions (JSONView) for formatting instead
             serializeNulls()
 
             // Register type adapters for Java 8 time types
