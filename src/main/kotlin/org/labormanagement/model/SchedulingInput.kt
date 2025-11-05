@@ -2,15 +2,18 @@ package org.labormanagement.model
 
 import java.time.DayOfWeek
 import java.time.LocalTime
+import java.util.UUID
 
-data class SchedulingInput(
-    val employees: List<Employee>,
+data class ScheduleInput(
+    val employeeIds: List<UUID>,
     val laborCostBudget: Double,
     val salesForecast: Map<DayOfWeek, Map<LocalTime, Double>>, // Day -> Hour -> Expected sales
-    val schedulingPeriod: SchedulingPeriod
+    val schedulePeriod: SchedulePeriod,
+    val minShiftDurationHours: Double = 0.0, // Optional
+    val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
 )
 
-data class SchedulingPeriod(
+data class SchedulePeriod(
     val daysToSchedule: List<DayOfWeek>,
     val operatingHours: Map<DayOfWeek, OperatingHours>
 )

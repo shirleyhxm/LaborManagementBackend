@@ -3,14 +3,14 @@ package org.labormanagement.service
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.labormanagement.model.*
-import org.labormanagement.repository.SchedulingConfigurationRepository
+import org.labormanagement.repository.EmployeeRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 
 class ShiftSchedulerTest {
-
-    private val scheduler = ShiftScheduler()
+    private val employeeRepository = EmployeeRepository()
+    private val scheduler = ShiftScheduler(employeeRepository = employeeRepository)
 
     // Helper function to create a basic employee
     private fun createEmployee(
@@ -21,7 +21,7 @@ class ShiftSchedulerTest {
         contractedHours: Double = 40.0,
         maxHours: Double = 50.0
     ): Employee {
-        return Employee(
+        val employee = Employee(
             firstName = firstName,
             lastName = "Test",
             dateOfBirth = LocalDate.of(1990, 1, 1),
@@ -39,6 +39,8 @@ class ShiftSchedulerTest {
             ),
             availability = availability
         )
+        employeeRepository.create(employee)
+        return employee
     }
 
     @Test
@@ -52,8 +54,8 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 150.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(
@@ -61,7 +63,7 @@ class ShiftSchedulerTest {
                     LocalTime.of(12, 0) to 1500.0
                 )
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -86,13 +88,13 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -124,15 +126,15 @@ class ShiftSchedulerTest {
             maxHours = 20.0
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 5000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
                 DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 2000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
@@ -159,15 +161,15 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 5000.0 // Very high sales forecast
                 )
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -202,13 +204,13 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(lowProductivity, highProductivity),
+        val input = ScheduleInput(
+            employeeIds = listOf(lowProductivity.id, highProductivity.id),
             laborCostBudget = 500.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -246,8 +248,8 @@ class ShiftSchedulerTest {
             maxHours = 50.0
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 10000.0,
             salesForecast = mapOf(
                 // Each day has sales across 9 hours (8am-5pm), requiring ~9-hour shifts per day
@@ -307,7 +309,7 @@ class ShiftSchedulerTest {
                     LocalTime.of(16, 0) to 200.0
                 )
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(
                     DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
                     DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
@@ -334,13 +336,13 @@ class ShiftSchedulerTest {
 
     @Test
     fun `generateSchedule should handle empty employee list`() {
-        val input = SchedulingInput(
-            employees = emptyList(),
+        val input = ScheduleInput(
+            employeeIds = emptyList(),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -364,13 +366,13 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 0.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -395,13 +397,13 @@ class ShiftSchedulerTest {
             contractedHours = 40.0
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
@@ -429,13 +431,13 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 3000.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
@@ -466,14 +468,14 @@ class ShiftSchedulerTest {
             maxHours = 10.0
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
             laborCostBudget = 100.0, // Low budget
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 2000.0), // Not available Monday
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 2000.0) // High demand
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
@@ -515,24 +517,22 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(cheapEmployee, productiveEmployee),
+        val input = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 500.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
         )
 
-        val configRepo = SchedulingConfigurationRepository()
-        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
-        val maxSalesScheduler = ShiftScheduler(configRepository = configRepo)
-        val output = maxSalesScheduler.generateSchedule(input)
+        val output = scheduler.generateSchedule(input)
 
         // Productive employee should be scheduled more or equal hours
         val productiveHours = output.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
@@ -562,24 +562,22 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(cheapEmployee, expensiveEmployee),
+        val input = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, expensiveEmployee.id),
             laborCostBudget = 500.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            )
+            ),
+            optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         )
 
-        val configRepo = SchedulingConfigurationRepository()
-        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST)
-        val minCostScheduler = ShiftScheduler(configRepository = configRepo)
-        val output = minCostScheduler.generateSchedule(input)
+        val output = scheduler.generateSchedule(input)
 
         // Cheap employee should be scheduled more or exclusively
         val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
@@ -616,24 +614,22 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(inefficientEmployee, efficientEmployee),
+        val input = ScheduleInput(
+            employeeIds = listOf(inefficientEmployee.id, efficientEmployee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1500.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            )
+            ),
+            optimizationObjective = OptimizationObjective.BALANCED,
         )
 
-        val configRepo = SchedulingConfigurationRepository()
-        configRepo.update(defaultOptimizationObjective = OptimizationObjective.BALANCED)
-        val balancedScheduler = ShiftScheduler(configRepository = configRepo)
-        val output = balancedScheduler.generateSchedule(input)
+        val output = scheduler.generateSchedule(input)
 
         // Efficient employee should be scheduled more
         val efficientHours = output.shifts.filter { it.employeeId == efficientEmployee.id }.sumOf { it.durationHours }
@@ -671,30 +667,38 @@ class ShiftSchedulerTest {
             )
         )
 
-        val baseInput = SchedulingInput(
-            employees = listOf(cheapEmployee, productiveEmployee),
+        val maxSalesInput = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 1000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1500.0)
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES,
+        )
+        val minLaborCostInput = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
+            laborCostBudget = 1000.0,
+            salesForecast = mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1500.0)
+            ),
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         )
 
         // Test with different objectives
-        val maxSalesConfigRepo = SchedulingConfigurationRepository()
-        maxSalesConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
-        val maxSalesScheduler = ShiftScheduler(configRepository = maxSalesConfigRepo)
-        val maxSalesOutput = maxSalesScheduler.generateSchedule(baseInput)
-
-        val minCostConfigRepo = SchedulingConfigurationRepository()
-        minCostConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST)
-        val minCostScheduler = ShiftScheduler(configRepository = minCostConfigRepo)
-        val minCostOutput = minCostScheduler.generateSchedule(baseInput)
+        val maxSalesOutput = scheduler.generateSchedule(maxSalesInput)
+        val minCostOutput = scheduler.generateSchedule(minLaborCostInput)
 
         // Max sales should prioritize productive employee
         val maxSalesProductiveHours = maxSalesOutput.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
@@ -749,8 +753,8 @@ class ShiftSchedulerTest {
             )
         )
 
-        val input = SchedulingInput(
-            employees = listOf(employee1, employee2, employee3),
+        val input = ScheduleInput(
+            employeeIds = listOf(employee1.id, employee2.id, employee3.id),
             laborCostBudget = 5000.0,
             salesForecast = mapOf(
                 DayOfWeek.MONDAY to mapOf(
@@ -778,21 +782,18 @@ class ShiftSchedulerTest {
                     LocalTime.of(15, 0) to 300.0
                 )
             ),
-            schedulingPeriod = SchedulingPeriod(
+            schedulePeriod = SchedulePeriod(
                 daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
                 operatingHours = mapOf(
                     DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
                     DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
                     DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
-            )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS,
         )
 
-        val configRepo = SchedulingConfigurationRepository()
-        configRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS)
-        val fairnessScheduler = ShiftScheduler(configRepository = configRepo)
-        val output = fairnessScheduler.generateSchedule(input)
-        println(output)
+        val output = scheduler.generateSchedule(input)
 
         // Calculate hours for each employee
         val employee1Hours = output.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
@@ -815,10 +816,9 @@ class ShiftSchedulerTest {
         assertTrue(stdDev < 3.0, "Hours should be balanced across employees (stdDev: $stdDev, hours: $hours)")
 
         // Compare with MAXIMIZE_SALES to show different behavior
-        val maxSalesConfigRepo = SchedulingConfigurationRepository()
-        maxSalesConfigRepo.update(defaultOptimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
-        val maxSalesScheduler = ShiftScheduler(configRepository = maxSalesConfigRepo)
-        val maxSalesOutput = maxSalesScheduler.generateSchedule(input)
+        val maxSalesOutput = scheduler.generateSchedule(
+            input.copy(optimizationObjective = OptimizationObjective.MAXIMIZE_SALES)
+        )
         val maxSalesEmployee1Hours = maxSalesOutput.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
         val maxSalesEmployee2Hours = maxSalesOutput.shifts.filter { it.employeeId == employee2.id }.sumOf { it.durationHours }
         val maxSalesEmployee3Hours = maxSalesOutput.shifts.filter { it.employeeId == employee3.id }.sumOf { it.durationHours }

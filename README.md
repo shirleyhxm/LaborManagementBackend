@@ -339,7 +339,7 @@ src/main/kotlin/
 │   ├── Contract.kt             # Contract domain model
 │   ├── Shift.kt                # Shift domain model
 │   ├── Availability.kt         # Availability domain model
-│   ├── SchedulingInput.kt      # Scheduling input models
+│   ├── ScheduleInput.kt      # Scheduling input models
 │   └── SchedulingOutput.kt     # Scheduling output models
 ├── repository/
 │   └── EmployeeRepository.kt   # In-memory data storage

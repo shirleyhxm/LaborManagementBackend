@@ -3,17 +3,13 @@ package org.labormanagement.service
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OperatingHours
 import org.labormanagement.model.OptimizationObjective
-import org.labormanagement.model.SchedulingInput
+import org.labormanagement.model.Schedule
+import org.labormanagement.model.ScheduleInput
 import org.labormanagement.model.SchedulingMetrics
-import org.labormanagement.model.SchedulingOutput
-import org.labormanagement.model.SchedulingPeriod
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.repository.EmployeeRepository
-import org.labormanagement.repository.SchedulingConfigurationRepository
-import org.labormanagement.repository.SchedulingRequestRepository
-import org.labormanagement.repository.ScheduleHistoryRepository
-import org.labormanagement.model.ScheduleHistory
+import org.labormanagement.repository.ScheduleRepository
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -21,159 +17,48 @@ import java.util.UUID
 
 class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator(),
-    private val configRepository: SchedulingConfigurationRepository = SchedulingConfigurationRepository(),
-    private val schedulingRequestRepository: SchedulingRequestRepository = SchedulingRequestRepository(),
     private val employeeRepository: EmployeeRepository = EmployeeRepository(),
-    private val scheduleHistoryRepository: ScheduleHistoryRepository = ScheduleHistoryRepository()
+    private val scheduleRepository: ScheduleRepository = ScheduleRepository()
 ) {
 
-    companion object {
-        // Default sales forecast for Monday-Friday
-        private val DEFAULT_SALES_FORECAST = mapOf(
-            DayOfWeek.MONDAY to mapOf(
-                LocalTime.of(9, 0) to 800.0,
-                LocalTime.of(12, 0) to 1200.0,
-                LocalTime.of(15, 0) to 1000.0,
-                LocalTime.of(18, 0) to 600.0
-            ),
-            DayOfWeek.TUESDAY to mapOf(
-                LocalTime.of(9, 0) to 800.0,
-                LocalTime.of(12, 0) to 1200.0,
-                LocalTime.of(15, 0) to 1000.0,
-                LocalTime.of(18, 0) to 600.0
-            ),
-            DayOfWeek.WEDNESDAY to mapOf(
-                LocalTime.of(9, 0) to 800.0,
-                LocalTime.of(12, 0) to 1200.0,
-                LocalTime.of(15, 0) to 1000.0,
-                LocalTime.of(18, 0) to 600.0
-            ),
-            DayOfWeek.THURSDAY to mapOf(
-                LocalTime.of(9, 0) to 800.0,
-                LocalTime.of(12, 0) to 1200.0,
-                LocalTime.of(15, 0) to 1000.0,
-                LocalTime.of(18, 0) to 600.0
-            ),
-            DayOfWeek.FRIDAY to mapOf(
-                LocalTime.of(9, 0) to 900.0,
-                LocalTime.of(12, 0) to 1300.0,
-                LocalTime.of(15, 0) to 1100.0,
-                LocalTime.of(18, 0) to 700.0
-            )
-        )
-
-        // Default scheduling period for Monday-Friday, 9am-9pm
-        private val DEFAULT_SCHEDULING_PERIOD = SchedulingPeriod(
-            daysToSchedule = listOf(
-                DayOfWeek.MONDAY,
-                DayOfWeek.TUESDAY,
-                DayOfWeek.WEDNESDAY,
-                DayOfWeek.THURSDAY,
-                DayOfWeek.FRIDAY
-            ),
-            operatingHours = mapOf(
-                DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(22, 0))
-            )
-        )
-
-        private const val DEFAULT_LABOR_BUDGET = 5000.0
-    }
-
-    @Profile
-    fun generateSchedule(generatedBy: String = "system"): SchedulingOutput = profile {
-        // Fetch the latest scheduling request from repository
-        var schedulingRequest = schedulingRequestRepository.getLatest()
-
-        // If no request exists, create a default one
-        if (schedulingRequest == null) {
-            schedulingRequest = createDefaultSchedulingRequest()
-        }
-
-        // Fetch the current configuration
-        val configuration = configRepository.getLatest()
-
-        // ALWAYS fetch the latest employee data from repository (not from scheduling request)
-        // This ensures we use current pay rates, contracts, availability, etc.
-        val employees = employeeRepository.findAll()
-
-        if (employees.isEmpty()) {
-            throw IllegalStateException("No employees found in the system. Please add employees before generating a schedule.")
-        }
-
-        // Create SchedulingInput from the request with latest employee data
-        val input = SchedulingInput(
-            employees = employees,
-            laborCostBudget = schedulingRequest.laborCostBudget,
-            salesForecast = schedulingRequest.salesForecast,
-            schedulingPeriod = schedulingRequest.schedulingPeriod
-        )
-
-        // Generate the schedule
-        val output = generateSchedule(input)
-
-        // Save the schedule generation to history for audit trail
-        val historyRecord = ScheduleHistory(
-            generatedBy = generatedBy,
-            schedulingRequest = schedulingRequest,
-            configuration = configuration,
-            scheduleOutput = output
-        )
-        scheduleHistoryRepository.save(historyRecord)
-
-        // Return the output
-        output
-    }
-
     /**
-     * Creates a default scheduling request using static default values
+     * Generate a new DRAFT schedule from ScheduleInput.
+     * Returns the Schedule object with lifecycle management enabled.
      */
-    private fun createDefaultSchedulingRequest(): org.labormanagement.model.SchedulingRequest {
-        // Get all employees from repository
-        val allEmployees = employeeRepository.findAll()
-
-        // Save the default request using static default values
-        return schedulingRequestRepository.save(
-            name = "Default Scheduling Request",
-            description = "Auto-generated default request",
-            laborCostBudget = DEFAULT_LABOR_BUDGET,
-            salesForecast = DEFAULT_SALES_FORECAST,
-            schedulingPeriod = DEFAULT_SCHEDULING_PERIOD,
-            employeeIds = allEmployees.map { it.id },
-            updatedBy = "system"
-        )
-    }
-
     @Profile
-    fun generateSchedule(input: SchedulingInput): SchedulingOutput = profile {
+    fun generateSchedule(
+        input: ScheduleInput,
+        name: String = "Generated Schedule",
+        generatedBy: String = "system"
+    ): Schedule = profile {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
-        // Fetch latest configuration from repository
-        val config = configRepository.getLatest()
-        val minShiftDurationHours = config.minShiftDurationHours
-        val optimizationObjective = config.defaultOptimizationObjective
+        // Get configuration from input
+        val minShiftDurationHours = input.minShiftDurationHours
+        val optimizationObjective = input.optimizationObjective
 
         // Track weekly hours across all days for overtime calculation and contract limits
         val weeklyHours = mutableMapOf<UUID, Double>()
 
+        val employees = input.employeeIds.mapNotNull { id ->
+            employeeRepository.findById(id)
+        }
+
         // Generate candidate shifts for each day
         profile("generateSchedule.allDays") {
-            input.schedulingPeriod.daysToSchedule.forEach { day ->
-                val operatingHours = input.schedulingPeriod.operatingHours[day] ?: return@forEach
+            input.schedulePeriod.daysToSchedule.forEach { day ->
+                val operatingHours = input.schedulePeriod.operatingHours[day] ?: return@forEach
                 val (dayShifts, dayRequirements) = profile("generateSchedule.singleDay") {
                     generateShiftsForDay(
                         day,
                         operatingHours,
-                        input.employees,
+                        employees,
                         input.salesForecast[day] ?: emptyMap(),
                         input.laborCostBudget,
-                        weeklyHours, // Pass the shared weekly hours tracker
-                        minShiftDurationHours, // Use resolved configuration value
-                        optimizationObjective // Use resolved configuration value
+                        weeklyHours,
+                        minShiftDurationHours,
+                        optimizationObjective
                     )
                 }
                 shifts.addAll(dayShifts)
@@ -191,20 +76,29 @@ class ShiftScheduler(
 
         // Validate constraints
         val violations = profile("generateSchedule.validate") {
-            validator.validate(mergedShifts, input.employees, input.laborCostBudget, mergedRequirements)
+            validator.validate(mergedShifts, employees, input.laborCostBudget, mergedRequirements)
         }
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(mergedShifts, input.employees, input.salesForecast)
+            calculateMetrics(mergedShifts, employees, input.salesForecast)
         }
 
-        return SchedulingOutput(
+        // Create and return Schedule with all data (starts as DRAFT)
+        val schedule = Schedule(
+            name = name,
+            schedulePeriod = input.schedulePeriod,
             shifts = mergedShifts,
             metrics = metrics,
             violations = violations,
-            staffingRequirements = mergedRequirements
+            staffingRequirements = mergedRequirements,
+            createdBy = generatedBy,
+            lastModifiedBy = generatedBy
         )
+
+        scheduleRepository.save(schedule)
+
+        return@profile schedule
     }
 
     /**
@@ -367,122 +261,124 @@ class ShiftScheduler(
         // Schedule hour-by-hour: go through each hour with demand and assign employees
         profile("generateShiftsForDay.hourByHourScheduling") {
             for (interval in evaluationSlots) {
-            val uncoveredSales = hourlyCoverage[interval] ?: 0.0
-            if (uncoveredSales <= 0) continue  // Skip hours with no uncovered demand
+                val uncoveredSales = hourlyCoverage[interval] ?: 0.0
+                if (uncoveredSales <= 0 || currentBudget <= 0) continue  // Skip hours with no uncovered demand
 
-            // Sort employees for this specific hour, prioritizing those who worked the previous consecutive hour
-            val previousInterval = evaluationSlots.findPreviousInterval(interval)
-            val employeesForThisHour = sortEmployeesForInterval(
-                sortedEmployees,
-                interval,
-                previousInterval,
-                shifts,
-                day,
-                weeklyHours
-            )
-
-            // Try to assign employees to cover this specific hour
-            for (employee in employeesForThisHour) {
-                // Check if this hour still has uncovered demand
-                val currentUncovered = hourlyCoverage[interval] ?: 0.0
-                if (currentUncovered <= 0) break  // Hour is covered, move to next hour
-
-                // Check if employee is available during this hour
-                val availabilityForHour = employee.availability.find { avail ->
-                    avail.dayOfWeek == day &&
-                    avail.startTime <= interval.first &&
-                    avail.endTime >= interval.second
-                }
-                if (availabilityForHour == null) continue
-
-                // Check contract limits
-                val currentWeeklyHours = weeklyHours.getOrDefault(employee.id, 0.0)
-                val remainingContractHours = employee.contract.maxHoursPerWeek - currentWeeklyHours
-                if (remainingContractHours < minShiftDurationHours) continue
-
-                // Check if we already have a shift for this employee that covers this hour
-                val existingShift = shifts.find { shift ->
-                    shift.employeeId == employee.id &&
-                    shift.dayOfWeek == day &&
-                    shift.startTime <= interval.first &&
-                    shift.endTime >= interval.second
-                }
-
-                if (existingShift != null) {
-                    // Employee already has a shift covering this hour, count their contribution
-                    val intervalHours = ChronoUnit.MINUTES.between(interval.first, interval.second) / 60.0
-                    val contribution = employee.productivity * intervalHours
-                    hourlyCoverage[interval] = maxOf(0.0, currentUncovered - contribution)
-                    continue
-                }
-
-                // Create a shift for this specific hour interval
-                val shiftStart = interval.first
-                val shiftEnd = interval.second
-                val shiftHours = ChronoUnit.MINUTES.between(shiftStart, shiftEnd) / 60.0
-
-                // Check minimum shift duration
-                if (shiftHours < minShiftDurationHours) continue
-
-                // Check contract daily and weekly limits
-                val maxShiftHours = minOf(
-                    shiftHours,
-                    employee.contract.maxHoursPerDay,
-                    remainingContractHours
+                // Sort employees for this specific hour, prioritizing those who worked the previous consecutive hour
+                val previousInterval = evaluationSlots.findPreviousInterval(interval)
+                val employeesForThisHour = sortEmployeesForInterval(
+                    sortedEmployees,
+                    interval,
+                    previousInterval,
+                    shifts,
+                    day,
+                    weeklyHours
                 )
 
-                if (maxShiftHours < minShiftDurationHours) continue
+                // Try to assign employees to cover this specific hour
+                for (employee in employeesForThisHour) {
+                    // Check if this hour still has uncovered demand
+                    val currentUncovered = hourlyCoverage[interval] ?: 0.0
+                    if (currentUncovered <= 0) break  // Hour is covered, move to next hour
 
-                val finalShiftEnd = shiftStart.plusMinutes((maxShiftHours * 60).toLong())
-                val finalShiftHours = ChronoUnit.MINUTES.between(shiftStart, finalShiftEnd) / 60.0
+                    // Check if employee is available during this hour
+                    val availabilityForHour = employee.availability.find { avail ->
+                        avail.dayOfWeek == day &&
+                                avail.startTime <= interval.first &&
+                                avail.endTime >= interval.second
+                    }
+                    if (availabilityForHour == null) continue
 
-                // Determine pay rate
-                // A shift is considered overtime if the employee has already met or exceeded their overtime threshold
-                // before this shift begins. This is a simplified model - it doesn't split individual shifts into
-                // normal and overtime portions.
-                val isOvertime = currentWeeklyHours >= employee.contract.overtimeThreshold
-                val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
+                    // Check contract limits
+                    val currentWeeklyHours = weeklyHours.getOrDefault(employee.id, 0.0)
+                    val remainingContractHours = employee.contract.maxHoursPerWeek - currentWeeklyHours
+                    if (remainingContractHours < minShiftDurationHours) continue
 
-                // Check budget - allow partial shifts if budget is limited
-                val maxAffordableHours = if (payRate > 0) currentBudget / payRate else Double.MAX_VALUE
+                    // Check if we already have a shift for this employee that covers this hour
+                    val existingShift = shifts.find { shift ->
+                        shift.employeeId == employee.id &&
+                                shift.dayOfWeek == day &&
+                                shift.startTime <= interval.first &&
+                                shift.endTime >= interval.second
+                    }
 
-                if (maxAffordableHours < minShiftDurationHours) continue  // Can't afford minimum shift
-
-                val budgetConstrainedHours = minOf(finalShiftHours, maxAffordableHours)
-                val budgetConstrainedEnd = shiftStart.plusMinutes((budgetConstrainedHours * 60).toLong())
-                val actualShiftHours = ChronoUnit.MINUTES.between(shiftStart, budgetConstrainedEnd) / 60.0
-
-                if (actualShiftHours < minShiftDurationHours) continue
-
-                val shiftCost = actualShiftHours * payRate
-                if (shiftCost > currentBudget) continue
-
-                // Create shift
-                val shift = Shift(
-                    employeeId = employee.id,
-                    dayOfWeek = day,
-                    startTime = shiftStart,
-                    endTime = budgetConstrainedEnd,
-                    payRate = payRate,
-                    isOvertime = isOvertime
-                )
-
-                shifts.add(shift)
-                weeklyHours[employee.id] = currentWeeklyHours + actualShiftHours
-                currentBudget -= shiftCost
-
-                // Update coverage for all hours this shift covers
-                evaluationSlots.forEach { coveredInterval ->
-                    val shiftCovers = shiftStart <= coveredInterval.first && budgetConstrainedEnd >= coveredInterval.second
-                    if (shiftCovers) {
-                        val intervalHours = ChronoUnit.MINUTES.between(coveredInterval.first, coveredInterval.second) / 60.0
+                    if (existingShift != null) {
+                        // Employee already has a shift covering this hour, count their contribution
+                        val intervalHours = ChronoUnit.MINUTES.between(interval.first, interval.second) / 60.0
                         val contribution = employee.productivity * intervalHours
-                        val current = hourlyCoverage[coveredInterval] ?: 0.0
-                        hourlyCoverage[coveredInterval] = maxOf(0.0, current - contribution)
+                        hourlyCoverage[interval] = maxOf(0.0, currentUncovered - contribution)
+                        continue
+                    }
+
+                    // Create a shift for this specific hour interval
+                    val shiftStart = interval.first
+                    val shiftEnd = interval.second
+                    val shiftHours = ChronoUnit.MINUTES.between(shiftStart, shiftEnd) / 60.0
+
+                    // Check minimum shift duration
+                    if (shiftHours < minShiftDurationHours) continue
+
+                    // Check contract daily and weekly limits
+                    val maxShiftHours = minOf(
+                        shiftHours,
+                        employee.contract.maxHoursPerDay,
+                        remainingContractHours
+                    )
+
+                    if (maxShiftHours < minShiftDurationHours) continue
+
+                    val finalShiftEnd = shiftStart.plusMinutes((maxShiftHours * 60).toLong())
+                    val finalShiftHours = ChronoUnit.MINUTES.between(shiftStart, finalShiftEnd) / 60.0
+
+                    // Determine pay rate
+                    // A shift is considered overtime if the employee has already met or exceeded their overtime threshold
+                    // before this shift begins. This is a simplified model - it doesn't split individual shifts into
+                    // normal and overtime portions.
+                    val isOvertime = currentWeeklyHours >= employee.contract.overtimeThreshold
+                    val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
+
+                    // Check budget - allow partial shifts if budget is limited
+                    val maxAffordableHours = if (payRate > 0) currentBudget / payRate else Double.MAX_VALUE
+
+                    if (maxAffordableHours < minShiftDurationHours) continue  // Can't afford minimum shift
+
+                    val budgetConstrainedHours = minOf(finalShiftHours, maxAffordableHours)
+                    val budgetConstrainedEnd = shiftStart.plusMinutes((budgetConstrainedHours * 60).toLong())
+                    val actualShiftHours = ChronoUnit.MINUTES.between(shiftStart, budgetConstrainedEnd) / 60.0
+
+                    if (actualShiftHours < minShiftDurationHours) continue
+
+                    val shiftCost = actualShiftHours * payRate
+                    if (shiftCost > currentBudget) continue
+
+                    // Create shift
+                    val shift = Shift(
+                        employeeId = employee.id,
+                        dayOfWeek = day,
+                        startTime = shiftStart,
+                        endTime = budgetConstrainedEnd,
+                        payRate = payRate,
+                        isOvertime = isOvertime
+                    )
+
+                    shifts.add(shift)
+                    weeklyHours[employee.id] = currentWeeklyHours + actualShiftHours
+                    currentBudget -= shiftCost
+
+                    // Update coverage for all hours this shift covers
+                    evaluationSlots.forEach { coveredInterval ->
+                        val shiftCovers =
+                            shiftStart <= coveredInterval.first && budgetConstrainedEnd >= coveredInterval.second
+                        if (shiftCovers) {
+                            val intervalHours =
+                                ChronoUnit.MINUTES.between(coveredInterval.first, coveredInterval.second) / 60.0
+                            val contribution = employee.productivity * intervalHours
+                            val current = hourlyCoverage[coveredInterval] ?: 0.0
+                            hourlyCoverage[coveredInterval] = maxOf(0.0, current - contribution)
+                        }
                     }
                 }
             }
-        }
         }
 
         // Generate staffing requirements based on evaluation slots

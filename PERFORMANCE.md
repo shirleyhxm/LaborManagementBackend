@@ -160,7 +160,7 @@ Use the `@Profile` annotation for clean, declarative profiling:
 
 ```kotlin
 @Profile  // Automatically names operation as "ClassName.functionName"
-fun generateSchedule(input: SchedulingInput): SchedulingOutput = profile {
+fun generateSchedule(input: ScheduleInput): SchedulingOutput = profile {
     // Function body - auto-profiled as "ShiftScheduler.generateSchedule"
     val result = doWork(input)
 

@@ -43,7 +43,7 @@ fun runMediumWorkloadProfile() {
         LocalTime.of(19, 0) to 200.0
     )
 
-    val input = SchedulingInput(
+    val input = ScheduleInput(
         employees = employees,
         laborCostBudget = 10000.0,
         salesForecast = mapOf(

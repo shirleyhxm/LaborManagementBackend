@@ -8,7 +8,7 @@ package org.labormanagement.service
  *
  * ```kotlin
  * @Profile
- * fun generateSchedule(input: SchedulingInput) = profile {
+ * fun generateSchedule(input: ScheduleInput) = profile {
  *     // Function body - automatically profiled as "ShiftScheduler.generateSchedule"
  *     // ... implementation ...
  * }

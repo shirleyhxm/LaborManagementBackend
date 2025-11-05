@@ -17,16 +17,13 @@ import io.ktor.server.application.install
 import io.ktor.server.application.log
 import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
-import org.labormanagement.controller.ConfigurationController
 import org.labormanagement.controller.EmployeeController
-import org.labormanagement.controller.SchedulingController
-import org.labormanagement.controller.SchedulingRequestController
-import org.labormanagement.controller.ScheduleHistoryController
+import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
-import org.labormanagement.repository.SchedulingConfigurationRepository
-import org.labormanagement.repository.SchedulingRequestRepository
-import org.labormanagement.repository.ScheduleHistoryRepository
+import org.labormanagement.repository.ScheduleRepository
+import org.labormanagement.service.ConstraintValidator
+import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
 import org.slf4j.event.Level
 import com.google.gson.GsonBuilder
@@ -46,25 +43,27 @@ fun main() {
 fun Application.module() {
     // Initialize repositories and services
     val employeeRepository = EmployeeRepository()
-    val configurationRepository = SchedulingConfigurationRepository()
-    val schedulingRequestRepository = SchedulingRequestRepository()
-    val scheduleHistoryRepository = ScheduleHistoryRepository()
+    val scheduleRepository = ScheduleRepository()
+
+    val constraintValidator = ConstraintValidator()
     val shiftScheduler = ShiftScheduler(
-        configRepository = configurationRepository,
-        schedulingRequestRepository = schedulingRequestRepository,
         employeeRepository = employeeRepository,
-        scheduleHistoryRepository = scheduleHistoryRepository
+        scheduleRepository = scheduleRepository
+    )
+
+    val shiftModificationService = ShiftModificationService(
+        scheduleRepository = scheduleRepository,
+        employeeRepository = employeeRepository,
+        constraintValidator = constraintValidator
     )
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
-    val schedulingController = SchedulingController(shiftScheduler)
-    val schedulingRequestController = SchedulingRequestController(
-        schedulingRequestRepository,
-        employeeRepository
+    val scheduleController = ScheduleController(
+        scheduleRepository = scheduleRepository,
+        shiftScheduler = shiftScheduler,
+        shiftModificationService = shiftModificationService
     )
-    val configurationController = ConfigurationController(configurationRepository)
-    val scheduleHistoryController = ScheduleHistoryController(scheduleHistoryRepository)
     val testDataController = TestDataController(employeeRepository)
 
     // Configure plugins
@@ -112,6 +111,7 @@ fun Application.module() {
         allowMethod(HttpMethod.Get)
         allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Put)
+        allowMethod(HttpMethod.Patch)
         allowMethod(HttpMethod.Delete)
     }
 
@@ -161,34 +161,9 @@ fun Application.module() {
                             "description" to "Create, Get, update, or delete a specific employee"
                         ),
                         mapOf(
-                            "path" to "/api/scheduling/generate",
+                            "path" to "/api/schedules/generate",
                             "methods" to listOf("POST"),
-                            "description" to "Generate schedule from active scheduling request (no parameters required)"
-                        ),
-                        mapOf(
-                            "path" to "/api/scheduling/sample-request",
-                            "methods" to listOf("GET"),
-                            "description" to "Get a sample scheduling request"
-                        ),
-                        mapOf(
-                            "path" to "/api/scheduling-request",
-                            "methods" to listOf("GET", "PUT", "DELETE"),
-                            "description" to "View, save, or delete the latest scheduling request"
-                        ),
-                        mapOf(
-                            "path" to "/api/scheduling-request/update",
-                            "methods" to listOf("PUT"),
-                            "description" to "Update specific fields of the latest scheduling request"
-                        ),
-                        mapOf(
-                            "path" to "/api/configuration",
-                            "methods" to listOf("GET", "PUT"),
-                            "description" to "View or update scheduling configuration"
-                        ),
-                        mapOf(
-                            "path" to "/api/configuration/reset",
-                            "methods" to listOf("POST"),
-                            "description" to "Reset configuration to default values"
+                            "description" to "Generate schedule from ScheduleInput (requires ScheduleInput in request body)"
                         ),
                         mapOf(
                             "path" to "/api/test/create-sample-employees",
@@ -230,20 +205,8 @@ fun Application.module() {
             employeeRoutes()
         }
 
-        with(schedulingController) {
-            schedulingRoutes()
-        }
-
-        with(schedulingRequestController) {
-            schedulingRequestRoutes()
-        }
-
-        with(configurationController) {
-            configurationRoutes()
-        }
-
-        with(scheduleHistoryController) {
-            scheduleHistoryRoutes()
+        with(scheduleController) {
+            scheduleRoutes()
         }
 
         with(testDataController) {
