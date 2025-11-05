@@ -9,6 +9,7 @@ import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
 import java.time.DayOfWeek
 import java.time.LocalTime
@@ -18,7 +19,8 @@ import java.util.UUID
 class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator(),
     private val employeeRepository: EmployeeRepository = EmployeeRepository(),
-    private val scheduleRepository: ScheduleRepository = ScheduleRepository()
+    private val scheduleRepository: ScheduleRepository = ScheduleRepository(),
+    private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository()
 ) {
 
     /**
@@ -38,6 +40,9 @@ class ShiftScheduler(
         val minShiftDurationHours = input.minShiftDurationHours
         val optimizationObjective = input.optimizationObjective
 
+        // Get sales forecast from repository
+        val salesForecast = salesForecastRepository.get().weeklyForecast
+
         // Track weekly hours across all days for overtime calculation and contract limits
         val weeklyHours = mutableMapOf<UUID, Double>()
 
@@ -54,7 +59,7 @@ class ShiftScheduler(
                         day,
                         operatingHours,
                         employees,
-                        input.salesForecast[day] ?: emptyMap(),
+                        salesForecast[day] ?: emptyMap(),
                         input.laborCostBudget,
                         weeklyHours,
                         minShiftDurationHours,
@@ -81,7 +86,7 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(mergedShifts, employees, input.salesForecast)
+            calculateMetrics(mergedShifts, employees, salesForecast)
         }
 
         // Create and return Schedule with all data (starts as DRAFT)

@@ -18,9 +18,11 @@ import io.ktor.server.application.log
 import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
 import org.labormanagement.controller.EmployeeController
+import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ConstraintValidator
 import org.labormanagement.service.ShiftModificationService
@@ -44,11 +46,13 @@ fun Application.module() {
     // Initialize repositories and services
     val employeeRepository = EmployeeRepository()
     val scheduleRepository = ScheduleRepository()
+    val salesForecastRepository = SalesForecastRepository()
 
     val constraintValidator = ConstraintValidator()
     val shiftScheduler = ShiftScheduler(
         employeeRepository = employeeRepository,
-        scheduleRepository = scheduleRepository
+        scheduleRepository = scheduleRepository,
+        salesForecastRepository = salesForecastRepository
     )
 
     val shiftModificationService = ShiftModificationService(
@@ -64,6 +68,7 @@ fun Application.module() {
         shiftScheduler = shiftScheduler,
         shiftModificationService = shiftModificationService
     )
+    val salesForecastController = SalesForecastController(salesForecastRepository)
     val testDataController = TestDataController(employeeRepository)
 
     // Configure plugins
@@ -194,6 +199,16 @@ fun Application.module() {
                             "path" to "/api/schedule-history/by-user/{user}",
                             "methods" to listOf("GET"),
                             "description" to "Get schedule history by user"
+                        ),
+                        mapOf(
+                            "path" to "/api/sales-forecast",
+                            "methods" to listOf("GET", "PUT"),
+                            "description" to "Get or update the sales forecast"
+                        ),
+                        mapOf(
+                            "path" to "/api/sales-forecast/reset",
+                            "methods" to listOf("POST"),
+                            "description" to "Reset sales forecast to default values"
                         )
                     )
                 )
@@ -207,6 +222,10 @@ fun Application.module() {
 
         with(scheduleController) {
             scheduleRoutes()
+        }
+
+        with(salesForecastController) {
+            salesForecastRoutes()
         }
 
         with(testDataController) {
