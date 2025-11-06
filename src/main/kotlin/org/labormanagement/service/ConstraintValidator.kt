@@ -67,7 +67,10 @@ class ConstraintValidator {
                     ConstraintViolation(
                         type = ViolationType.AVAILABILITY_CONFLICT,
                         description = "${employee.fullName} is not available for shift on ${shift.dayOfWeek} ${shift.startTime}-${shift.endTime}",
-                        employeeId = employee.id.toString()
+                        employeeId = employee.id,
+                        dayOfWeek = shift.dayOfWeek,
+                        startTime = shift.startTime,
+                        endTime = shift.endTime
                     )
                 )
             }
@@ -87,7 +90,8 @@ class ConstraintValidator {
                 ConstraintViolation(
                     type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                     description = "${employee.fullName} scheduled for ${"%.2f".format(totalWeeklyHours)} hours, exceeds max ${contract.maxHoursPerWeek} hours/week",
-                    employeeId = employee.id.toString()
+                    employeeId = employee.id
+                    // No day/time since this is a weekly aggregate
                 )
             )
         }
@@ -100,7 +104,9 @@ class ConstraintValidator {
                     ConstraintViolation(
                         type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                         description = "${employee.fullName} scheduled for ${"%.2f".format(dailyHours)} hours on $day, exceeds max ${contract.maxHoursPerDay} hours/day",
-                        employeeId = employee.id.toString()
+                        employeeId = employee.id,
+                        dayOfWeek = day
+                        // No specific time since this is a daily aggregate
                     )
                 )
             }
@@ -119,7 +125,10 @@ class ConstraintValidator {
                         ConstraintViolation(
                             type = ViolationType.SHIFT_OVERLAP,
                             description = "${employee.fullName} has overlapping shifts on ${shifts[i].dayOfWeek}",
-                            employeeId = employee.id.toString()
+                            employeeId = employee.id,
+                            dayOfWeek = shifts[i].dayOfWeek,
+                            startTime = shifts[i].startTime,
+                            endTime = shifts[i].endTime
                         )
                     )
                 }
@@ -164,7 +173,11 @@ class ConstraintValidator {
                         description = "Understaffed on ${requirement.dayOfWeek} ${requirement.startTime}-${requirement.endTime}: " +
                                 "needs ${requirement.employeesNeeded} employees, but only ${requirement.employeesAssigned} assigned " +
                                 "(${percentage}% staffed, gap of $gap employee${if (gap > 1) "s" else ""}). " +
-                                "Expected sales: $${"%.2f".format(requirement.expectedSales)}"
+                                "Expected sales: $${"%.2f".format(requirement.expectedSales)}",
+                        dayOfWeek = requirement.dayOfWeek,
+                        startTime = requirement.startTime,
+                        endTime = requirement.endTime
+                        // No employeeId since this affects a time slot, not a specific employee
                     )
                 )
             }

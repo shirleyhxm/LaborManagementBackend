@@ -94,7 +94,10 @@ data class SchedulingMetrics(
 data class ConstraintViolation(
     val type: ViolationType,
     val description: String,
-    val employeeId: String? = null
+    val employeeId: UUID? = null,
+    val dayOfWeek: DayOfWeek? = null,
+    val startTime: LocalTime? = null,
+    val endTime: LocalTime? = null
 )
 
 enum class ViolationType {
