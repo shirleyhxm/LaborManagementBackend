@@ -248,7 +248,7 @@ class ShiftModificationService(
         // Get employee
         val employee = employeeRepository.findById(modifiedShift.employeeId)
             ?: return listOf(
-                ConstraintViolation(
+                ConstraintViolation.Shift(
                     type = ViolationType.AVAILABILITY_CONFLICT,
                     description = "Employee not found",
                     employeeId = modifiedShift.employeeId,
@@ -267,7 +267,7 @@ class ShiftModificationService(
 
         if (!isAvailable) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.Shift(
                     type = ViolationType.AVAILABILITY_CONFLICT,
                     description = "Employee ${employee.fullName} is not available on ${modifiedShift.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
                     employeeId = modifiedShift.employeeId,
@@ -286,7 +286,7 @@ class ShiftModificationService(
 
         if (hasOverlap) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.Shift(
                     type = ViolationType.SHIFT_OVERLAP,
                     description = "Shift overlaps with another shift for ${employee.fullName}",
                     employeeId = modifiedShift.employeeId,
@@ -304,11 +304,10 @@ class ShiftModificationService(
 
         if (weeklyHours > employee.contract.maxHoursPerWeek) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.Employee(
                     type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                     description = "Total weekly hours (${String.format("%.1f", weeklyHours)}) exceeds maximum (${employee.contract.maxHoursPerWeek}) for ${employee.fullName}",
                     employeeId = modifiedShift.employeeId
-                    // No day/time since this is a weekly aggregate
                 )
             )
         }
@@ -316,7 +315,7 @@ class ShiftModificationService(
         // Check daily hours
         if (modifiedShift.durationHours > employee.contract.maxHoursPerDay) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.Shift(
                     type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                     description = "Shift duration (${String.format("%.1f", modifiedShift.durationHours)}h) exceeds daily maximum (${employee.contract.maxHoursPerDay}h) for ${employee.fullName}",
                     employeeId = modifiedShift.employeeId,
