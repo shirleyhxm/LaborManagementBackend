@@ -252,10 +252,13 @@ class ShiftModificationService(
         // Get employee
         val employee = employeeRepository.findById(modifiedShift.employeeId)
             ?: return listOf(
-                ConstraintViolation(
-                    ViolationType.AVAILABILITY_CONFLICT,
-                    "Employee not found",
-                    modifiedShift.employeeId.toString()
+                ConstraintViolation.Shift(
+                    type = ViolationType.AVAILABILITY_CONFLICT,
+                    description = "Employee not found",
+                    employeeId = modifiedShift.employeeId,
+                    dayOfWeek = modifiedShift.dayOfWeek,
+                    startTime = modifiedShift.startTime,
+                    endTime = modifiedShift.endTime
                 )
             )
 
@@ -268,10 +271,13 @@ class ShiftModificationService(
 
         if (!isAvailable) {
             violations.add(
-                ConstraintViolation(
-                    ViolationType.AVAILABILITY_CONFLICT,
-                    "Employee ${employee.fullName} is not available on ${modifiedShift.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
-                    modifiedShift.employeeId.toString()
+                ConstraintViolation.Shift(
+                    type = ViolationType.AVAILABILITY_CONFLICT,
+                    description = "Employee ${employee.fullName} is not available on ${modifiedShift.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
+                    employeeId = modifiedShift.employeeId,
+                    dayOfWeek = modifiedShift.dayOfWeek,
+                    startTime = modifiedShift.startTime,
+                    endTime = modifiedShift.endTime
                 )
             )
         }
@@ -284,10 +290,13 @@ class ShiftModificationService(
 
         if (hasOverlap) {
             violations.add(
-                ConstraintViolation(
-                    ViolationType.SHIFT_OVERLAP,
-                    "Shift overlaps with another shift for ${employee.fullName}",
-                    modifiedShift.employeeId.toString()
+                ConstraintViolation.Shift(
+                    type = ViolationType.SHIFT_OVERLAP,
+                    description = "Shift overlaps with another shift for ${employee.fullName}",
+                    employeeId = modifiedShift.employeeId,
+                    dayOfWeek = modifiedShift.dayOfWeek,
+                    startTime = modifiedShift.startTime,
+                    endTime = modifiedShift.endTime
                 )
             )
         }
@@ -299,10 +308,10 @@ class ShiftModificationService(
 
         if (weeklyHours > employee.contract.maxHoursPerWeek) {
             violations.add(
-                ConstraintViolation(
-                    ViolationType.CONTRACT_HOURS_EXCEEDED,
-                    "Total weekly hours (${String.format("%.1f", weeklyHours)}) exceeds maximum (${employee.contract.maxHoursPerWeek}) for ${employee.fullName}",
-                    modifiedShift.employeeId.toString()
+                ConstraintViolation.Employee(
+                    type = ViolationType.CONTRACT_HOURS_EXCEEDED,
+                    description = "Total weekly hours (${String.format("%.1f", weeklyHours)}) exceeds maximum (${employee.contract.maxHoursPerWeek}) for ${employee.fullName}",
+                    employeeId = modifiedShift.employeeId
                 )
             )
         }
@@ -310,10 +319,13 @@ class ShiftModificationService(
         // Check daily hours
         if (modifiedShift.durationHours > employee.contract.maxHoursPerDay) {
             violations.add(
-                ConstraintViolation(
-                    ViolationType.CONTRACT_HOURS_EXCEEDED,
-                    "Shift duration (${String.format("%.1f", modifiedShift.durationHours)}h) exceeds daily maximum (${employee.contract.maxHoursPerDay}h) for ${employee.fullName}",
-                    modifiedShift.employeeId.toString()
+                ConstraintViolation.Shift(
+                    type = ViolationType.CONTRACT_HOURS_EXCEEDED,
+                    description = "Shift duration (${String.format("%.1f", modifiedShift.durationHours)}h) exceeds daily maximum (${employee.contract.maxHoursPerDay}h) for ${employee.fullName}",
+                    employeeId = modifiedShift.employeeId,
+                    dayOfWeek = modifiedShift.dayOfWeek,
+                    startTime = modifiedShift.startTime,
+                    endTime = modifiedShift.endTime
                 )
             )
         }

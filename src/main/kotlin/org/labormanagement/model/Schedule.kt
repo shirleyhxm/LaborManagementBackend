@@ -97,11 +97,66 @@ data class SchedulingMetrics(
     val employeeUtilization: Map<String, Double>
 )
 
-data class ConstraintViolation(
-    val type: ViolationType,
-    val description: String,
-    val employeeId: String? = null
-)
+/**
+ * Represents constraint violations at different scopes in the schedule.
+ * Using sealed classes provides type-safe access to relevant identifiers
+ * for each violation type, enabling the frontend to map violations to
+ * the appropriate UI component.
+ */
+sealed class ConstraintViolation {
+    abstract val type: ViolationType
+    abstract val description: String
+
+    /**
+     * Schedule-level violations (e.g., budget exceeded)
+     */
+    data class ScheduleLevel(
+        override val type: ViolationType,
+        override val description: String
+    ) : ConstraintViolation()
+
+    /**
+     * Time block violations (e.g., understaffing at a specific time)
+     */
+    data class TimeBlock(
+        override val type: ViolationType,
+        override val description: String,
+        val dayOfWeek: DayOfWeek,
+        val startTime: LocalTime,
+        val endTime: LocalTime
+    ) : ConstraintViolation()
+
+    /**
+     * Employee-level violations (e.g., weekly hours exceeded)
+     */
+    data class Employee(
+        override val type: ViolationType,
+        override val description: String,
+        val employeeId: UUID
+    ) : ConstraintViolation()
+
+    /**
+     * Employee + Day violations (e.g., daily hours exceeded)
+     */
+    data class EmployeeDay(
+        override val type: ViolationType,
+        override val description: String,
+        val employeeId: UUID,
+        val dayOfWeek: DayOfWeek
+    ) : ConstraintViolation()
+
+    /**
+     * Shift-level violations (e.g., availability conflict, overlapping shifts)
+     */
+    data class Shift(
+        override val type: ViolationType,
+        override val description: String,
+        val employeeId: UUID,
+        val dayOfWeek: DayOfWeek,
+        val startTime: LocalTime,
+        val endTime: LocalTime
+    ) : ConstraintViolation()
+}
 
 enum class ViolationType {
     BUDGET_EXCEEDED,

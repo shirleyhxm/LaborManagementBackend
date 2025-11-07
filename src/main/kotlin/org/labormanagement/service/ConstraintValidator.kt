@@ -20,7 +20,7 @@ class ConstraintValidator {
         val totalCost = shifts.sumOf { it.laborCost }
         if (totalCost > laborCostBudget) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.ScheduleLevel(
                     type = ViolationType.BUDGET_EXCEEDED,
                     description = "Total labor cost $${"%.2f".format(totalCost)} exceeds budget $${
                         "%.2f".format(
@@ -64,10 +64,13 @@ class ConstraintValidator {
             val isAvailable = employee.availability.any { it.canWork(shift) }
             if (!isAvailable) {
                 violations.add(
-                    ConstraintViolation(
+                    ConstraintViolation.Shift(
                         type = ViolationType.AVAILABILITY_CONFLICT,
                         description = "${employee.fullName} is not available for shift on ${shift.dayOfWeek} ${shift.startTime}-${shift.endTime}",
-                        employeeId = employee.id.toString()
+                        employeeId = employee.id,
+                        dayOfWeek = shift.dayOfWeek,
+                        startTime = shift.startTime,
+                        endTime = shift.endTime
                     )
                 )
             }
@@ -84,10 +87,10 @@ class ConstraintValidator {
         val totalWeeklyHours = shifts.sumOf { it.durationHours }
         if (totalWeeklyHours > contract.maxHoursPerWeek) {
             violations.add(
-                ConstraintViolation(
+                ConstraintViolation.Employee(
                     type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                     description = "${employee.fullName} scheduled for ${"%.2f".format(totalWeeklyHours)} hours, exceeds max ${contract.maxHoursPerWeek} hours/week",
-                    employeeId = employee.id.toString()
+                    employeeId = employee.id
                 )
             )
         }
@@ -97,10 +100,11 @@ class ConstraintValidator {
             val dailyHours = dayShifts.sumOf { it.durationHours }
             if (dailyHours > contract.maxHoursPerDay) {
                 violations.add(
-                    ConstraintViolation(
+                    ConstraintViolation.EmployeeDay(
                         type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                         description = "${employee.fullName} scheduled for ${"%.2f".format(dailyHours)} hours on $day, exceeds max ${contract.maxHoursPerDay} hours/day",
-                        employeeId = employee.id.toString()
+                        employeeId = employee.id,
+                        dayOfWeek = day
                     )
                 )
             }
@@ -116,10 +120,13 @@ class ConstraintValidator {
             for (j in i + 1 until shifts.size) {
                 if (shifts[i].overlaps(shifts[j])) {
                     violations.add(
-                        ConstraintViolation(
+                        ConstraintViolation.Shift(
                             type = ViolationType.SHIFT_OVERLAP,
                             description = "${employee.fullName} has overlapping shifts on ${shifts[i].dayOfWeek}",
-                            employeeId = employee.id.toString()
+                            employeeId = employee.id,
+                            dayOfWeek = shifts[i].dayOfWeek,
+                            startTime = shifts[i].startTime,
+                            endTime = shifts[i].endTime
                         )
                     )
                 }
@@ -159,12 +166,15 @@ class ConstraintValidator {
                 }
 
                 violations.add(
-                    ConstraintViolation(
+                    ConstraintViolation.TimeBlock(
                         type = ViolationType.UNDERSTAFFING,
                         description = "Understaffed on ${requirement.dayOfWeek} ${requirement.startTime}-${requirement.endTime}: " +
                                 "needs ${requirement.employeesNeeded} employees, but only ${requirement.employeesAssigned} assigned " +
                                 "(${percentage}% staffed, gap of $gap employee${if (gap > 1) "s" else ""}). " +
-                                "Expected sales: $${"%.2f".format(requirement.expectedSales)}"
+                                "Expected sales: $${"%.2f".format(requirement.expectedSales)}",
+                        dayOfWeek = requirement.dayOfWeek,
+                        startTime = requirement.startTime,
+                        endTime = requirement.endTime
                     )
                 )
             }
