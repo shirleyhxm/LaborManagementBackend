@@ -97,6 +97,10 @@ class ShiftScheduler(
             metrics = metrics,
             violations = violations,
             staffingRequirements = mergedRequirements,
+            employeeIds = input.employeeIds,
+            laborCostBudget = input.laborCostBudget,
+            minShiftDurationHours = minShiftDurationHours,
+            optimizationObjective = optimizationObjective,
             createdBy = generatedBy,
             lastModifiedBy = generatedBy
         )
@@ -320,8 +324,8 @@ class ShiftScheduler(
                     val shiftEnd = interval.second
                     val shiftHours = ChronoUnit.MINUTES.between(shiftStart, shiftEnd) / 60.0
 
-                    // Check minimum shift duration
-                    if (shiftHours < minShiftDurationHours) continue
+                    // Check minimum shift duration (always require at least some duration)
+                    if (shiftHours <= 0.0 || shiftHours < minShiftDurationHours) continue
 
                     // Check contract daily and weekly limits
                     val maxShiftHours = minOf(
@@ -351,7 +355,8 @@ class ShiftScheduler(
                     val budgetConstrainedEnd = shiftStart.plusMinutes((budgetConstrainedHours * 60).toLong())
                     val actualShiftHours = ChronoUnit.MINUTES.between(shiftStart, budgetConstrainedEnd) / 60.0
 
-                    if (actualShiftHours < minShiftDurationHours) continue
+                    // Ensure shift has positive duration and meets minimum requirements
+                    if (actualShiftHours <= 0.0 || actualShiftHours < minShiftDurationHours) continue
 
                     val shiftCost = actualShiftHours * payRate
                     if (shiftCost > currentBudget) continue

@@ -79,11 +79,13 @@ fun Application.module() {
             serializeNulls()
 
             // Register type adapters for Java 8 time types
+            // Use HH:mm format for times (e.g., "09:00" instead of "09:00:00")
+            val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
             registerTypeAdapter(LocalTime::class.java, JsonSerializer<LocalTime> { src, _, _ ->
-                com.google.gson.JsonPrimitive(src.format(DateTimeFormatter.ISO_LOCAL_TIME))
+                com.google.gson.JsonPrimitive(src.format(timeFormatter))
             })
             registerTypeAdapter(LocalTime::class.java, JsonDeserializer { json, _, _ ->
-                LocalTime.parse(json.asString, DateTimeFormatter.ISO_LOCAL_TIME)
+                LocalTime.parse(json.asString, timeFormatter)
             })
 
             registerTypeAdapter(LocalDate::class.java, JsonSerializer<LocalDate> { src, _, _ ->

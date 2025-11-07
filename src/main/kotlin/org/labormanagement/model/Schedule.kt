@@ -33,6 +33,12 @@ data class Schedule(
     val violations: List<ConstraintViolation> = emptyList(),
     val staffingRequirements: List<StaffingRequirement> = emptyList(),
 
+    // Generation input parameters (for historical reference and reproducibility)
+    val employeeIds: List<UUID>,
+    val laborCostBudget: Double,
+    val minShiftDurationHours: Double,
+    val optimizationObjective: OptimizationObjective,
+
     // Lifecycle metadata
     val version: Int = 1,
     val createdAt: Instant = Instant.now(),
