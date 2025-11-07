@@ -1,5 +1,7 @@
 package org.labormanagement
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.server.application.Application
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
@@ -15,8 +17,11 @@ import io.ktor.serialization.gson.gson
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.application.log
+import io.ktor.server.auth.Authentication
+import io.ktor.server.auth.jwt.jwt
 import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
+import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
@@ -24,7 +29,10 @@ import org.labormanagement.controller.TestDataController
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
+import org.labormanagement.repository.UserRepository
+import org.labormanagement.service.AuthService
 import org.labormanagement.service.ConstraintValidator
+import org.labormanagement.service.JwtService
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
 import org.slf4j.event.Level
@@ -47,6 +55,7 @@ fun Application.module() {
     val employeeRepository = EmployeeRepository()
     val scheduleRepository = ScheduleRepository()
     val salesForecastRepository = SalesForecastRepository()
+    val userRepository = UserRepository()
 
     val constraintValidator = ConstraintValidator()
     val shiftScheduler = ShiftScheduler(
@@ -61,6 +70,10 @@ fun Application.module() {
         constraintValidator = constraintValidator
     )
 
+    // Initialize auth services
+    val jwtService = JwtService()
+    val authService = AuthService(userRepository, jwtService)
+
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
     val scheduleController = ScheduleController(
@@ -70,6 +83,7 @@ fun Application.module() {
     )
     val salesForecastController = SalesForecastController(salesForecastRepository)
     val testDataController = TestDataController(employeeRepository)
+    val authController = AuthController(authService)
 
     // Configure plugins
     install(ContentNegotiation) {
@@ -114,12 +128,39 @@ fun Application.module() {
     install(CORS) {
         anyHost()
         allowHeader(HttpHeaders.ContentType)
+        allowHeader(HttpHeaders.Authorization)
         allowMethod(HttpMethod.Options)
         allowMethod(HttpMethod.Get)
         allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Put)
         allowMethod(HttpMethod.Patch)
         allowMethod(HttpMethod.Delete)
+    }
+
+    // Configure JWT Authentication
+    val jwtSecret = System.getenv("JWT_SECRET") ?: "labor-management-secret-key-change-this-in-production-minimum-256-bits"
+    val jwtIssuer = "labor-management-app"
+    val jwtAudience = "labor-management-users"
+    val jwtRealm = "Labor Management App"
+
+    install(Authentication) {
+        jwt("auth-jwt") {
+            realm = jwtRealm
+            verifier(
+                JWT
+                    .require(Algorithm.HMAC256(jwtSecret))
+                    .withAudience(jwtAudience)
+                    .withIssuer(jwtIssuer)
+                    .build()
+            )
+            validate { credential ->
+                if (credential.payload.audience.contains(jwtAudience)) {
+                    io.ktor.server.auth.jwt.JWTPrincipal(credential.payload)
+                } else {
+                    null
+                }
+            }
+        }
     }
 
     install(CallLogging) {
@@ -218,6 +259,10 @@ fun Application.module() {
         }
 
         // Register controller routes
+        with(authController) {
+            authRoutes()
+        }
+
         with(employeeController) {
             employeeRoutes()
         }

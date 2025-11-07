@@ -21,6 +21,13 @@ dependencies {
     implementation("io.ktor:ktor-server-call-logging:2.3.12")
     implementation("io.ktor:ktor-server-status-pages:2.3.12")
 
+    // JWT authentication
+    implementation("io.ktor:ktor-server-auth:2.3.12")
+    implementation("io.ktor:ktor-server-auth-jwt:2.3.12")
+
+    // Password hashing
+    implementation("org.mindrot:jbcrypt:0.4")
+
     // Logging
     implementation("ch.qos.logback:logback-classic:1.4.14")
 
