@@ -251,7 +251,18 @@ class ScheduleController(
                             return@patch
                         }
 
-                    val request = call.receive<ModifyShiftRequest>()
+                    val request = try {
+                        call.receive<ModifyShiftRequest>()
+                    } catch (e: Exception) {
+                        call.application.log.error("Failed to parse ModifyShiftRequest", e)
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Invalid request body: ${e.message}")
+                        )
+                        return@patch
+                    }
+
+                    call.application.log.info("Modifying shift: scheduleId=$scheduleId, shiftId=$shiftId, request=$request")
 
                     val result = shiftModificationService.modifyShift(
                         scheduleId = scheduleId,
@@ -272,6 +283,10 @@ class ScheduleController(
                             )
                         ))
                     } else {
+                        call.application.log.warn("Shift modification validation failed: ${result.violations.size} violations")
+                        result.violations.forEach { violation ->
+                            call.application.log.warn("  - $violation")
+                        }
                         call.respond(HttpStatusCode.BadRequest, mapOf(
                             "shift" to result.shift,
                             "validation" to mapOf(
@@ -281,11 +296,13 @@ class ScheduleController(
                         ))
                     }
                 } catch (e: IllegalStateException) {
+                    call.application.log.error("Illegal state during shift modification", e)
                     call.respond(
                         HttpStatusCode.Forbidden,
                         mapOf("error" to e.message)
                     )
                 } catch (e: IllegalArgumentException) {
+                    call.application.log.error("Illegal argument during shift modification", e)
                     call.respond(
                         HttpStatusCode.NotFound,
                         mapOf("error" to e.message)

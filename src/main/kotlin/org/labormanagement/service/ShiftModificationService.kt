@@ -58,8 +58,19 @@ class ShiftModificationService(
                 if (it.id == shiftId) modifiedShift else it
             }
 
+            // Recalculate metrics and staffing requirements with updated shifts
+            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+            val updatedStaffingRequirements = recalculateStaffingRequirements(
+                shifts = updatedShifts,
+                originalRequirements = schedule.staffingRequirements,
+                employees = employees
+            )
+
             val updatedSchedule = schedule.copy(
                 shifts = updatedShifts,
+                metrics = updatedMetrics,
+                staffingRequirements = updatedStaffingRequirements,
                 version = schedule.version + 1,
                 lastModifiedAt = Instant.now(),
                 lastModifiedBy = modifiedBy
@@ -117,8 +128,19 @@ class ShiftModificationService(
         if (violations.isEmpty()) {
             val updatedShifts = schedule.shifts + duplicatedShift
 
+            // Recalculate metrics and staffing requirements
+            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+            val updatedStaffingRequirements = recalculateStaffingRequirements(
+                shifts = updatedShifts,
+                originalRequirements = schedule.staffingRequirements,
+                employees = employees
+            )
+
             val updatedSchedule = schedule.copy(
                 shifts = updatedShifts,
+                metrics = updatedMetrics,
+                staffingRequirements = updatedStaffingRequirements,
                 version = schedule.version + 1,
                 lastModifiedAt = Instant.now(),
                 lastModifiedBy = createdBy
@@ -155,13 +177,24 @@ class ShiftModificationService(
             throw IllegalStateException("Cannot delete shifts from ${schedule.status} schedule. Only DRAFT schedules can be modified.")
         }
 
-        val shift = schedule.findShift(shiftId)
+        schedule.findShift(shiftId)
             ?: throw IllegalArgumentException("Shift not found: $shiftId")
 
         val updatedShifts = schedule.shifts.filter { it.id != shiftId }
 
+        // Recalculate metrics and staffing requirements
+        val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+        val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+        val updatedStaffingRequirements = recalculateStaffingRequirements(
+            shifts = updatedShifts,
+            originalRequirements = schedule.staffingRequirements,
+            employees = employees
+        )
+
         val updatedSchedule = schedule.copy(
             shifts = updatedShifts,
+            metrics = updatedMetrics,
+            staffingRequirements = updatedStaffingRequirements,
             version = schedule.version + 1,
             lastModifiedAt = Instant.now(),
             lastModifiedBy = modifiedBy
@@ -343,6 +376,65 @@ class ShiftModificationService(
         // For new shifts, we don't have an "original" to exclude, so use empty shift
         val dummyOriginal = newShift.copy(id = UUID.randomUUID())
         return validateShiftModification(schedule, dummyOriginal, newShift)
+    }
+
+    /**
+     * Calculate schedule metrics (labor cost, estimated sales, utilization)
+     */
+    private fun calculateScheduleMetrics(
+        shifts: List<Shift>,
+        employees: List<Employee>
+    ): SchedulingMetrics {
+        val totalLaborCost = shifts.sumOf { it.laborCost }
+
+        // Calculate estimated sales based on employee productivity
+        val employeeMap = employees.associateBy { it.id }
+        val estimatedSales = shifts.sumOf { shift ->
+            val employee = employeeMap[shift.employeeId] ?: return@sumOf 0.0
+            shift.durationHours * employee.productivity
+        }
+
+        val laborCostPercentage = if (estimatedSales > 0) {
+            (totalLaborCost / estimatedSales) * 100
+        } else {
+            0.0
+        }
+
+        // Calculate employee utilization
+        val utilization = mutableMapOf<String, Double>()
+        employees.forEach { employee ->
+            val employeeShifts = shifts.filter { it.employeeId == employee.id }
+            val scheduledHours = employeeShifts.sumOf { it.durationHours }
+            val utilizationRate = (scheduledHours / employee.contract.contractedHoursPerWeek) * 100
+            utilization[employee.fullName] = utilizationRate
+        }
+
+        return SchedulingMetrics(
+            totalLaborCost = totalLaborCost,
+            estimatedTotalSales = estimatedSales,
+            laborCostPercentage = laborCostPercentage,
+            employeeUtilization = utilization
+        )
+    }
+
+    /**
+     * Recalculate staffing requirements based on updated shifts
+     */
+    private fun recalculateStaffingRequirements(
+        shifts: List<Shift>,
+        originalRequirements: List<StaffingRequirement>,
+        employees: List<Employee>
+    ): List<StaffingRequirement> {
+        // Update each staffing requirement with the new employee count assigned
+        return originalRequirements.map { requirement ->
+            val assignedCount = shifts.count { shift ->
+                shift.dayOfWeek == requirement.dayOfWeek &&
+                shift.startTime <= requirement.startTime &&
+                shift.endTime >= requirement.endTime
+            }
+
+            requirement.copy(employeesAssigned = assignedCount)
+        }
     }
 }
 
