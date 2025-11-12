@@ -6,6 +6,7 @@ import io.ktor.server.application.log
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
+import org.labormanagement.dto.createValidationErrorResponse
 import org.labormanagement.model.ScheduleInput
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
@@ -276,24 +277,21 @@ class ScheduleController(
 
                     if (result.isValid) {
                         call.respond(HttpStatusCode.OK, mapOf(
-                            "shift" to result.shift,
-                            "validation" to mapOf(
-                                "isValid" to true,
-                                "violations" to emptyList<String>()
-                            )
+                            "success" to true,
+                            "shift" to result.shift
                         ))
                     } else {
                         call.application.log.warn("Shift modification validation failed: ${result.violations.size} violations")
                         result.violations.forEach { violation ->
                             call.application.log.warn("  - $violation")
                         }
-                        call.respond(HttpStatusCode.BadRequest, mapOf(
-                            "shift" to result.shift,
-                            "validation" to mapOf(
-                                "isValid" to false,
-                                "violations" to result.violations
-                            )
-                        ))
+
+                        // Return 422 Unprocessable Entity for validation failures
+                        val errorResponse = createValidationErrorResponse(
+                            violations = result.violations,
+                            message = "Cannot modify shift due to constraint violations"
+                        )
+                        call.respond(HttpStatusCode.UnprocessableEntity, errorResponse)
                     }
                 } catch (e: IllegalStateException) {
                     call.application.log.error("Illegal state during shift modification", e)
@@ -349,15 +347,21 @@ class ScheduleController(
 
                     if (result.isValid) {
                         call.respond(HttpStatusCode.Created, mapOf(
+                            "success" to true,
                             "shift" to result.shift
                         ))
                     } else {
-                        call.respond(HttpStatusCode.BadRequest, mapOf(
-                            "validation" to mapOf(
-                                "isValid" to false,
-                                "violations" to result.violations
-                            )
-                        ))
+                        call.application.log.warn("Shift duplication validation failed: ${result.violations.size} violations")
+                        result.violations.forEach { violation ->
+                            call.application.log.warn("  - $violation")
+                        }
+
+                        // Return 422 Unprocessable Entity for validation failures
+                        val errorResponse = createValidationErrorResponse(
+                            violations = result.violations,
+                            message = "Cannot duplicate shift due to constraint violations"
+                        )
+                        call.respond(HttpStatusCode.UnprocessableEntity, errorResponse)
                     }
                 } catch (e: IllegalStateException) {
                     call.respond(
