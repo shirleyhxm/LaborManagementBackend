@@ -1,8 +1,9 @@
 package org.labormanagement.service
 
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.RepeatedTest
+import org.junit.jupiter.api.RepetitionInfo
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
@@ -18,8 +19,8 @@ import kotlin.random.Random
  * 1. MAXIMIZE_SALES objective produces the highest estimated total sales among all objectives
  * 2. MINIMIZE_LABOR_COST objective produces the lowest total labor cost among all objectives
  *
- * The test uses randomized employee and sales data and runs 5 iterations to ensure
- * the optimization logic is robust across different scenarios.
+ * The test uses randomized employee and sales data and runs 5 iterations using @RepeatedTest
+ * to ensure the optimization logic is robust across different scenarios.
  */
 class ShiftSchedulerValidationTest {
     private lateinit var employeeRepository: EmployeeRepository
@@ -175,199 +176,121 @@ class ShiftSchedulerValidationTest {
         return forecast
     }
 
-    @Test
-    fun `validation pipeline - all optimization objectives should meet their optimization criteria across 5 randomized iterations`() {
-        println("\n========================================")
-        println("SHIFT SCHEDULER VALIDATION PIPELINE")
-        println("Randomized Testing with 5 Iterations")
-        println("========================================\n")
+    @RepeatedTest(5, name = "Validation iteration {currentRepetition} of {totalRepetitions}")
+    fun `optimization objectives should meet their optimization criteria with randomized data`(repetitionInfo: RepetitionInfo) {
+        val iteration = repetitionInfo.currentRepetition
+        val totalIterations = repetitionInfo.totalRepetitions
 
-        val numIterations = 5
-        val iterationResults = mutableListOf<IterationResult>()
+        println("\n╔════════════════════════════════════════╗")
+        println("║    ITERATION $iteration OF $totalIterations                  ║")
+        println("╚════════════════════════════════════════╝\n")
 
-        // Run 5 iterations with different random data
-        for (iteration in 1..numIterations) {
-            println("\n╔════════════════════════════════════════╗")
-            println("║    ITERATION $iteration OF $numIterations                  ║")
-            println("╔════════════════════════════════════════╗\n")
+        // Use different seed for each iteration
+        val random = Random(12345 + iteration)
 
-            // Use different seed for each iteration
-            val random = Random(12345 + iteration)
+        println("Step 1: Creating randomized test employees...")
+        val employees = createRandomizedTestEmployees(random)
+        println("Created ${employees.size} employees with randomized stats:")
+        println("  Productivity range: ${"%.0f".format(employees.minOf { it.productivity })}-${"%.0f".format(employees.maxOf { it.productivity })}")
+        println("  Pay rate range: $${"%.2f".format(employees.minOf { it.normalPayRate })}-$${"%.2f".format(employees.maxOf { it.normalPayRate })}")
 
-            // Reset repositories for clean state
-            employeeRepository = EmployeeRepository()
-            salesForecastRepository = SalesForecastRepository()
-            scheduler = ShiftScheduler(
-                employeeRepository = employeeRepository,
-                salesForecastRepository = salesForecastRepository
+        println("\nStep 2: Creating randomized weekly sales forecast...")
+        val salesForecast = createRandomizedWeeklySalesForecast(random)
+        salesForecastRepository.update(salesForecast)
+        val totalExpectedSales = salesForecast.values.flatMap { it.values }.sum()
+        println("Total expected sales across week: $${"%.2f".format(totalExpectedSales)}")
+
+        // Define common input parameters
+        println("\nStep 3: Defining scheduling parameters...")
+        val laborCostBudget = 12000.0 + random.nextDouble(-2000.0, 5000.0)  // $10k-$17k
+        println("Budget: $${"%.2f".format(laborCostBudget)}")
+
+        val schedulePeriod = SchedulePeriod(
+            daysToSchedule = listOf(
+                DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+                DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
+            ),
+            operatingHours = mapOf(
+                DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0))
             )
-
-            println("Step 1: Creating randomized test employees...")
-            val employees = createRandomizedTestEmployees(random)
-            println("Created ${employees.size} employees with randomized stats:")
-            println("  Productivity range: ${"%.0f".format(employees.minOf { it.productivity })}-${"%.0f".format(employees.maxOf { it.productivity })}")
-            println("  Pay rate range: $${"%.2f".format(employees.minOf { it.normalPayRate })}-$${"%.2f".format(employees.maxOf { it.normalPayRate })}")
-
-            println("\nStep 2: Creating randomized weekly sales forecast...")
-            val salesForecast = createRandomizedWeeklySalesForecast(random)
-            salesForecastRepository.update(salesForecast)
-            val totalExpectedSales = salesForecast.values.flatMap { it.values }.sum()
-            println("Total expected sales across week: $${"%.2f".format(totalExpectedSales)}")
-
-            // Define common input parameters
-            println("\nStep 3: Defining scheduling parameters...")
-            val laborCostBudget = 12000.0 + random.nextDouble(-2000.0, 5000.0)  // $10k-$17k
-            println("Budget: $${"%.2f".format(laborCostBudget)}")
-
-            val schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(
-                    DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
-                    DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
-                ),
-                operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0))
-                )
-            )
-
-            // Generate schedules for each optimization objective
-            println("\nStep 4: Generating schedules for each optimization objective...")
-            val objectives = listOf(
-                OptimizationObjective.MAXIMIZE_SALES,
-                OptimizationObjective.MINIMIZE_LABOR_COST,
-                OptimizationObjective.BALANCED,
-                OptimizationObjective.MAXIMIZE_FAIRNESS
-            )
-
-            val schedules = mutableMapOf<OptimizationObjective, Schedule>()
-
-            objectives.forEach { objective ->
-                val input = ScheduleInput(
-                    employeeIds = employees.map { it.id },
-                    laborCostBudget = laborCostBudget,
-                    schedulePeriod = schedulePeriod,
-                    optimizationObjective = objective
-                )
-
-                val schedule = scheduler.generateSchedule(input, name = "$objective Schedule")
-                schedules[objective] = schedule
-            }
-
-            // Print metrics table
-            println("\n  Metrics Comparison:")
-            println("  ┌────────────────────────┬─────────────────┬─────────────────┐")
-            println("  │ Objective              │ Labor Cost ($)  │ Est. Sales ($)  │")
-            println("  ├────────────────────────┼─────────────────┼─────────────────┤")
-            schedules.forEach { (objective, schedule) ->
-                val objName = objective.toString().padEnd(22)
-                val cost = "%,15.2f".format(schedule.metrics.totalLaborCost)
-                val sales = "%,15.2f".format(schedule.metrics.estimatedTotalSales)
-                println("  │ $objName │ $cost │ $sales │")
-            }
-            println("  └────────────────────────┴─────────────────┴─────────────────┘")
-
-            // Validate optimization criteria
-            val maxSalesSchedule = schedules[OptimizationObjective.MAXIMIZE_SALES]!!
-            val minCostSchedule = schedules[OptimizationObjective.MINIMIZE_LABOR_COST]!!
-
-            val allSales = schedules.map { it.value.metrics.estimatedTotalSales }
-            val allCosts = schedules.map { it.value.metrics.totalLaborCost }
-
-            val maxSales = allSales.max()
-            val minCost = allCosts.min()
-
-            val salesPassed = maxSalesSchedule.metrics.estimatedTotalSales >= maxSales - 0.01
-            val costPassed = minCostSchedule.metrics.totalLaborCost <= minCost + 0.01
-
-            println("\n  Validation Results:")
-            println("  ├─ MAXIMIZE_SALES: ${if (salesPassed) "✓ PASS" else "✗ FAIL"}")
-            println("  │  Produced: $${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}")
-            println("  │  Expected: >= $${"%.2f".format(maxSales)} (highest among all)")
-            println("  │")
-            println("  ├─ MINIMIZE_LABOR_COST: ${if (costPassed) "✓ PASS" else "✗ FAIL"}")
-            println("  │  Produced: $${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}")
-            println("  │  Expected: <= $${"%.2f".format(minCost)} (lowest among all)")
-
-            // Store iteration results
-            iterationResults.add(IterationResult(
-                iteration = iteration,
-                salesPassed = salesPassed,
-                costPassed = costPassed,
-                maxSalesValue = maxSalesSchedule.metrics.estimatedTotalSales,
-                minCostValue = minCostSchedule.metrics.totalLaborCost,
-                expectedMaxSales = maxSales,
-                expectedMinCost = minCost
-            ))
-
-            println("\n  Iteration $iteration: ${if (salesPassed && costPassed) "✓ PASS" else "✗ FAIL"}")
-        }
-
-        // Print summary of all iterations
-        println("\n========================================")
-        println("FINAL RESULTS ACROSS ALL ITERATIONS")
-        println("========================================\n")
-
-        println("Iteration Summary:")
-        println("┌──────────┬─────────────────┬──────────────────────┬───────────┐")
-        println("│ Iteration│ MAXIMIZE_SALES  │ MINIMIZE_LABOR_COST  │  Result   │")
-        println("├──────────┼─────────────────┼──────────────────────┼───────────┤")
-        iterationResults.forEach { result ->
-            val iter = "%8d".format(result.iteration)
-            val sales = if (result.salesPassed) "     ✓ PASS    " else "     ✗ FAIL    "
-            val cost = if (result.costPassed) "        ✓ PASS       " else "        ✗ FAIL       "
-            val overall = if (result.salesPassed && result.costPassed) "  ✓ PASS  " else "  ✗ FAIL  "
-            println("│ $iter │ $sales │ $cost │ $overall │")
-        }
-        println("└──────────┴─────────────────┴──────────────────────┴───────────┘")
-
-        val passedIterations = iterationResults.count { it.salesPassed && it.costPassed }
-        val failedIterations = numIterations - passedIterations
-
-        println("\nOverall Statistics:")
-        println("  Total iterations: $numIterations")
-        println("  Passed: $passedIterations")
-        println("  Failed: $failedIterations")
-        println("  Success rate: ${(passedIterations * 100.0 / numIterations).toInt()}%")
-
-        if (passedIterations == numIterations) {
-            println("\n✓ ALL ITERATIONS PASSED")
-            println("\nThe ShiftScheduler consistently optimizes across randomized scenarios:")
-            println("  1. MAXIMIZE_SALES always produces the highest estimated sales")
-            println("  2. MINIMIZE_LABOR_COST always produces the lowest labor cost")
-        } else {
-            println("\n✗ SOME ITERATIONS FAILED")
-            println("\nFailed iterations:")
-            iterationResults.filter { !it.salesPassed || !it.costPassed }.forEach { result ->
-                println("\n  Iteration ${result.iteration}:")
-                if (!result.salesPassed) {
-                    println("    - MAXIMIZE_SALES failed: got ${"%.2f".format(result.maxSalesValue)}, expected >= ${"%.2f".format(result.expectedMaxSales)}")
-                }
-                if (!result.costPassed) {
-                    println("    - MINIMIZE_LABOR_COST failed: got ${"%.2f".format(result.minCostValue)}, expected <= ${"%.2f".format(result.expectedMinCost)}")
-                }
-            }
-        }
-        println()
-
-        // Assert all iterations passed
-        assertTrue(
-            passedIterations == numIterations,
-            "All $numIterations iterations must pass validation. " +
-                    "Passed: $passedIterations, Failed: $failedIterations. " +
-                    "Check individual iteration details above."
         )
-    }
 
-    private data class IterationResult(
-        val iteration: Int,
-        val salesPassed: Boolean,
-        val costPassed: Boolean,
-        val maxSalesValue: Double,
-        val minCostValue: Double,
-        val expectedMaxSales: Double,
-        val expectedMinCost: Double
-    )
+        // Generate schedules for each optimization objective
+        println("\nStep 4: Generating schedules for each optimization objective...")
+        val objectives = listOf(
+            OptimizationObjective.MAXIMIZE_SALES,
+            OptimizationObjective.MINIMIZE_LABOR_COST,
+            OptimizationObjective.BALANCED,
+            OptimizationObjective.MAXIMIZE_FAIRNESS
+        )
+
+        val schedules = mutableMapOf<OptimizationObjective, Schedule>()
+
+        objectives.forEach { objective ->
+            val input = ScheduleInput(
+                employeeIds = employees.map { it.id },
+                laborCostBudget = laborCostBudget,
+                schedulePeriod = schedulePeriod,
+                optimizationObjective = objective
+            )
+
+            val schedule = scheduler.generateSchedule(input, name = "$objective Schedule")
+            schedules[objective] = schedule
+        }
+
+        // Print metrics table
+        println("\n  Metrics Comparison:")
+        println("  ┌────────────────────────┬─────────────────┬─────────────────┐")
+        println("  │ Objective              │ Labor Cost ($)  │ Est. Sales ($)  │")
+        println("  ├────────────────────────┼─────────────────┼─────────────────┤")
+        schedules.forEach { (objective, schedule) ->
+            val objName = objective.toString().padEnd(22)
+            val cost = "%,15.2f".format(schedule.metrics.totalLaborCost)
+            val sales = "%,15.2f".format(schedule.metrics.estimatedTotalSales)
+            println("  │ $objName │ $cost │ $sales │")
+        }
+        println("  └────────────────────────┴─────────────────┴─────────────────┘")
+
+        // Validate optimization criteria
+        val maxSalesSchedule = schedules[OptimizationObjective.MAXIMIZE_SALES]!!
+        val minCostSchedule = schedules[OptimizationObjective.MINIMIZE_LABOR_COST]!!
+
+        val allSales = schedules.map { it.value.metrics.estimatedTotalSales }
+        val allCosts = schedules.map { it.value.metrics.totalLaborCost }
+
+        val maxSales = allSales.max()
+        val minCost = allCosts.min()
+
+        println("\n  Validation Results:")
+        println("  ├─ MAXIMIZE_SALES:")
+        println("  │  Produced: $${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}")
+        println("  │  Expected: >= $${"%.2f".format(maxSales)} (highest among all)")
+
+        println("  │")
+        println("  ├─ MINIMIZE_LABOR_COST:")
+        println("  │  Produced: $${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}")
+        println("  │  Expected: <= $${"%.2f".format(minCost)} (lowest among all)")
+
+        // Assert validation criteria
+        assertTrue(
+            maxSalesSchedule.metrics.estimatedTotalSales >= maxSales - 0.01,
+            "MAXIMIZE_SALES should produce the highest estimated sales among all objectives. " +
+                    "Expected >= ${"%.2f".format(maxSales)}, " +
+                    "but got ${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}"
+        )
+
+        assertTrue(
+            minCostSchedule.metrics.totalLaborCost <= minCost + 0.01,
+            "MINIMIZE_LABOR_COST should produce the lowest labor cost among all objectives. " +
+                    "Expected <= ${"%.2f".format(minCost)}, " +
+                    "but got ${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}"
+        )
+
+        println("\n  ✓ Iteration $iteration PASSED")
+        println()
+    }
 }
