@@ -9,6 +9,7 @@ import org.labormanagement.repository.SalesForecastRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import kotlin.random.Random
 
 /**
  * Self-validating pipeline test for ShiftScheduler optimization objectives.
@@ -17,8 +18,8 @@ import java.time.LocalTime
  * 1. MAXIMIZE_SALES objective produces the highest estimated total sales among all objectives
  * 2. MINIMIZE_LABOR_COST objective produces the lowest total labor cost among all objectives
  *
- * The test uses the same input data (employees, sales forecast, budget) for all objectives
- * to ensure a fair comparison.
+ * The test uses randomized employee and sales data and runs 5 iterations to ensure
+ * the optimization logic is robust across different scenarios.
  */
 class ShiftSchedulerValidationTest {
     private lateinit var employeeRepository: EmployeeRepository
@@ -36,173 +37,71 @@ class ShiftSchedulerValidationTest {
     }
 
     /**
-     * Creates 10 diverse test employees with varying productivity, pay rates, and availability.
+     * Creates 10 diverse test employees with randomized productivity, pay rates, and availability.
      * This diversity ensures the optimizer has meaningful choices to make.
      */
-    private fun createTestEmployees(): List<Employee> {
+    private fun createRandomizedTestEmployees(random: Random): List<Employee> {
         val employees = mutableListOf<Employee>()
+        val employeeProfiles = listOf(
+            "HighProdHighCost", "HighProdMedCost", "MedProdLowCost", "LowProdVeryLowCost",
+            "MedProdMedCost", "VeryHighProdVeryHighCost", "LowProdLowCost", "HighProdLowCost",
+            "MedLowProdMedCost", "VeryLowProdVeryLowCost"
+        )
 
-        // Employee 1: High productivity, high cost (productivity: 500, rate: 40)
-        employees.add(createEmployee(
-            firstName = "HighProdHighCost",
-            productivity = 500.0,
-            payRate = 40.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
-            )
-        ))
+        employeeProfiles.forEachIndexed { index, name ->
+            // Randomize productivity: 80-650 with variation
+            val baseProductivity = 100.0 + (index * 50.0)
+            val productivity = baseProductivity + random.nextDouble(-30.0, 80.0)
 
-        // Employee 2: High productivity, medium cost (productivity: 450, rate: 30)
-        employees.add(createEmployee(
-            firstName = "HighProdMedCost",
-            productivity = 450.0,
-            payRate = 30.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
-            )
-        ))
+            // Randomize pay rate: $8-$55 with correlation to productivity
+            val basePayRate = 8.0 + (index * 4.0)
+            val payRate = basePayRate + random.nextDouble(-3.0, 8.0)
 
-        // Employee 3: Medium productivity, low cost (productivity: 250, rate: 15) - Best ratio
-        employees.add(createEmployee(
-            firstName = "MedProdLowCost",
-            productivity = 250.0,
-            payRate = 15.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(22, 0))
-            )
-        ))
+            // Randomize contract hours
+            val contractedHours = if (random.nextBoolean()) 40.0 else 35.0
+            val maxHours = contractedHours + random.nextInt(5, 16).toDouble()
 
-        // Employee 4: Low productivity, very low cost (productivity: 150, rate: 10)
-        employees.add(createEmployee(
-            firstName = "LowProdVeryLowCost",
-            productivity = 150.0,
-            payRate = 10.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
-            )
-        ))
+            // Randomize availability - some employees have limited availability
+            val availability = if (random.nextDouble() < 0.7) {
+                // 70% have full week availability
+                createFullWeekAvailability(random)
+            } else {
+                // 30% have partial week availability
+                createPartialWeekAvailability(random)
+            }
 
-        // Employee 5: Medium productivity, medium cost (productivity: 300, rate: 25)
-        employees.add(createEmployee(
-            firstName = "MedProdMedCost",
-            productivity = 300.0,
-            payRate = 25.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(10, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(10, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(10, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(10, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(10, 0), LocalTime.of(20, 0))
-            )
-        ))
-
-        // Employee 6: Very high productivity, very high cost (productivity: 600, rate: 50)
-        employees.add(createEmployee(
-            firstName = "VeryHighProdVeryHighCost",
-            productivity = 600.0,
-            payRate = 50.0,
-            contractedHours = 35.0,
-            maxHours = 45.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
-            )
-        ))
-
-        // Employee 7: Low productivity, low cost (productivity: 180, rate: 12)
-        employees.add(createEmployee(
-            firstName = "LowProdLowCost",
-            productivity = 180.0,
-            payRate = 12.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(19, 0))
-            )
-        ))
-
-        // Employee 8: High productivity, low cost (productivity: 400, rate: 20) - Excellent ratio
-        employees.add(createEmployee(
-            firstName = "HighProdLowCost",
-            productivity = 400.0,
-            payRate = 20.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(21, 0))
-            )
-        ))
-
-        // Employee 9: Medium-low productivity, medium cost (productivity: 200, rate: 18)
-        employees.add(createEmployee(
-            firstName = "MedLowProdMedCost",
-            productivity = 200.0,
-            payRate = 18.0,
-            contractedHours = 35.0,
-            maxHours = 45.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(10, 0), LocalTime.of(19, 0))
-            )
-        ))
-
-        // Employee 10: Very low productivity, very low cost (productivity: 100, rate: 8)
-        employees.add(createEmployee(
-            firstName = "VeryLowProdVeryLowCost",
-            productivity = 100.0,
-            payRate = 8.0,
-            contractedHours = 40.0,
-            maxHours = 50.0,
-            availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(12, 0), LocalTime.of(20, 0))
-            )
-        ))
+            employees.add(createEmployee(
+                firstName = name,
+                productivity = productivity.coerceIn(80.0, 650.0),
+                payRate = payRate.coerceIn(8.0, 55.0),
+                contractedHours = contractedHours,
+                maxHours = maxHours,
+                availability = availability
+            ))
+        }
 
         return employees
+    }
+
+    private fun createFullWeekAvailability(random: Random): List<Availability> {
+        return listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+                      DayOfWeek.THURSDAY, DayOfWeek.FRIDAY).map { day ->
+            val startHour = random.nextInt(7, 11)  // Start between 7am-10am
+            val endHour = random.nextInt(18, 23)   // End between 6pm-10pm
+            Availability(day, LocalTime.of(startHour, 0), LocalTime.of(endHour, 0))
+        }
+    }
+
+    private fun createPartialWeekAvailability(random: Random): List<Availability> {
+        val allDays = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+                            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+        val availableDays = allDays.shuffled(random).take(random.nextInt(2, 5))
+
+        return availableDays.map { day ->
+            val startHour = random.nextInt(8, 13)  // Start between 8am-12pm
+            val endHour = random.nextInt(16, 21)   // End between 4pm-8pm
+            Availability(day, LocalTime.of(startHour, 0), LocalTime.of(endHour, 0))
+        }
     }
 
     private fun createEmployee(
@@ -236,47 +135,39 @@ class ShiftSchedulerValidationTest {
     }
 
     /**
-     * Creates a realistic weekly sales projection with varying demand throughout the week
-     * and throughout each day (lower in morning/evening, higher during lunch/afternoon).
+     * Creates a randomized weekly sales projection with varying demand throughout the week
+     * and throughout each day.
      */
-    private fun createWeeklySalesForecast(): Map<DayOfWeek, Map<LocalTime, Double>> {
+    private fun createRandomizedWeeklySalesForecast(random: Random): Map<DayOfWeek, Map<LocalTime, Double>> {
         val forecast = mutableMapOf<DayOfWeek, Map<LocalTime, Double>>()
 
-        // Define hourly sales pattern (morning to evening)
-        // Pattern: slow start, lunch rush, afternoon peak, evening decline
-        val hourlyPattern = mapOf(
-            8 to 200.0,   // Morning opening
-            9 to 400.0,   // Morning pickup
-            10 to 600.0,  // Mid-morning
-            11 to 900.0,  // Pre-lunch
-            12 to 1500.0, // Lunch peak
-            13 to 1400.0, // Post-lunch
-            14 to 1100.0, // Afternoon
-            15 to 1000.0, // Mid-afternoon
-            16 to 800.0,  // Late afternoon
-            17 to 700.0,  // Early evening
-            18 to 500.0,  // Evening
-            19 to 300.0,  // Late evening
-            20 to 200.0,  // Closing
-            21 to 100.0   // Final hour
+        // Base hourly pattern with randomization
+        val baseHourlyPattern = mapOf(
+            8 to 200.0, 9 to 400.0, 10 to 600.0, 11 to 900.0,
+            12 to 1500.0, 13 to 1400.0, 14 to 1100.0, 15 to 1000.0,
+            16 to 800.0, 17 to 700.0, 18 to 500.0, 19 to 300.0,
+            20 to 200.0, 21 to 100.0
         )
 
-        // Apply different multipliers for different days
+        // Randomize day multipliers
         val dayMultipliers = mapOf(
-            DayOfWeek.MONDAY to 0.8,      // Slower Monday
-            DayOfWeek.TUESDAY to 0.9,     // Building up
-            DayOfWeek.WEDNESDAY to 1.0,   // Mid-week normal
-            DayOfWeek.THURSDAY to 1.1,    // Picking up
-            DayOfWeek.FRIDAY to 1.3       // Busiest day
+            DayOfWeek.MONDAY to (0.7 + random.nextDouble(0.0, 0.3)),
+            DayOfWeek.TUESDAY to (0.8 + random.nextDouble(0.0, 0.3)),
+            DayOfWeek.WEDNESDAY to (0.9 + random.nextDouble(0.0, 0.3)),
+            DayOfWeek.THURSDAY to (1.0 + random.nextDouble(0.0, 0.3)),
+            DayOfWeek.FRIDAY to (1.1 + random.nextDouble(0.0, 0.4))
         )
 
         listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
                DayOfWeek.THURSDAY, DayOfWeek.FRIDAY).forEach { day ->
             val dayMultiplier = dayMultipliers[day] ?: 1.0
-            val dayForecast = hourlyPattern.mapKeys { (hour, _) ->
+
+            // Apply randomization to each hour
+            val dayForecast = baseHourlyPattern.mapKeys { (hour, _) ->
                 LocalTime.of(hour, 0)
-            }.mapValues { (_, sales) ->
-                sales * dayMultiplier
+            }.mapValues { (_, baseSales) ->
+                val randomMultiplier = 0.8 + random.nextDouble(0.0, 0.4)  // ±20% variation
+                (baseSales * dayMultiplier * randomMultiplier).coerceAtLeast(50.0)
             }
             forecast[day] = dayForecast
         }
@@ -285,193 +176,198 @@ class ShiftSchedulerValidationTest {
     }
 
     @Test
-    fun `validation pipeline - all optimization objectives should meet their optimization criteria`() {
-        // Step 1: Create test data
+    fun `validation pipeline - all optimization objectives should meet their optimization criteria across 5 randomized iterations`() {
         println("\n========================================")
         println("SHIFT SCHEDULER VALIDATION PIPELINE")
+        println("Randomized Testing with 5 Iterations")
         println("========================================\n")
 
-        println("Step 1: Creating test employees...")
-        val employees = createTestEmployees()
-        println("Created ${employees.size} employees with diverse productivity and cost profiles:")
-        employees.forEach { emp ->
-            val ratio = emp.productivity / emp.normalPayRate
-            println("  - ${emp.firstName}: productivity=${"%.0f".format(emp.productivity)}, " +
-                    "rate=${"%.0f".format(emp.normalPayRate)}, " +
-                    "ratio=${"%.2f".format(ratio)}")
-        }
+        val numIterations = 5
+        val iterationResults = mutableListOf<IterationResult>()
 
-        println("\nStep 2: Creating weekly sales forecast...")
-        val salesForecast = createWeeklySalesForecast()
-        salesForecastRepository.update(salesForecast)
-        val totalExpectedSales = salesForecast.values.flatMap { it.values }.sum()
-        println("Created forecast for 5 days with total expected sales: ${"%.2f".format(totalExpectedSales)}")
+        // Run 5 iterations with different random data
+        for (iteration in 1..numIterations) {
+            println("\n╔════════════════════════════════════════╗")
+            println("║    ITERATION $iteration OF $numIterations                  ║")
+            println("╔════════════════════════════════════════╗\n")
 
-        // Step 3: Define common input parameters
-        println("\nStep 3: Defining common scheduling parameters...")
-        val laborCostBudget = 15000.0  // Generous budget to allow meaningful optimization
-        val schedulePeriod = SchedulePeriod(
-            daysToSchedule = listOf(
-                DayOfWeek.MONDAY,
-                DayOfWeek.TUESDAY,
-                DayOfWeek.WEDNESDAY,
-                DayOfWeek.THURSDAY,
-                DayOfWeek.FRIDAY
-            ),
-            operatingHours = mapOf(
-                DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0))
-            )
-        )
-        println("Budget: $${"%.2f".format(laborCostBudget)}")
-        println("Operating hours: 8:00 - 22:00, Monday through Friday")
+            // Use different seed for each iteration
+            val random = Random(12345 + iteration)
 
-        // Step 4: Generate schedules for each optimization objective
-        println("\nStep 4: Generating schedules for each optimization objective...")
-        val objectives = listOf(
-            OptimizationObjective.MAXIMIZE_SALES,
-            OptimizationObjective.MINIMIZE_LABOR_COST,
-            OptimizationObjective.BALANCED,
-            OptimizationObjective.MAXIMIZE_FAIRNESS
-        )
-
-        val schedules = mutableMapOf<OptimizationObjective, Schedule>()
-
-        objectives.forEach { objective ->
-            println("\n  Generating schedule for $objective...")
-            val input = ScheduleInput(
-                employeeIds = employees.map { it.id },
-                laborCostBudget = laborCostBudget,
-                schedulePeriod = schedulePeriod,
-                optimizationObjective = objective
+            // Reset repositories for clean state
+            employeeRepository = EmployeeRepository()
+            salesForecastRepository = SalesForecastRepository()
+            scheduler = ShiftScheduler(
+                employeeRepository = employeeRepository,
+                salesForecastRepository = salesForecastRepository
             )
 
-            val schedule = scheduler.generateSchedule(input, name = "$objective Schedule")
-            schedules[objective] = schedule
+            println("Step 1: Creating randomized test employees...")
+            val employees = createRandomizedTestEmployees(random)
+            println("Created ${employees.size} employees with randomized stats:")
+            println("  Productivity range: ${"%.0f".format(employees.minOf { it.productivity })}-${"%.0f".format(employees.maxOf { it.productivity })}")
+            println("  Pay rate range: $${"%.2f".format(employees.minOf { it.normalPayRate })}-$${"%.2f".format(employees.maxOf { it.normalPayRate })}")
 
-            println("    Total labor cost: ${"%.2f".format(schedule.metrics.totalLaborCost)}")
-            println("    Estimated sales: ${"%.2f".format(schedule.metrics.estimatedTotalSales)}")
-            println("    Total shifts: ${schedule.shifts.size}")
-            println("    Constraint violations: ${schedule.violations.size}")
+            println("\nStep 2: Creating randomized weekly sales forecast...")
+            val salesForecast = createRandomizedWeeklySalesForecast(random)
+            salesForecastRepository.update(salesForecast)
+            val totalExpectedSales = salesForecast.values.flatMap { it.values }.sum()
+            println("Total expected sales across week: $${"%.2f".format(totalExpectedSales)}")
+
+            // Define common input parameters
+            println("\nStep 3: Defining scheduling parameters...")
+            val laborCostBudget = 12000.0 + random.nextDouble(-2000.0, 5000.0)  // $10k-$17k
+            println("Budget: $${"%.2f".format(laborCostBudget)}")
+
+            val schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(
+                    DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+                    DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
+                ),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(22, 0))
+                )
+            )
+
+            // Generate schedules for each optimization objective
+            println("\nStep 4: Generating schedules for each optimization objective...")
+            val objectives = listOf(
+                OptimizationObjective.MAXIMIZE_SALES,
+                OptimizationObjective.MINIMIZE_LABOR_COST,
+                OptimizationObjective.BALANCED,
+                OptimizationObjective.MAXIMIZE_FAIRNESS
+            )
+
+            val schedules = mutableMapOf<OptimizationObjective, Schedule>()
+
+            objectives.forEach { objective ->
+                val input = ScheduleInput(
+                    employeeIds = employees.map { it.id },
+                    laborCostBudget = laborCostBudget,
+                    schedulePeriod = schedulePeriod,
+                    optimizationObjective = objective
+                )
+
+                val schedule = scheduler.generateSchedule(input, name = "$objective Schedule")
+                schedules[objective] = schedule
+            }
+
+            // Print metrics table
+            println("\n  Metrics Comparison:")
+            println("  ┌────────────────────────┬─────────────────┬─────────────────┐")
+            println("  │ Objective              │ Labor Cost ($)  │ Est. Sales ($)  │")
+            println("  ├────────────────────────┼─────────────────┼─────────────────┤")
+            schedules.forEach { (objective, schedule) ->
+                val objName = objective.toString().padEnd(22)
+                val cost = "%,15.2f".format(schedule.metrics.totalLaborCost)
+                val sales = "%,15.2f".format(schedule.metrics.estimatedTotalSales)
+                println("  │ $objName │ $cost │ $sales │")
+            }
+            println("  └────────────────────────┴─────────────────┴─────────────────┘")
+
+            // Validate optimization criteria
+            val maxSalesSchedule = schedules[OptimizationObjective.MAXIMIZE_SALES]!!
+            val minCostSchedule = schedules[OptimizationObjective.MINIMIZE_LABOR_COST]!!
+
+            val allSales = schedules.map { it.value.metrics.estimatedTotalSales }
+            val allCosts = schedules.map { it.value.metrics.totalLaborCost }
+
+            val maxSales = allSales.max()
+            val minCost = allCosts.min()
+
+            val salesPassed = maxSalesSchedule.metrics.estimatedTotalSales >= maxSales - 0.01
+            val costPassed = minCostSchedule.metrics.totalLaborCost <= minCost + 0.01
+
+            println("\n  Validation Results:")
+            println("  ├─ MAXIMIZE_SALES: ${if (salesPassed) "✓ PASS" else "✗ FAIL"}")
+            println("  │  Produced: $${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}")
+            println("  │  Expected: >= $${"%.2f".format(maxSales)} (highest among all)")
+            println("  │")
+            println("  ├─ MINIMIZE_LABOR_COST: ${if (costPassed) "✓ PASS" else "✗ FAIL"}")
+            println("  │  Produced: $${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}")
+            println("  │  Expected: <= $${"%.2f".format(minCost)} (lowest among all)")
+
+            // Store iteration results
+            iterationResults.add(IterationResult(
+                iteration = iteration,
+                salesPassed = salesPassed,
+                costPassed = costPassed,
+                maxSalesValue = maxSalesSchedule.metrics.estimatedTotalSales,
+                minCostValue = minCostSchedule.metrics.totalLaborCost,
+                expectedMaxSales = maxSales,
+                expectedMinCost = minCost
+            ))
+
+            println("\n  Iteration $iteration: ${if (salesPassed && costPassed) "✓ PASS" else "✗ FAIL"}")
         }
 
-        // Step 5: Validate optimization criteria
+        // Print summary of all iterations
         println("\n========================================")
-        println("VALIDATION RESULTS")
+        println("FINAL RESULTS ACROSS ALL ITERATIONS")
         println("========================================\n")
 
-        val maxSalesSchedule = schedules[OptimizationObjective.MAXIMIZE_SALES]!!
-        val minCostSchedule = schedules[OptimizationObjective.MINIMIZE_LABOR_COST]!!
-        val balancedSchedule = schedules[OptimizationObjective.BALANCED]!!
-        val fairnessSchedule = schedules[OptimizationObjective.MAXIMIZE_FAIRNESS]!!
-
-        // Print detailed metrics table
-        println("Detailed Metrics Comparison:")
-        println("┌────────────────────────┬─────────────────┬─────────────────┬──────────┐")
-        println("│ Objective              │ Labor Cost ($)  │ Est. Sales ($)  │ Shifts   │")
-        println("├────────────────────────┼─────────────────┼─────────────────┼──────────┤")
-        schedules.forEach { (objective, schedule) ->
-            val objName = objective.toString().padEnd(22)
-            val cost = "%,15.2f".format(schedule.metrics.totalLaborCost)
-            val sales = "%,15.2f".format(schedule.metrics.estimatedTotalSales)
-            val shifts = "%8d".format(schedule.shifts.size)
-            println("│ $objName │ $cost │ $sales │ $shifts │")
+        println("Iteration Summary:")
+        println("┌──────────┬─────────────────┬──────────────────────┬───────────┐")
+        println("│ Iteration│ MAXIMIZE_SALES  │ MINIMIZE_LABOR_COST  │  Result   │")
+        println("├──────────┼─────────────────┼──────────────────────┼───────────┤")
+        iterationResults.forEach { result ->
+            val iter = "%8d".format(result.iteration)
+            val sales = if (result.salesPassed) "     ✓ PASS    " else "     ✗ FAIL    "
+            val cost = if (result.costPassed) "        ✓ PASS       " else "        ✗ FAIL       "
+            val overall = if (result.salesPassed && result.costPassed) "  ✓ PASS  " else "  ✗ FAIL  "
+            println("│ $iter │ $sales │ $cost │ $overall │")
         }
-        println("└────────────────────────┴─────────────────┴─────────────────┴──────────┘")
+        println("└──────────┴─────────────────┴──────────────────────┴───────────┘")
 
-        // Validation 1: MAXIMIZE_SALES should have highest estimated sales
-        println("\nValidation 1: MAXIMIZE_SALES optimization")
-        println("------------------------------------------")
-        val allSales = schedules.map { it.value.metrics.estimatedTotalSales }
-        val maxSales = allSales.max()
+        val passedIterations = iterationResults.count { it.salesPassed && it.costPassed }
+        val failedIterations = numIterations - passedIterations
 
-        println("  MAXIMIZE_SALES estimated sales: ${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}")
-        println("  Highest sales among all objectives: ${"%.2f".format(maxSales)}")
+        println("\nOverall Statistics:")
+        println("  Total iterations: $numIterations")
+        println("  Passed: $passedIterations")
+        println("  Failed: $failedIterations")
+        println("  Success rate: ${(passedIterations * 100.0 / numIterations).toInt()}%")
 
-        val salesOptimizationPassed = maxSalesSchedule.metrics.estimatedTotalSales >= maxSales - 0.01
-        if (salesOptimizationPassed) {
-            println("  ✓ PASS: MAXIMIZE_SALES produced the highest estimated sales")
+        if (passedIterations == numIterations) {
+            println("\n✓ ALL ITERATIONS PASSED")
+            println("\nThe ShiftScheduler consistently optimizes across randomized scenarios:")
+            println("  1. MAXIMIZE_SALES always produces the highest estimated sales")
+            println("  2. MINIMIZE_LABOR_COST always produces the lowest labor cost")
         } else {
-            println("  ✗ FAIL: MAXIMIZE_SALES did NOT produce the highest estimated sales")
-            println("  Expected: >= ${"%.2f".format(maxSales)}")
-            println("  Actual: ${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}")
-        }
-
-        // Validation 2: MINIMIZE_LABOR_COST should have lowest labor cost
-        println("\nValidation 2: MINIMIZE_LABOR_COST optimization")
-        println("----------------------------------------------")
-        val allCosts = schedules.map { it.value.metrics.totalLaborCost }
-        val minCost = allCosts.min()
-
-        println("  MINIMIZE_LABOR_COST labor cost: ${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}")
-        println("  Lowest cost among all objectives: ${"%.2f".format(minCost)}")
-
-        val costOptimizationPassed = minCostSchedule.metrics.totalLaborCost <= minCost + 0.01
-        if (costOptimizationPassed) {
-            println("  ✓ PASS: MINIMIZE_LABOR_COST produced the lowest labor cost")
-        } else {
-            println("  ✗ FAIL: MINIMIZE_LABOR_COST did NOT produce the lowest labor cost")
-            println("  Expected: <= ${"%.2f".format(minCost)}")
-            println("  Actual: ${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}")
-        }
-
-        // Additional analysis: Show employee distribution for each objective
-        println("\nAdditional Analysis: Employee Utilization")
-        println("------------------------------------------")
-        schedules.forEach { (objective, schedule) ->
-            println("\n$objective:")
-            val employeeHours = employees.map { emp ->
-                val hours = schedule.shifts.filter { it.employeeId == emp.id }.sumOf { it.durationHours }
-                emp.firstName to hours
-            }.filter { it.second > 0 }.sortedByDescending { it.second }
-
-            employeeHours.take(5).forEach { (name, hours) ->
-                println("  ${name.padEnd(30)} ${"%.1f".format(hours)} hours")
-            }
-            if (employeeHours.size > 5) {
-                println("  ... and ${employeeHours.size - 5} more employees")
-            }
-        }
-
-        // Final assertions
-        println("\n========================================")
-        println("FINAL RESULT")
-        println("========================================\n")
-
-        val allTestsPassed = salesOptimizationPassed && costOptimizationPassed
-        if (allTestsPassed) {
-            println("✓ ALL VALIDATIONS PASSED")
-            println("\nThe ShiftScheduler correctly optimizes for:")
-            println("  1. MAXIMIZE_SALES produces highest estimated sales")
-            println("  2. MINIMIZE_LABOR_COST produces lowest labor cost")
-        } else {
-            println("✗ SOME VALIDATIONS FAILED")
-            println("\nThe ShiftScheduler needs improvements:")
-            if (!salesOptimizationPassed) {
-                println("  - MAXIMIZE_SALES is not producing the highest sales")
-            }
-            if (!costOptimizationPassed) {
-                println("  - MINIMIZE_LABOR_COST is not producing the lowest cost")
+            println("\n✗ SOME ITERATIONS FAILED")
+            println("\nFailed iterations:")
+            iterationResults.filter { !it.salesPassed || !it.costPassed }.forEach { result ->
+                println("\n  Iteration ${result.iteration}:")
+                if (!result.salesPassed) {
+                    println("    - MAXIMIZE_SALES failed: got ${"%.2f".format(result.maxSalesValue)}, expected >= ${"%.2f".format(result.expectedMaxSales)}")
+                }
+                if (!result.costPassed) {
+                    println("    - MINIMIZE_LABOR_COST failed: got ${"%.2f".format(result.minCostValue)}, expected <= ${"%.2f".format(result.expectedMinCost)}")
+                }
             }
         }
         println()
 
-        // Assert final results
+        // Assert all iterations passed
         assertTrue(
-            salesOptimizationPassed,
-            "MAXIMIZE_SALES should produce the highest estimated sales among all objectives. " +
-                    "Expected >= ${"%.2f".format(maxSales)}, " +
-                    "but got ${"%.2f".format(maxSalesSchedule.metrics.estimatedTotalSales)}"
-        )
-
-        assertTrue(
-            costOptimizationPassed,
-            "MINIMIZE_LABOR_COST should produce the lowest labor cost among all objectives. " +
-                    "Expected <= ${"%.2f".format(minCost)}, " +
-                    "but got ${"%.2f".format(minCostSchedule.metrics.totalLaborCost)}"
+            passedIterations == numIterations,
+            "All $numIterations iterations must pass validation. " +
+                    "Passed: $passedIterations, Failed: $failedIterations. " +
+                    "Check individual iteration details above."
         )
     }
+
+    private data class IterationResult(
+        val iteration: Int,
+        val salesPassed: Boolean,
+        val costPassed: Boolean,
+        val maxSalesValue: Double,
+        val minCostValue: Double,
+        val expectedMaxSales: Double,
+        val expectedMinCost: Double
+    )
 }
