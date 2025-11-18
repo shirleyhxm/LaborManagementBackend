@@ -261,7 +261,9 @@ class ShiftScheduler(
         profile("generateShiftsForDay.initCoverage") {
             evaluationSlots.forEach { interval ->
                 val expectedSales = calculateAverageSales(salesForecast, interval.first, interval.second)
-                if (expectedSales > 0) {
+                // For MAXIMIZE_SALES: include all intervals even with 0 expected sales
+                // For other objectives: only include intervals with expected sales > 0
+                if (optimizationObjective == OptimizationObjective.MAXIMIZE_SALES || expectedSales > 0) {
                     hourlyCoverage[interval] = expectedSales  // Initially all sales are uncovered
                 }
             }
@@ -271,7 +273,14 @@ class ShiftScheduler(
         profile("generateShiftsForDay.hourByHourScheduling") {
             for (interval in evaluationSlots) {
                 val uncoveredSales = hourlyCoverage[interval] ?: 0.0
-                if (uncoveredSales <= 0 || currentBudget <= 0) continue  // Skip hours with no uncovered demand
+                // For MAXIMIZE_SALES: continue scheduling even if demand is covered (to maximize total sales)
+                // For other objectives: skip hours with no uncovered demand
+                val shouldSkipInterval = if (optimizationObjective == OptimizationObjective.MAXIMIZE_SALES) {
+                    currentBudget <= 0  // Only skip if budget exhausted
+                } else {
+                    uncoveredSales <= 0 || currentBudget <= 0  // Skip if covered or budget exhausted
+                }
+                if (shouldSkipInterval) continue
 
                 // Sort employees for this specific hour, prioritizing those who worked the previous consecutive hour
                 val previousInterval = evaluationSlots.findPreviousInterval(interval)
@@ -286,9 +295,12 @@ class ShiftScheduler(
 
                 // Try to assign employees to cover this specific hour
                 for (employee in employeesForThisHour) {
-                    // Check if this hour still has uncovered demand
+                    // For MAXIMIZE_SALES: continue assigning high-productivity employees even if demand is covered
+                    // For other objectives: stop when demand is covered
                     val currentUncovered = hourlyCoverage[interval] ?: 0.0
-                    if (currentUncovered <= 0) break  // Hour is covered, move to next hour
+                    if (optimizationObjective != OptimizationObjective.MAXIMIZE_SALES && currentUncovered <= 0) {
+                        break  // Hour is covered, move to next hour
+                    }
 
                     // Check if employee is available during this hour
                     val availabilityForHour = employee.availability.find { avail ->
