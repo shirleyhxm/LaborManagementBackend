@@ -26,15 +26,24 @@ import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.TestDataController
+import org.labormanagement.controller.attendanceRoutes
+import org.labormanagement.controller.timeoffRoutes
+import org.labormanagement.controller.salesRoutes
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.repository.UserRepository
+import org.labormanagement.repository.AttendanceRepository
+import org.labormanagement.repository.TimeoffRepository
+import org.labormanagement.repository.SalesRepository
 import org.labormanagement.service.AuthService
 import org.labormanagement.service.ConstraintValidator
 import org.labormanagement.service.JwtService
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
+import org.labormanagement.service.AttendanceService
+import org.labormanagement.service.TimeoffService
+import org.labormanagement.service.SalesService
 import org.slf4j.event.Level
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
@@ -56,6 +65,9 @@ fun Application.module() {
     val scheduleRepository = ScheduleRepository()
     val salesForecastRepository = SalesForecastRepository()
     val userRepository = UserRepository()
+    val attendanceRepository = AttendanceRepository()
+    val timeoffRepository = TimeoffRepository()
+    val salesRepository = SalesRepository()
 
     val constraintValidator = ConstraintValidator()
     val shiftScheduler = ShiftScheduler(
@@ -73,6 +85,25 @@ fun Application.module() {
     // Initialize auth services
     val jwtService = JwtService()
     val authService = AuthService(userRepository, jwtService)
+
+    // Initialize new services
+    val attendanceService = AttendanceService(
+        attendanceRepository = attendanceRepository,
+        employeeRepository = employeeRepository,
+        scheduleRepository = scheduleRepository
+    )
+
+    val timeoffService = TimeoffService(
+        timeoffRepository = timeoffRepository,
+        employeeRepository = employeeRepository
+    )
+
+    val salesService = SalesService(
+        salesRepository = salesRepository,
+        employeeRepository = employeeRepository,
+        scheduleRepository = scheduleRepository,
+        attendanceRepository = attendanceRepository
+    )
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
@@ -278,6 +309,11 @@ fun Application.module() {
         with(testDataController) {
             testDataRoutes()
         }
+
+        // Register new employee operation routes
+        attendanceRoutes(attendanceService)
+        timeoffRoutes(timeoffService)
+        salesRoutes(salesService)
     }
 
     log.info("Labor Management API started on port 8080")
