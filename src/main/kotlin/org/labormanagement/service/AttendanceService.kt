@@ -171,6 +171,8 @@ class AttendanceService(
 
     /**
      * Calculate scheduled hours for an employee in a date range
+     * Note: Schedules are weekly patterns without specific dates,
+     * so we estimate based on all published schedules for this employee
      */
     private fun calculateScheduledHours(
         employeeId: UUID,
@@ -182,17 +184,10 @@ class AttendanceService(
 
         var totalScheduledHours = 0.0
 
+        // Since schedules are weekly patterns, sum up all shifts for this employee
+        // This is an approximation - in a production system, you'd need to track
+        // which weeks each schedule applies to
         for (schedule in schedules) {
-            val schedulePeriod = schedule.schedulePeriod
-            val scheduleStart = schedulePeriod.startDate
-            val scheduleEnd = scheduleStart.plusDays(schedulePeriod.durationInDays.toLong() - 1)
-
-            // Check if schedule period overlaps with our date range
-            if (scheduleEnd.isBefore(startDate) || scheduleStart.isAfter(endDate)) {
-                continue
-            }
-
-            // Sum up hours for this employee's shifts in this schedule
             val employeeShifts = schedule.shifts.filter { it.employeeId == employeeId }
             totalScheduledHours += employeeShifts.sumOf { it.durationHours }
         }

@@ -165,7 +165,7 @@ class SalesService(
             val updatedProductivity = (employee.productivity * 0.7) + (actualProductivity * 0.3)
 
             val updatedEmployee = employee.copy(productivity = updatedProductivity)
-            employeeRepository.update(updatedEmployee)
+            employeeRepository.update(employeeId, updatedEmployee)
         }
     }
 

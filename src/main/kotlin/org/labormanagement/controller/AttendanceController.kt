@@ -6,6 +6,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.labormanagement.dto.*
+import org.labormanagement.model.ErrorResponse
 import org.labormanagement.service.AttendanceService
 import java.time.LocalDate
 import java.util.*
