@@ -44,6 +44,7 @@ import org.labormanagement.service.ShiftScheduler
 import org.labormanagement.service.AttendanceService
 import org.labormanagement.service.TimeoffService
 import org.labormanagement.service.SalesService
+import org.labormanagement.service.SchedulingApproach
 import org.slf4j.event.Level
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
@@ -70,10 +71,20 @@ fun Application.module() {
     val salesRepository = SalesRepository()
 
     val constraintValidator = ConstraintValidator()
+
+    // Configure scheduling approach via environment variable
+    // Options: GREEDY (default, fast heuristic) or OPTIMIZER (CP-SAT solver, optimal but slower)
+//    val schedulingApproach = when (System.getenv("SCHEDULING_APPROACH")?.uppercase()) {
+//        "OPTIMIZER" -> SchedulingApproach.OPTIMIZER
+//        else -> SchedulingApproach.GREEDY
+//    }
+    val schedulingApproach = SchedulingApproach.OPTIMIZER
+
     val shiftScheduler = ShiftScheduler(
         employeeRepository = employeeRepository,
         scheduleRepository = scheduleRepository,
-        salesForecastRepository = salesForecastRepository
+        salesForecastRepository = salesForecastRepository,
+        schedulingApproach = schedulingApproach
     )
 
     val shiftModificationService = ShiftModificationService(
@@ -317,4 +328,5 @@ fun Application.module() {
     }
 
     log.info("Labor Management API started on port 8080")
+    log.info("Scheduling approach: $schedulingApproach")
 }

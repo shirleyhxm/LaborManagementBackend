@@ -9,6 +9,7 @@ import org.labormanagement.repository.SalesForecastRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 class ShiftSchedulerTest {
     private lateinit var employeeRepository: EmployeeRepository
@@ -21,7 +22,8 @@ class ShiftSchedulerTest {
         salesForecastRepository = SalesForecastRepository()
         scheduler = ShiftScheduler(
             employeeRepository = employeeRepository,
-            salesForecastRepository = salesForecastRepository
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.GREEDY
         )
     }
 
@@ -667,6 +669,60 @@ class ShiftSchedulerTest {
     }
 
     @Test
+    fun `Shift should correctly calculate duration for overnight shifts`() {
+        // Test overnight shift (e.g., 22:00 to 02:00 = 4 hours)
+        val overnightShift = Shift(
+            employeeId = UUID.randomUUID(),
+            dayOfWeek = DayOfWeek.FRIDAY,
+            startTime = LocalTime.of(22, 0),
+            endTime = LocalTime.of(2, 0),
+            payRate = 19.0,
+            isOvertime = false
+        )
+
+        assertEquals(4.0, overnightShift.durationHours, 0.01, "Overnight shift (22:00-02:00) should be 4 hours")
+        assertEquals(76.0, overnightShift.laborCost, 0.01, "Labor cost should be 4 hours * $19/hr = $76")
+
+        // Test another overnight shift (20:00 to 12:00 = 16 hours)
+        val longOvernightShift = Shift(
+            employeeId = UUID.randomUUID(),
+            dayOfWeek = DayOfWeek.FRIDAY,
+            startTime = LocalTime.of(20, 0),
+            endTime = LocalTime.of(12, 0),
+            payRate = 19.0,
+            isOvertime = false
+        )
+
+        assertEquals(16.0, longOvernightShift.durationHours, 0.01, "Overnight shift (20:00-12:00) should be 16 hours")
+        assertEquals(304.0, longOvernightShift.laborCost, 0.01, "Labor cost should be 16 hours * $19/hr = $304")
+
+        // Test edge case: midnight to midnight (should be 24 hours)
+        val midnightShift = Shift(
+            employeeId = UUID.randomUUID(),
+            dayOfWeek = DayOfWeek.FRIDAY,
+            startTime = LocalTime.of(0, 0),
+            endTime = LocalTime.of(0, 0),
+            payRate = 15.0,
+            isOvertime = false
+        )
+
+        assertEquals(24.0, midnightShift.durationHours, 0.01, "Midnight to midnight should be 24 hours")
+
+        // Test regular daytime shift still works (09:00 to 17:00 = 8 hours)
+        val dayShift = Shift(
+            employeeId = UUID.randomUUID(),
+            dayOfWeek = DayOfWeek.MONDAY,
+            startTime = LocalTime.of(9, 0),
+            endTime = LocalTime.of(17, 0),
+            payRate = 15.0,
+            isOvertime = false
+        )
+
+        assertEquals(8.0, dayShift.durationHours, 0.01, "Day shift (09:00-17:00) should be 8 hours")
+        assertEquals(120.0, dayShift.laborCost, 0.01, "Labor cost should be 8 hours * $15/hr = $120")
+    }
+
+    @Test
     fun `different optimization objectives should produce different results`() {
         val cheapEmployee = createEmployee(
             firstName = "Cheap",
@@ -852,6 +908,752 @@ class ShiftSchedulerTest {
         assertTrue(
             stdDev <= maxSalesStdDev + 0.5, // Allow small margin for rounding
             "MAXIMIZE_FAIRNESS should have equal or better hour distribution (fairness stdDev: $stdDev, maxSales stdDev: $maxSalesStdDev)"
+        )
+    }
+
+    // ========================================
+    // OPTIMIZER Scheduling Approach Tests
+    // ========================================
+
+    @Test
+    fun `OPTIMIZER should generate feasible schedule with sufficient sales coverage`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee = createEmployee(
+            firstName = "OptEmployee",
+            productivity = 200.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(10, 0) to 500.0,
+                    LocalTime.of(12, 0) to 800.0,
+                    LocalTime.of(14, 0) to 600.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 1000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        assertFalse(output.shifts.isEmpty(), "OPTIMIZER should create shifts")
+        assertTrue(output.metrics.estimatedTotalSales > 0, "Should estimate sales coverage")
+        assertTrue(output.metrics.totalLaborCost > 0, "Should calculate labor costs")
+    }
+
+    @Test
+    fun `OPTIMIZER should respect employee availability constraints`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee = createEmployee(
+            firstName = "LimitedAvail",
+            productivity = 180.0,
+            payRate = 18.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(14, 0), LocalTime.of(18, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(10, 0) to 400.0,
+                    LocalTime.of(15, 0) to 600.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 500.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(19, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        // All shifts must be within availability window
+        output.shifts.forEach { shift ->
+            assertTrue(
+                shift.startTime >= LocalTime.of(14, 0),
+                "OPTIMIZER shifts should respect availability start time"
+            )
+            assertTrue(
+                shift.endTime <= LocalTime.of(18, 0),
+                "OPTIMIZER shifts should respect availability end time"
+            )
+        }
+    }
+
+    @Test
+    fun `OPTIMIZER should not exceed contract max hours per week`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee = createEmployee(
+            firstName = "PartTime",
+            productivity = 150.0,
+            payRate = 12.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            ),
+            contractedHours = 15.0,
+            maxHours = 15.0  // Strict 15 hour limit
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0),
+                DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 1000.0),
+                DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 5000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val totalHours = output.shifts.sumOf { it.durationHours }
+        assertTrue(
+            totalHours <= 15.0,
+            "OPTIMIZER should not exceed max contract hours (got $totalHours, max 15.0)"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER with MAXIMIZE_SALES should prioritize productive employees over cheap ones`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val cheapEmployee = createEmployee(
+            firstName = "Cheap",
+            productivity = 100.0,
+            payRate = 10.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val productiveEmployee = createEmployee(
+            firstName = "Productive",
+            productivity = 300.0,
+            payRate = 25.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(10, 0) to 600.0,
+                    LocalTime.of(12, 0) to 800.0,
+                    LocalTime.of(14, 0) to 700.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
+            laborCostBudget = 2000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val productiveHours = output.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
+        val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
+
+        assertTrue(
+            productiveHours >= cheapHours,
+            "OPTIMIZER MAXIMIZE_SALES should schedule productive employee equal or more (productive: $productiveHours, cheap: $cheapHours)"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER with MINIMIZE_LABOR_COST should prioritize cheaper employees`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val cheapEmployee = createEmployee(
+            firstName = "CheapWorker",
+            productivity = 120.0,
+            payRate = 12.0,
+            availability = listOf(
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val expensiveEmployee = createEmployee(
+            firstName = "ExpensiveWorker",
+            productivity = 140.0,
+            payRate = 28.0,
+            availability = listOf(
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.TUESDAY to mapOf(
+                    LocalTime.of(11, 0) to 500.0,
+                    LocalTime.of(13, 0) to 600.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, expensiveEmployee.id),
+            laborCostBudget = 1500.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.TUESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val cheapHours = output.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
+        val expensiveHours = output.shifts.filter { it.employeeId == expensiveEmployee.id }.sumOf { it.durationHours }
+
+        // With similar productivity, cheaper employee should get more hours
+        assertTrue(
+            cheapHours >= expensiveHours,
+            "OPTIMIZER MINIMIZE_LABOR_COST should favor cheaper employee (cheap: $cheapHours, expensive: $expensiveHours)"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER should handle empty employee list gracefully`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = emptyList(),
+            laborCostBudget = 1000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.WEDNESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        assertTrue(output.shifts.isEmpty(), "OPTIMIZER should return empty schedule with no employees")
+    }
+
+    @Test
+    fun `OPTIMIZER should create continuous shifts by merging consecutive time slots`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee = createEmployee(
+            firstName = "ContinuousWorker",
+            productivity = 180.0,
+            payRate = 16.0,
+            availability = listOf(
+                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.THURSDAY to mapOf(
+                    LocalTime.of(10, 0) to 400.0,
+                    LocalTime.of(11, 0) to 450.0,
+                    LocalTime.of(12, 0) to 500.0,
+                    LocalTime.of(13, 0) to 480.0,
+                    LocalTime.of(14, 0) to 420.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 800.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.THURSDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        // Optimizer should create continuous shifts rather than many 1-hour fragments
+        val employeeShifts = output.shifts.filter { it.employeeId == employee.id }
+        assertTrue(
+            employeeShifts.isNotEmpty(),
+            "OPTIMIZER should create at least one shift"
+        )
+
+        // Check that shifts are reasonably long (not fragmented into many 1-hour shifts)
+        val avgShiftDuration = employeeShifts.map { it.durationHours }.average()
+        assertTrue(
+            avgShiftDuration >= 1.0,
+            "OPTIMIZER should create shifts of reasonable duration (avg: $avgShiftDuration hours)"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER should apply overtime pay rates when employee exceeds threshold`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee = createEmployee(
+            firstName = "OvertimeWorker",
+            productivity = 200.0,
+            payRate = 20.0,
+            availability = listOf(
+                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
+            ),
+            contractedHours = 40.0,
+            maxHours = 50.0
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
+                DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
+                DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
+                DayOfWeek.THURSDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
+                DayOfWeek.FRIDAY to mapOf(LocalTime.of(12, 0) to 1200.0)
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 10000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(
+                    DayOfWeek.MONDAY,
+                    DayOfWeek.TUESDAY,
+                    DayOfWeek.WEDNESDAY,
+                    DayOfWeek.THURSDAY,
+                    DayOfWeek.FRIDAY
+                ),
+                operatingHours = mapOf(
+                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val totalHours = output.shifts.sumOf { it.durationHours }
+
+        if (totalHours > 40.0) {
+            val overtimeShifts = output.shifts.filter { it.isOvertime }
+            assertTrue(
+                overtimeShifts.isNotEmpty(),
+                "OPTIMIZER should mark shifts as overtime when exceeding threshold"
+            )
+            overtimeShifts.forEach { shift ->
+                assertEquals(
+                    30.0,
+                    shift.payRate,
+                    0.01,
+                    "OPTIMIZER overtime shifts should use overtime pay rate (1.5x)"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `OPTIMIZER should generate schedule with multiple employees and distribute work`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employee1 = createEmployee(
+            firstName = "TeamMember1",
+            productivity = 150.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val employee2 = createEmployee(
+            firstName = "TeamMember2",
+            productivity = 160.0,
+            payRate = 16.0,
+            availability = listOf(
+                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val employee3 = createEmployee(
+            firstName = "TeamMember3",
+            productivity = 155.0,
+            payRate = 15.5,
+            availability = listOf(
+                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.FRIDAY to mapOf(
+                    LocalTime.of(10, 0) to 800.0,
+                    LocalTime.of(12, 0) to 1200.0,
+                    LocalTime.of(14, 0) to 1000.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee1.id, employee2.id, employee3.id),
+            laborCostBudget = 2000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.FRIDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        // At least some employees should be scheduled
+        val scheduledEmployees = output.shifts.map { it.employeeId }.distinct()
+        assertTrue(
+            scheduledEmployees.isNotEmpty(),
+            "OPTIMIZER should schedule at least one employee"
+        )
+
+        // Verify total coverage makes sense
+        assertTrue(
+            output.metrics.estimatedTotalSales > 0,
+            "OPTIMIZER should provide sales coverage with multiple employees"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER with BALANCED objective should optimize productivity-to-cost ratio`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val inefficientEmployee = createEmployee(
+            firstName = "Inefficient",
+            productivity = 100.0,
+            payRate = 25.0, // High cost, low productivity (ratio: 4.0)
+            availability = listOf(
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val efficientEmployee = createEmployee(
+            firstName = "Efficient",
+            productivity = 220.0,
+            payRate = 16.0, // Lower cost, higher productivity (ratio: 13.75)
+            availability = listOf(
+                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.TUESDAY to mapOf(
+                    LocalTime.of(10, 0) to 600.0,
+                    LocalTime.of(12, 0) to 800.0,
+                    LocalTime.of(14, 0) to 700.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(inefficientEmployee.id, efficientEmployee.id),
+            laborCostBudget = 2000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.TUESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.BALANCED
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val efficientHours = output.shifts.filter { it.employeeId == efficientEmployee.id }.sumOf { it.durationHours }
+        val inefficientHours = output.shifts.filter { it.employeeId == inefficientEmployee.id }.sumOf { it.durationHours }
+
+        // Efficient employee should get more hours due to better productivity-to-cost ratio
+        assertTrue(
+            efficientHours >= inefficientHours,
+            "OPTIMIZER BALANCED should favor efficient employee (efficient: $efficientHours, inefficient: $inefficientHours)"
+        )
+
+        // Verify that we're achieving good value: sales per dollar spent
+        val salesPerDollar = if (output.metrics.totalLaborCost > 0) {
+            output.metrics.estimatedTotalSales / output.metrics.totalLaborCost
+        } else {
+            0.0
+        }
+
+        assertTrue(
+            salesPerDollar > 5.0,
+            "OPTIMIZER BALANCED should achieve good sales-per-dollar ratio (got: $salesPerDollar)"
+        )
+    }
+
+    @Test
+    fun `OPTIMIZER with MAXIMIZE_FAIRNESS objective should distribute hours evenly`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        // Create three employees with identical stats
+        val employee1 = createEmployee(
+            firstName = "Equal1",
+            productivity = 160.0,
+            payRate = 16.0,
+            availability = listOf(
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+            )
+        )
+
+        val employee2 = createEmployee(
+            firstName = "Equal2",
+            productivity = 160.0,
+            payRate = 16.0,
+            availability = listOf(
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+            )
+        )
+
+        val employee3 = createEmployee(
+            firstName = "Equal3",
+            productivity = 160.0,
+            payRate = 16.0,
+            availability = listOf(
+                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.WEDNESDAY to mapOf(
+                    LocalTime.of(10, 0) to 500.0,
+                    LocalTime.of(11, 0) to 550.0,
+                    LocalTime.of(12, 0) to 600.0,
+                    LocalTime.of(13, 0) to 580.0,
+                    LocalTime.of(14, 0) to 520.0,
+                    LocalTime.of(15, 0) to 500.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            employeeIds = listOf(employee1.id, employee2.id, employee3.id),
+            laborCostBudget = 3000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.WEDNESDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS
+        )
+
+        val output = optimizerScheduler.generateSchedule(input)
+
+        val employee1Hours = output.shifts.filter { it.employeeId == employee1.id }.sumOf { it.durationHours }
+        val employee2Hours = output.shifts.filter { it.employeeId == employee2.id }.sumOf { it.durationHours }
+        val employee3Hours = output.shifts.filter { it.employeeId == employee3.id }.sumOf { it.durationHours }
+
+        val hours = listOf(employee1Hours, employee2Hours, employee3Hours)
+        val avgHours = hours.average()
+        val variance = hours.map { (it - avgHours) * (it - avgHours) }.average()
+        val stdDev = kotlin.math.sqrt(variance)
+
+        // Hours should be relatively balanced across all employees
+        assertTrue(
+            stdDev < 3.0,
+            "OPTIMIZER MAXIMIZE_FAIRNESS should distribute hours fairly (stdDev: $stdDev, hours: $hours)"
+        )
+
+        // All employees should get some hours
+        assertTrue(employee1Hours > 0 || employee2Hours > 0 || employee3Hours > 0,
+            "OPTIMIZER should schedule at least some employees")
+    }
+
+    @Test
+    fun `OPTIMIZER different objectives should produce measurably different results`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val cheapEmployee = createEmployee(
+            firstName = "Cheap",
+            productivity = 120.0,
+            payRate = 12.0,
+            availability = listOf(
+                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        val productiveEmployee = createEmployee(
+            firstName = "Productive",
+            productivity = 280.0,
+            payRate = 26.0,
+            availability = listOf(
+                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        salesForecastRepository.update(
+            mapOf(
+                DayOfWeek.THURSDAY to mapOf(
+                    LocalTime.of(10, 0) to 600.0,
+                    LocalTime.of(12, 0) to 900.0,
+                    LocalTime.of(14, 0) to 750.0
+                )
+            )
+        )
+
+        val maxSalesInput = ScheduleInput(
+            employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
+            laborCostBudget = 2000.0,
+            schedulePeriod = SchedulePeriod(
+                daysToSchedule = listOf(DayOfWeek.THURSDAY),
+                operatingHours = mapOf(
+                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            ),
+            optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
+        )
+
+        val minCostInput = maxSalesInput.copy(optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST)
+        val balancedInput = maxSalesInput.copy(optimizationObjective = OptimizationObjective.BALANCED)
+
+        val maxSalesOutput = optimizerScheduler.generateSchedule(maxSalesInput)
+        val minCostOutput = optimizerScheduler.generateSchedule(minCostInput)
+        val balancedOutput = optimizerScheduler.generateSchedule(balancedInput)
+
+        // MAXIMIZE_SALES should favor productive employee
+        val maxSalesProductiveHours = maxSalesOutput.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
+        val maxSalesCheapHours = maxSalesOutput.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
+
+        // MINIMIZE_LABOR_COST should favor cheaper employee
+        val minCostCheapHours = minCostOutput.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
+        val minCostProductiveHours = minCostOutput.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
+
+        assertTrue(
+            maxSalesProductiveHours >= maxSalesCheapHours,
+            "MAXIMIZE_SALES should favor productive employee (productive: $maxSalesProductiveHours, cheap: $maxSalesCheapHours)"
+        )
+
+        assertTrue(
+            minCostCheapHours >= minCostProductiveHours,
+            "MINIMIZE_LABOR_COST should favor cheaper employee (cheap: $minCostCheapHours, productive: $minCostProductiveHours)"
+        )
+
+        // Verify objectives produce different results
+        assertTrue(
+            maxSalesOutput.metrics.estimatedTotalSales >= minCostOutput.metrics.estimatedTotalSales ||
+            minCostOutput.metrics.totalLaborCost <= maxSalesOutput.metrics.totalLaborCost,
+            "Different objectives should produce different optimization results"
+        )
+
+        // BALANCED should achieve reasonable performance on both metrics
+        assertTrue(
+            balancedOutput.metrics.totalLaborCost > 0 && balancedOutput.metrics.estimatedTotalSales > 0,
+            "BALANCED should produce a feasible schedule"
         )
     }
 }

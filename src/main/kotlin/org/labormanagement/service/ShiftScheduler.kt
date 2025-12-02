@@ -8,6 +8,8 @@ import org.labormanagement.model.ScheduleInput
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
+import org.labormanagement.optimization.OptimizationConverter
+import org.labormanagement.optimization.ScheduleOptimizer
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
@@ -16,13 +18,30 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 
+/**
+ * Scheduling approach to use when generating schedules.
+ */
+enum class SchedulingApproach {
+    /**
+     * Fast greedy heuristic approach - hour-by-hour scheduling.
+     * Good for quick results but may not find optimal solution.
+     */
+    GREEDY,
+
+    /**
+     * Mathematical optimization using CP-SAT solver.
+     * Finds optimal or near-optimal solution but may take longer.
+     */
+    OPTIMIZER
+}
+
 class ShiftScheduler(
     private val validator: ConstraintValidator = ConstraintValidator(),
     private val employeeRepository: EmployeeRepository = EmployeeRepository(),
     private val scheduleRepository: ScheduleRepository = ScheduleRepository(),
-    private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository()
+    private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository(),
+    private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
-
     /**
      * Generate a new DRAFT schedule from ScheduleInput.
      * Returns the Schedule object with lifecycle management enabled.
@@ -33,6 +52,25 @@ class ShiftScheduler(
         name: String = "Generated Schedule",
         generatedBy: String = "system"
     ): Schedule = profile {
+        // Choose scheduling approach
+        val schedule = when (schedulingApproach) {
+            SchedulingApproach.GREEDY -> generateScheduleGreedy(input, name, generatedBy)
+            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(input, name, generatedBy)
+        }
+
+        scheduleRepository.save(schedule)
+
+        return@profile schedule
+    }
+
+    /**
+     * Generate schedule using the greedy heuristic approach (original implementation).
+     */
+    private fun generateScheduleGreedy(
+        input: ScheduleInput,
+        name: String,
+        generatedBy: String
+    ): Schedule {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
@@ -90,7 +128,7 @@ class ShiftScheduler(
         }
 
         // Create and return Schedule with all data (starts as DRAFT)
-        val schedule = Schedule(
+        return Schedule(
             name = name,
             schedulePeriod = input.schedulePeriod,
             shifts = mergedShifts,
@@ -104,10 +142,96 @@ class ShiftScheduler(
             createdBy = generatedBy,
             lastModifiedBy = generatedBy
         )
+    }
 
-        scheduleRepository.save(schedule)
+    /**
+     * Generate schedule using mathematical optimization (CP-SAT solver).
+     */
+    private fun generateScheduleOptimizer(
+        input: ScheduleInput,
+        name: String,
+        generatedBy: String
+    ): Schedule {
+        val employees = input.employeeIds.mapNotNull { id ->
+            employeeRepository.findById(id)
+        }
 
-        return@profile schedule
+        val salesForecast = salesForecastRepository.get()
+
+        // Build operating hours map
+        val operatingHoursMap = input.schedulePeriod.daysToSchedule.associateWith { day ->
+            input.schedulePeriod.operatingHours[day]?.let { hours ->
+                Pair(hours.openTime, hours.closeTime)
+            } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
+        }
+
+        // Convert to optimization input
+        val optimizationInput = profile("generateSchedule.buildOptimizationInput") {
+            OptimizationConverter.buildOptimizationInput(
+                employees = employees,
+                salesForecast = salesForecast,
+                scheduleDays = input.schedulePeriod.daysToSchedule,
+                operatingHoursMap = operatingHoursMap,
+                slotDurationHours = if (input.minShiftDurationHours > 0) input.minShiftDurationHours else 1.0,
+                coverageFraction = 0.8,
+                objective = input.optimizationObjective,
+                maxSolveTimeSeconds = 30.0
+            )
+        }
+
+        // Run optimizer
+        val optimizer = ScheduleOptimizer()
+        val result = profile("generateSchedule.optimize") {
+            optimizer.optimize(optimizationInput)
+        }
+
+        // Handle no solution case - fallback to greedy approach
+        if (result == null) {
+            println("Optimizer returned null - no feasible solution found. Falling back to GREEDY approach...")
+            return generateScheduleGreedy(input, name, generatedBy)
+        } else {
+            println("Optimizer found a feasible solution.")
+        }
+
+        // Convert optimizer result to shifts
+        val shifts = profile("generateSchedule.convertToShifts") {
+            OptimizationConverter.convertToShifts(result, optimizationInput)
+        }
+
+        // Generate staffing requirements (reuse existing logic)
+        val staffingRequirements = profile("generateSchedule.generateStaffingRequirements") {
+            generateStaffingRequirementsFromShifts(
+                shifts,
+                employees,
+                input.schedulePeriod,
+                salesForecast.weeklyForecast
+            )
+        }
+
+        // Validate constraints
+        val violations = profile("generateSchedule.validate") {
+            validator.validate(shifts, employees, input.laborCostBudget, staffingRequirements)
+        }
+
+        // Calculate metrics
+        val metrics = profile("generateSchedule.calculateMetrics") {
+            calculateMetrics(shifts, employees, salesForecast.weeklyForecast)
+        }
+
+        return Schedule(
+            name = name,
+            schedulePeriod = input.schedulePeriod,
+            shifts = shifts,
+            metrics = metrics,
+            violations = violations,
+            staffingRequirements = staffingRequirements,
+            employeeIds = input.employeeIds,
+            laborCostBudget = input.laborCostBudget,
+            minShiftDurationHours = input.minShiftDurationHours,
+            optimizationObjective = input.optimizationObjective,
+            createdBy = generatedBy,
+            lastModifiedBy = generatedBy
+        )
     }
 
     /**
@@ -662,5 +786,75 @@ class ShiftScheduler(
             laborCostPercentage = laborCostPercentage,
             employeeUtilization = utilization
         )
+    }
+
+    /**
+     * Generate staffing requirements from existing shifts.
+     * Used by the optimizer path to compute staffing requirements after optimization.
+     */
+    private fun generateStaffingRequirementsFromShifts(
+        shifts: List<Shift>,
+        employees: List<Employee>,
+        schedulePeriod: org.labormanagement.model.SchedulePeriod,
+        salesForecast: Map<DayOfWeek, Map<LocalTime, Double>>
+    ): List<StaffingRequirement> {
+        val requirements = mutableListOf<StaffingRequirement>()
+        val employeeMap = employees.associateBy { it.id }
+
+        schedulePeriod.daysToSchedule.forEach { day ->
+            val operatingHours = schedulePeriod.operatingHours[day] ?: return@forEach
+            val dayForecast = salesForecast[day] ?: emptyMap()
+
+            // Generate hourly intervals
+            val intervals = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, 1.0)
+
+            intervals.forEach { (startTime, endTime) ->
+                val expectedSales = calculateAverageSales(dayForecast, startTime, endTime)
+                val slotHours = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
+
+                // Count employees covering this time slot
+                val assignedCount = shifts.count { shift ->
+                    shift.dayOfWeek == day &&
+                    shift.startTime <= startTime &&
+                    shift.endTime >= endTime
+                }
+
+                // Calculate employees needed based on productivity
+                val availableEmployees = employees.filter { employee ->
+                    employee.availability.any { avail ->
+                        avail.dayOfWeek == day &&
+                        avail.startTime <= startTime &&
+                        avail.endTime >= endTime
+                    }
+                }
+
+                val avgProductivity = if (availableEmployees.isNotEmpty()) {
+                    availableEmployees.map { it.productivity }.average()
+                } else {
+                    employees.map { it.productivity }.average()
+                }
+
+                val employeesNeeded = determineEmployeesNeeded(
+                    expectedSales = expectedSales,
+                    avgProductivity = avgProductivity,
+                    shiftDurationHours = slotHours,
+                    availableCount = availableEmployees.size
+                )
+
+                requirements.add(
+                    StaffingRequirement(
+                        dayOfWeek = day,
+                        startTime = startTime,
+                        endTime = endTime,
+                        employeesNeeded = employeesNeeded,
+                        employeesAssigned = assignedCount,
+                        expectedSales = expectedSales
+                    )
+                )
+            }
+        }
+
+        // Merge consecutive requirements with same values
+        return mergeConsecutiveStaffingRequirements(requirements)
     }
 }

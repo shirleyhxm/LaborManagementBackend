@@ -34,6 +34,9 @@ dependencies {
     // JSON
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // OR-Tools for optimization
+    implementation("com.google.ortools:ortools-java:9.10.4067")
+
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host:2.3.12")
 }

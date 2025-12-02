@@ -192,7 +192,18 @@ data class Shift(
     val isOvertime: Boolean = false
 ) {
     // Calculated once during construction, cached for performance and frontend access
-    val durationHours: Double = ChronoUnit.MINUTES.between(startTime, endTime) / 60.0
+    // Handle overnight shifts (e.g., 22:00 to 02:00) by adding 24 hours if endTime < startTime
+    val durationHours: Double = run {
+        val minutes = if (endTime <= startTime) {
+            // Overnight shift: calculate minutes to midnight + minutes from midnight to end
+            ChronoUnit.MINUTES.between(startTime, LocalTime.MAX) +
+            ChronoUnit.MINUTES.between(LocalTime.MIN, endTime) + 1
+        } else {
+            // Regular shift within the same day
+            ChronoUnit.MINUTES.between(startTime, endTime)
+        }
+        minutes / 60.0
+    }
     val laborCost: Double = durationHours * payRate
 
     fun overlaps(other: Shift): Boolean {
