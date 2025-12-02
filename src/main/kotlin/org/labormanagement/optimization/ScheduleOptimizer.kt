@@ -44,13 +44,22 @@ class ScheduleOptimizer {
             model.newIntVar(0, 200, "hours_$e")
         }
 
+        // Overtime hours
         val overtime = Array(numEmployees) { e ->
             model.newIntVar(0, 200, "ot_$e")
         }
 
+        // Regular hours
         val regular = Array(numEmployees) { e ->
             val threshold = input.employees[e].contract.overtimeThreshold.toLong()
             model.newIntVar(0, threshold, "reg_$e")
+        }
+
+        val laborCost = model.newIntVar(0, 1_000_000, "labor_cost")
+
+        // Coverage output per slot (integer productivity sum)
+        val coverage = Array(numSlots) { t ->
+            model.newIntVar(0, 1_000_000, "coverage_$t")
         }
 
         // Slack variable for unmet coverage in slot t
@@ -61,10 +70,11 @@ class ScheduleOptimizer {
         // Add constraints
         addAvailabilityConstraints(model, x, input)
         addHoursConstraints(model, x, totalHours, regular, overtime, input)
-        addSalesCoverageConstraints(model, x, input, slack)
+        addSalesCoverageConstraints(model, x, coverage, input, slack)
+        addLaborCostConstraints(model, regular, overtime, laborCost, input)
 
         // Set objective based on optimization objective
-        setObjective(model, regular, overtime, input, slack)
+        setObjective(model, regular, overtime, coverage, input, slack)
 
         // Solve the model
         val solver = CpSolver()
@@ -142,6 +152,7 @@ class ScheduleOptimizer {
     private fun addSalesCoverageConstraints(
         model: CpModel,
         x: Array<Array<BoolVar>>,
+        coverage: Array<IntVar>,
         input: OptimizationInput,
         slack: Array<IntVar>
     ) {
@@ -153,6 +164,13 @@ class ScheduleOptimizer {
                 vars.add(x[e][t])
                 coeffs.add(input.getProductivity(e, t))
             }
+
+            // coverage[t] = Σ_e productivity[e][t] * x[e][t] - This is NOT a constraint, just definition
+            model.addEquality(
+                coverage[t],
+                LinearExpr.weightedSum(vars.toTypedArray(), coeffs.toLongArray())
+            )
+
             vars.add(slack[t]) // Add slack term
             coeffs.add(1) // slack contributes directly to coverage
 
@@ -164,10 +182,31 @@ class ScheduleOptimizer {
         }
     }
 
+    private fun addLaborCostConstraints(
+        model: CpModel,
+        regular: Array<IntVar>,
+        overtime: Array<IntVar>,
+        laborCost: IntVar,
+        input: OptimizationInput
+    ) {
+        val costTerms = mutableListOf<LinearExpr>()
+
+        for (e in input.employees.indices) {
+            // regular wages
+            costTerms += LinearExpr.term(regular[e], input.employees[e].normalPayRate.toLong())
+            // overtime wages
+            costTerms += LinearExpr.term(overtime[e], input.employees[e].overtimePayRate.toLong())
+        }
+
+        model.addEquality(laborCost, LinearExpr.sum(costTerms.toTypedArray()))
+        model.addLessOrEqual(laborCost, input.laborBudget)
+    }
+
     private fun setObjective(
         model: CpModel,
         regular: Array<IntVar>,
         overtime: Array<IntVar>,
+        coverage: Array<IntVar>,
         input: OptimizationInput,
         slack: Array<IntVar>
     ) {
@@ -193,22 +232,10 @@ class ScheduleOptimizer {
                 model.minimize(LinearExpr.sum(costTerms.toTypedArray()))
             }
             OptimizationObjective.MAXIMIZE_SALES -> {
-                // Maximize productivity (minimize negative productivity)
-                val productivityTerms = mutableListOf<LinearExpr>()
+                // Maximize Σ coverage[t]
+                val totalCoverage = LinearExpr.sum(coverage.asList().toTypedArray())
 
-                // Penalize slack heavily to ensure coverage
-                for (t in input.timeSlots.indices) {
-                    productivityTerms += LinearExpr.term(slack[t], M_SLACK)
-                }
-
-                for (e in input.employees.indices) {
-                    val employee = input.employees[e]
-                    // Use negative to convert maximization to minimization
-                    productivityTerms += LinearExpr.term(regular[e], -employee.productivity.toLong())
-                    productivityTerms += LinearExpr.term(overtime[e], -employee.productivity.toLong())
-                }
-
-                model.minimize(LinearExpr.sum(productivityTerms.toTypedArray()))
+                model.minimize(LinearExpr.term(totalCoverage, -1))
             }
             OptimizationObjective.MAXIMIZE_FAIRNESS -> {
                 // This would require a more complex objective (e.g., minimize variance)
@@ -278,6 +305,7 @@ data class OptimizationInput(
     val availability: List<List<Boolean>>, // availability[employee][timeSlot]
     val productivity: List<List<Double>>, // productivity[employee][timeSlot] - can vary by time
     val coverageFraction: Double = 0.8, // What fraction of sales should be covered
+    val laborBudget: Long = Long.MAX_VALUE, // Maximum labor budget
     val objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
     val maxSolveTimeSeconds: Double = 5.0
 ) {
