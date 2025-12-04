@@ -2,6 +2,7 @@ package org.labormanagement.optimization
 
 import com.google.ortools.Loader
 import com.google.ortools.sat.*
+import io.ktor.http.decodeCookieValue
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OptimizationObjective
 import java.time.DayOfWeek
@@ -39,27 +40,31 @@ class ScheduleOptimizer {
             }
         }
 
+        /* Objective 1: Minimize labor cost */
         // Hours variables for each employee
         val totalHours = Array(numEmployees) { e ->
             model.newIntVar(0, 200, "hours_$e")
         }
-
         // Overtime hours
         val overtime = Array(numEmployees) { e ->
             model.newIntVar(0, 200, "ot_$e")
         }
-
         // Regular hours
         val regular = Array(numEmployees) { e ->
             val threshold = input.employees[e].contract.overtimeThreshold.toLong()
             model.newIntVar(0, threshold, "reg_$e")
         }
-
         val laborCost = model.newIntVar(0, 1_000_000, "labor_cost")
 
+        /* Objective 2: Maximize sales coverage */
         // Coverage output per slot (integer productivity sum)
         val coverage = Array(numSlots) { t ->
             model.newIntVar(0, 1_000_000, "coverage_$t")
+        }
+
+        /* Objective 3: Minimize variance in assigned / workable hours (for fairness) */
+        val hoursDeviation = Array(numEmployees) { e ->
+            model.newIntVar(0, 1_000_000, "deviation_$e")
         }
 
         // Slack variable for unmet coverage in slot t
@@ -72,9 +77,10 @@ class ScheduleOptimizer {
         addHoursConstraints(model, x, totalHours, regular, overtime, input)
         addSalesCoverageConstraints(model, x, coverage, input, slack)
         addLaborCostConstraints(model, regular, overtime, laborCost, input)
+        addLaborHoursVariable(model, x, hoursDeviation, input)
 
         // Set objective based on optimization objective
-        setObjective(model, regular, overtime, coverage, input, slack)
+        setObjective(model, regular, overtime, coverage, hoursDeviation, input, slack)
 
         // Solve the model
         val solver = CpSolver()
@@ -202,11 +208,60 @@ class ScheduleOptimizer {
         model.addLessOrEqual(laborCost, input.laborBudget)
     }
 
+    private fun addLaborHoursVariable(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        deviation: Array<IntVar>,
+        input: OptimizationInput,
+    ) {
+        val workableHours = IntArray(input.employees.size) { e ->
+            // Count how many slots this employee *could* work
+            (0 until input.timeSlots.size).count { t -> input.isAvailable(e, t) }
+        }
+        val assignedHours = Array(input.employees.size) { e ->
+            model.newIntVar(0, workableHours[e].toLong(), "assigned_hours_$e")
+        }
+        val targetHours = model.newIntVar(0, 1_000_000, "target_hours")
+        val totalAssignedHours = model.newIntVar(0, 1_000_000, "total_assigned_hours")
+
+        val totalHourTerms = mutableListOf<LinearExpr>()
+
+        for (e in input.employees.indices) {
+            val assignedHourTerms = mutableListOf<LinearExpr>()
+
+            for (t in input.timeSlots.indices) {
+                totalHourTerms += LinearExpr.term(x[e][t], 1)
+                assignedHourTerms += LinearExpr.term(x[e][t], 1)
+            }
+
+            model.addEquality(assignedHours[e], LinearExpr.sum(assignedHourTerms.toTypedArray()))
+        }
+        model.addEquality(totalAssignedHours, LinearExpr.sum(totalHourTerms.toTypedArray()))
+
+        // targetHours = totalAssignedHours / numEmployees
+        model.addEquality(LinearExpr.term(targetHours, input.employees.size.toLong()),totalAssignedHours)
+
+        for (e in input.employees.indices) {
+            // deviation[e] ≥ assigned_hours - targetHours
+            model.addGreaterOrEqual(
+                deviation[e],
+                LinearExpr.sum(arrayOf(assignedHours[e], LinearExpr.term(targetHours, -1)))
+            )
+
+            // deviation[e] ≥ targetHours - assigned_hours
+            model.addGreaterOrEqual(
+                deviation[e],
+                LinearExpr.sum(arrayOf(targetHours, LinearExpr.term(assignedHours[e], -1)))
+            )
+        }
+    }
+
     private fun setObjective(
         model: CpModel,
         regular: Array<IntVar>,
         overtime: Array<IntVar>,
         coverage: Array<IntVar>,
+        hoursDeviation: Array<IntVar>,
         input: OptimizationInput,
         slack: Array<IntVar>
     ) {
@@ -238,22 +293,20 @@ class ScheduleOptimizer {
                 model.minimize(LinearExpr.term(totalCoverage, -1))
             }
             OptimizationObjective.MAXIMIZE_FAIRNESS -> {
-                // This would require a more complex objective (e.g., minimize variance)
-                // For now, use labor cost minimization as a placeholder
-                val costTerms = mutableListOf<LinearExpr>()
+                // Minimize hour deviations for fairness, but still penalize coverage shortfalls
+                val fairnessTerms = mutableListOf<LinearExpr>()
 
-                // Penalize slack heavily to ensure coverage (same as other objectives)
+                // Primary: minimize coverage shortfall (slack)
                 for (t in input.timeSlots.indices) {
-                    costTerms += LinearExpr.term(slack[t], M_SLACK)
+                    fairnessTerms += LinearExpr.term(slack[t], M_SLACK)
                 }
 
+                // Secondary: minimize hour deviations for fairness
                 for (e in input.employees.indices) {
-                    val employee = input.employees[e]
-                    costTerms += LinearExpr.term(regular[e], employee.normalPayRate.toLong())
-                    costTerms += LinearExpr.term(overtime[e], employee.overtimePayRate.toLong())
+                    fairnessTerms += LinearExpr.term(hoursDeviation[e], 1)
                 }
 
-                model.minimize(LinearExpr.sum(costTerms.toTypedArray()))
+                model.minimize(LinearExpr.sum(fairnessTerms.toTypedArray()))
             }
         }
     }
