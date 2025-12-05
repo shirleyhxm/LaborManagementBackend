@@ -21,6 +21,7 @@ data class CreateEmployeeRequest(
     val productivity: Double = 1.0,
     val contract: ContractDto = ContractDto(),
     val availability: List<AvailabilityDto> = emptyList(),
+    val groups: Set<String> = emptySet()
 )
 
 data class UpdateEmployeeRequest(
@@ -32,7 +33,8 @@ data class UpdateEmployeeRequest(
     val overtimePayRate: Double?,
     val productivity: Double?,
     val contract: ContractDto?,
-    val availability: List<AvailabilityDto>?
+    val availability: List<AvailabilityDto>?,
+    val groups: Set<String>?
 )
 
 data class EmployeeResponse(
@@ -46,7 +48,8 @@ data class EmployeeResponse(
     val overtimePayRate: Double,
     val productivity: Double,
     val contract: ContractDto,
-    val availability: List<AvailabilityDto>
+    val availability: List<AvailabilityDto>,
+    val groups: Set<String>
 )
 
 data class ContractDto(
@@ -78,7 +81,8 @@ fun Employee.toResponse(): EmployeeResponse {
         overtimePayRate = this.overtimePayRate,
         productivity = this.productivity,
         contract = this.contract.toDto(),
-        availability = this.availability.map { it.toDto() }
+        availability = this.availability.map { it.toDto() },
+        groups = this.groups
     )
 }
 
@@ -132,6 +136,7 @@ fun CreateEmployeeRequest.toModel(): Employee {
         overtimePayRate = this.overtimePayRate,
         productivity = this.productivity,
         contract = this.contract.toModel(),
-        availability = this.availability.map { it.toModel() }
+        availability = this.availability.map { it.toModel() },
+        groups = this.groups
     )
 }

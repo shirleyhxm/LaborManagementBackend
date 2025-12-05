@@ -15,7 +15,8 @@ data class Employee(
     val overtimePayRate: Double,
     val productivity: Double, // Sales ($) per hour
     val contract: Contract,
-    val availability: List<Availability>
+    val availability: List<Availability>,
+    val groups: Set<String> = emptySet() // Tag-based group membership (e.g., "Sales", "Management")
 ) {
     val fullName: String
         get() = if (middleName.isNotEmpty()) "$firstName $middleName $lastName" else "$firstName $lastName"

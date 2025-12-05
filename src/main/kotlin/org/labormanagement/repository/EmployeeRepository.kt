@@ -45,4 +45,18 @@ class EmployeeRepository {
     fun findByIds(ids: List<UUID>): List<Employee> {
         return ids.mapNotNull { employees[it] }
     }
+
+    fun findByGroup(groupName: String): List<Employee> {
+        val groupKey = groupName.lowercase()
+        return employees.values.filter { employee ->
+            employee.groups.any { it.lowercase() == groupKey }
+        }
+    }
+
+    fun findByGroups(groupNames: Set<String>): List<Employee> {
+        val groupKeys = groupNames.map { it.lowercase() }.toSet()
+        return employees.values.filter { employee ->
+            employee.groups.any { it.lowercase() in groupKeys }
+        }
+    }
 }

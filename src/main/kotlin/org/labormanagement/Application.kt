@@ -23,6 +23,7 @@ import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
 import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.EmployeeController
+import org.labormanagement.controller.EmployeeGroupController
 import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.TestDataController
@@ -30,6 +31,7 @@ import org.labormanagement.controller.attendanceRoutes
 import org.labormanagement.controller.timeoffRoutes
 import org.labormanagement.controller.salesRoutes
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.repository.UserRepository
@@ -46,7 +48,6 @@ import org.labormanagement.service.TimeoffService
 import org.labormanagement.service.SalesService
 import org.labormanagement.service.SchedulingApproach
 import org.slf4j.event.Level
-import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonSerializer
 import java.time.DayOfWeek
@@ -63,21 +64,14 @@ fun main() {
 fun Application.module() {
     // Initialize repositories and services
     val employeeRepository = EmployeeRepository()
+    val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
     val salesForecastRepository = SalesForecastRepository()
     val userRepository = UserRepository()
     val attendanceRepository = AttendanceRepository()
     val timeoffRepository = TimeoffRepository()
     val salesRepository = SalesRepository()
-
     val constraintValidator = ConstraintValidator()
-
-    // Configure scheduling approach via environment variable
-    // Options: GREEDY (default, fast heuristic) or OPTIMIZER (CP-SAT solver, optimal but slower)
-//    val schedulingApproach = when (System.getenv("SCHEDULING_APPROACH")?.uppercase()) {
-//        "OPTIMIZER" -> SchedulingApproach.OPTIMIZER
-//        else -> SchedulingApproach.GREEDY
-//    }
     val schedulingApproach = SchedulingApproach.OPTIMIZER
 
     val shiftScheduler = ShiftScheduler(
@@ -118,6 +112,7 @@ fun Application.module() {
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
+    val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
     val scheduleController = ScheduleController(
         scheduleRepository = scheduleRepository,
         shiftScheduler = shiftScheduler,
@@ -307,6 +302,10 @@ fun Application.module() {
 
         with(employeeController) {
             employeeRoutes()
+        }
+
+        with(employeeGroupController) {
+            employeeGroupRoutes()
         }
 
         with(scheduleController) {

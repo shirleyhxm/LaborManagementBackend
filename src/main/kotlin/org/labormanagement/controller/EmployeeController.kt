@@ -49,9 +49,16 @@ class EmployeeController(
                 }
             }
 
-            // Get all employees
+            // Get all employees (optionally filtered by group)
             get {
-                val employees = employeeRepository.findAll()
+                val groupName = call.request.queryParameters["group"]
+
+                val employees = if (groupName != null) {
+                    employeeRepository.findByGroup(groupName)
+                } else {
+                    employeeRepository.findAll()
+                }
+
                 call.respond(HttpStatusCode.OK, employees.map { it.toResponse() })
             }
 
@@ -102,7 +109,8 @@ class EmployeeController(
                         overtimePayRate = request.overtimePayRate ?: existing.overtimePayRate,
                         productivity = request.productivity ?: existing.productivity,
                         contract = request.contract?.toModel() ?: existing.contract,
-                        availability = request.availability?.map { it.toModel() } ?: existing.availability
+                        availability = request.availability?.map { it.toModel() } ?: existing.availability,
+                        groups = request.groups ?: existing.groups
                     )
 
                     employeeRepository.update(id, updated)
