@@ -174,6 +174,7 @@ class ShiftScheduler(
                 operatingHoursMap = operatingHoursMap,
                 slotDurationHours = if (input.minShiftDurationHours > 0) input.minShiftDurationHours else 1.0,
                 coverageFraction = 0.8,
+                laborBudget = input.laborCostBudget.toLong(),
                 objective = input.optimizationObjective,
                 maxSolveTimeSeconds = 30.0
             )

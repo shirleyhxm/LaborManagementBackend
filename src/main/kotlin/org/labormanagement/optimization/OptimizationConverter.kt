@@ -21,6 +21,7 @@ object OptimizationConverter {
      * @param scheduleDays Days to include in the schedule
      * @param slotDurationHours Duration of each time slot in hours (default: 1.0)
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
+     * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
      * @return OptimizationInput ready for the solver
      */
@@ -31,6 +32,7 @@ object OptimizationConverter {
         operatingHoursMap: Map<DayOfWeek, Pair<LocalTime, LocalTime>>,
         slotDurationHours: Double = 1.0,
         coverageFraction: Double = 0.8,
+        laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         maxSolveTimeSeconds: Double = 5.0
     ): OptimizationInput {
@@ -53,6 +55,7 @@ object OptimizationConverter {
             availability = availability,
             productivity = productivity,
             coverageFraction = coverageFraction,
+            laborBudget = laborBudget,
             objective = objective,
             maxSolveTimeSeconds = maxSolveTimeSeconds
         )
@@ -75,7 +78,7 @@ object OptimizationConverter {
             val currentHours = employeeHours.getOrDefault(assignment.employeeIndex, 0.0)
 
             // Group consecutive time slots into continuous shifts
-            val consecutiveSlotGroups = groupConsecutiveSlots(assignment.timeSlotIndices)
+            val consecutiveSlotGroups = groupConsecutiveSlots(assignment.timeSlotIndices, input.timeSlots)
 
             for (slotGroup in consecutiveSlotGroups) {
                 val startSlot = input.timeSlots[slotGroup.first()]
@@ -206,10 +209,11 @@ object OptimizationConverter {
     }
 
     /**
-     * Groups consecutive time slot indices into continuous ranges.
+     * Groups consecutive time slot indices into continuous ranges within the same day.
      * For example: [0, 1, 2, 5, 6, 8] -> [[0, 1, 2], [5, 6], [8]]
+     * Ensures that slots from different days are never grouped together.
      */
-    private fun groupConsecutiveSlots(indices: List<Int>): List<List<Int>> {
+    private fun groupConsecutiveSlots(indices: List<Int>, timeSlots: List<TimeSlot>): List<List<Int>> {
         if (indices.isEmpty()) return emptyList()
 
         val sorted = indices.sorted()
@@ -217,7 +221,15 @@ object OptimizationConverter {
         var currentGroup = mutableListOf(sorted[0])
 
         for (i in 1 until sorted.size) {
-            if (sorted[i] == sorted[i - 1] + 1) {
+            val prevSlot = timeSlots[sorted[i - 1]]
+            val currSlot = timeSlots[sorted[i]]
+
+            // Check if consecutive AND on the same day AND times align
+            val isConsecutive = sorted[i] == sorted[i - 1] + 1
+            val isSameDay = prevSlot.day == currSlot.day
+            val timesAlign = prevSlot.endTime == currSlot.startTime
+
+            if (isConsecutive && isSameDay && timesAlign) {
                 // Consecutive - add to current group
                 currentGroup.add(sorted[i])
             } else {
