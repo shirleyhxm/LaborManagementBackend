@@ -22,6 +22,7 @@ import io.ktor.server.auth.jwt.jwt
 import io.ktor.server.plugins.callloging.CallLogging
 import io.ktor.server.routing.get
 import org.labormanagement.controller.AuthController
+import org.labormanagement.controller.ConstraintsController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
 import org.labormanagement.controller.SalesForecastController
@@ -40,6 +41,7 @@ import org.labormanagement.repository.TimeoffRepository
 import org.labormanagement.repository.SalesRepository
 import org.labormanagement.service.AuthService
 import org.labormanagement.service.ConstraintValidator
+import org.labormanagement.service.ConstraintsService
 import org.labormanagement.service.JwtService
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
@@ -110,6 +112,8 @@ fun Application.module() {
         attendanceRepository = attendanceRepository
     )
 
+    val constraintsService = ConstraintsService()
+
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
@@ -121,6 +125,7 @@ fun Application.module() {
     val salesForecastController = SalesForecastController(salesForecastRepository)
     val testDataController = TestDataController(employeeRepository)
     val authController = AuthController(authService)
+    val constraintsController = ConstraintsController(constraintsService)
 
     // Configure plugins
     install(ContentNegotiation) {
@@ -324,6 +329,11 @@ fun Application.module() {
         attendanceRoutes(attendanceService)
         timeoffRoutes(timeoffService)
         salesRoutes(salesService)
+
+        // Register constraints routes
+        with(constraintsController) {
+            constraintsRoutes()
+        }
     }
 
     log.info("Labor Management API started on port 8080")
