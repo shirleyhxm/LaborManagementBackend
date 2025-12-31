@@ -75,7 +75,7 @@ object OptimizationConverter {
 
         for (assignment in result.assignments) {
             val employee = input.employees[assignment.employeeIndex]
-            val currentHours = employeeHours.getOrDefault(assignment.employeeIndex, 0.0)
+            val overtimeThreshold = employee.contract.overtimeThreshold
 
             // Group consecutive time slots into continuous shifts
             val consecutiveSlotGroups = groupConsecutiveSlots(assignment.timeSlotIndices, input.timeSlots)
@@ -87,24 +87,61 @@ object OptimizationConverter {
                 // Calculate total hours for this shift group
                 val totalHours = slotGroup.sumOf { input.timeSlots[it].durationHours }
 
-                // Determine if this shift is overtime based on hours BEFORE this shift starts
-                // This ensures the first shifts are normal rate, and only later shifts become overtime
-                val hoursBeforeThisShift = currentHours
-                val isOvertime = hoursBeforeThisShift >= employee.contract.overtimeThreshold
-                val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
+                // Get current cumulative hours for this employee
+                val currentHours = employeeHours.getOrDefault(assignment.employeeIndex, 0.0)
 
-                shifts.add(
-                    Shift(
-                        employeeId = employee.id,
-                        dayOfWeek = startSlot.day,
-                        startTime = startSlot.startTime,
-                        endTime = endSlot.endTime,
-                        payRate = payRate,
-                        isOvertime = isOvertime
+                // Check if this shift crosses the overtime threshold
+                val hoursAfterShift = currentHours + totalHours
+
+                if (currentHours < overtimeThreshold && hoursAfterShift > overtimeThreshold) {
+                    // Shift crosses the overtime threshold - split it into two shifts
+                    val regularHours = overtimeThreshold - currentHours
+
+                    // Calculate the time when overtime starts
+                    val overtimeStartMinutes = (regularHours * 60).toLong()
+                    val overtimeStartTime = startSlot.startTime.plusMinutes(overtimeStartMinutes)
+
+                    // Create regular pay shift (before threshold)
+                    shifts.add(
+                        Shift(
+                            employeeId = employee.id,
+                            dayOfWeek = startSlot.day,
+                            startTime = startSlot.startTime,
+                            endTime = overtimeStartTime,
+                            payRate = employee.normalPayRate,
+                            isOvertime = false
+                        )
                     )
-                )
 
-                // Update cumulative hours for this employee
+                    // Create overtime pay shift (after threshold)
+                    shifts.add(
+                        Shift(
+                            employeeId = employee.id,
+                            dayOfWeek = endSlot.day,
+                            startTime = overtimeStartTime,
+                            endTime = endSlot.endTime,
+                            payRate = employee.overtimePayRate,
+                            isOvertime = true
+                        )
+                    )
+                } else {
+                    // Shift does not cross threshold - create single shift
+                    val isOvertime = currentHours >= overtimeThreshold
+                    val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
+
+                    shifts.add(
+                        Shift(
+                            employeeId = employee.id,
+                            dayOfWeek = startSlot.day,
+                            startTime = startSlot.startTime,
+                            endTime = endSlot.endTime,
+                            payRate = payRate,
+                            isOvertime = isOvertime
+                        )
+                    )
+                }
+
+                // Update cumulative hours for this employee AFTER creating the shift(s)
                 employeeHours[assignment.employeeIndex] = currentHours + totalHours
             }
         }
