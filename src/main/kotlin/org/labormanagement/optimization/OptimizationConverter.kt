@@ -23,6 +23,7 @@ object OptimizationConverter {
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
      * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
+     * @param constraintsService Optional ConstraintsService to fetch scheduling constraints
      * @return OptimizationInput ready for the solver
      */
     fun buildOptimizationInput(
@@ -34,10 +35,24 @@ object OptimizationConverter {
         coverageFraction: Double = 0.8,
         laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
-        maxSolveTimeSeconds: Double = 5.0
+        maxSolveTimeSeconds: Double = 5.0,
+        constraintsService: org.labormanagement.service.ConstraintsService? = null
     ): OptimizationInput {
+        // Fetch constraints from ConstraintsService if provided
+        val budgetConstraints = constraintsService?.getBudgetConstraints()
+        val workingHoursRules = constraintsService?.getWorkingHoursRules()
+        val complianceRules = constraintsService?.getComplianceRules()
+        val fairnessSettings = constraintsService?.getFairnessSettings()
+        val contractedHoursMap = constraintsService?.getContractedHours(null)
+            ?.associateBy { it.employeeId } ?: emptyMap()
+
+        // Use the larger of slotDurationHours and minShiftLength to ensure each slot
+        // (and therefore each consecutive shift) meets the minimum shift length requirement
+        val minShiftLength = workingHoursRules?.minShiftLength ?: 0.0
+        val effectiveSlotDuration = maxOf(slotDurationHours, minShiftLength)
+
         // Generate time slots for all scheduled days
-        val timeSlots = generateTimeSlots(scheduleDays, operatingHoursMap, slotDurationHours)
+        val timeSlots = generateTimeSlots(scheduleDays, operatingHoursMap, effectiveSlotDuration)
 
         // Build availability matrix [employee][timeSlot]
         val availability = buildAvailabilityMatrix(employees, timeSlots)
@@ -57,7 +72,12 @@ object OptimizationConverter {
             coverageFraction = coverageFraction,
             laborBudget = laborBudget,
             objective = objective,
-            maxSolveTimeSeconds = maxSolveTimeSeconds
+            maxSolveTimeSeconds = maxSolveTimeSeconds,
+            budgetConstraints = budgetConstraints,
+            workingHoursRules = workingHoursRules,
+            complianceRules = complianceRules,
+            fairnessSettings = fairnessSettings,
+            contractedHours = contractedHoursMap
         )
     }
 

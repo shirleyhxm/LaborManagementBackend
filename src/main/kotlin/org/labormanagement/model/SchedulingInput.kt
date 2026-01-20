@@ -8,7 +8,6 @@ data class ScheduleInput(
     val employeeIds: List<UUID>,
     val laborCostBudget: Double,
     val schedulePeriod: SchedulePeriod,
-    val minShiftDurationHours: Double = 0.0, // Optional
     val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
 )
 

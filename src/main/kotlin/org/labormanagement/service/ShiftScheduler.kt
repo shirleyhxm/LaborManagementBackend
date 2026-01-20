@@ -40,6 +40,7 @@ class ShiftScheduler(
     private val employeeRepository: EmployeeRepository = EmployeeRepository(),
     private val scheduleRepository: ScheduleRepository = ScheduleRepository(),
     private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository(),
+    private val constraintsService: ConstraintsService = ConstraintsService(),
     private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
     /**
@@ -74,8 +75,8 @@ class ShiftScheduler(
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
-        // Get configuration from input
-        val minShiftDurationHours = input.minShiftDurationHours
+        // Get configuration from ConstraintsService and input
+        val minShiftDurationHours = constraintsService.getWorkingHoursRules()?.minShiftLength ?: 1.0
         val optimizationObjective = input.optimizationObjective
 
         // Get sales forecast from repository
@@ -137,7 +138,6 @@ class ShiftScheduler(
             staffingRequirements = mergedRequirements,
             employeeIds = input.employeeIds,
             laborCostBudget = input.laborCostBudget,
-            minShiftDurationHours = minShiftDurationHours,
             optimizationObjective = optimizationObjective,
             createdBy = generatedBy,
             lastModifiedBy = generatedBy
@@ -165,6 +165,9 @@ class ShiftScheduler(
             } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
         }
 
+        // Get base slot duration from ConstraintsService
+        val minShiftDurationHours = constraintsService.getWorkingHoursRules()?.minShiftLength ?: 1.0
+
         // Convert to optimization input
         val optimizationInput = profile("generateSchedule.buildOptimizationInput") {
             OptimizationConverter.buildOptimizationInput(
@@ -172,11 +175,12 @@ class ShiftScheduler(
                 salesForecast = salesForecast,
                 scheduleDays = input.schedulePeriod.daysToSchedule,
                 operatingHoursMap = operatingHoursMap,
-                slotDurationHours = if (input.minShiftDurationHours > 0) input.minShiftDurationHours else 1.0,
+                slotDurationHours = minShiftDurationHours,
                 coverageFraction = 0.8,
                 laborBudget = input.laborCostBudget.toLong(),
                 objective = input.optimizationObjective,
-                maxSolveTimeSeconds = 30.0
+                maxSolveTimeSeconds = 30.0,
+                constraintsService = constraintsService
             )
         }
 
@@ -228,7 +232,6 @@ class ShiftScheduler(
             staffingRequirements = staffingRequirements,
             employeeIds = input.employeeIds,
             laborCostBudget = input.laborCostBudget,
-            minShiftDurationHours = input.minShiftDurationHours,
             optimizationObjective = input.optimizationObjective,
             createdBy = generatedBy,
             lastModifiedBy = generatedBy

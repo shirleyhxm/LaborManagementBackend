@@ -36,7 +36,6 @@ data class Schedule(
     // Generation input parameters (for historical reference and reproducibility)
     val employeeIds: List<UUID>,
     val laborCostBudget: Double,
-    val minShiftDurationHours: Double,
     val optimizationObjective: OptimizationObjective,
 
     // Lifecycle metadata

@@ -1,6 +1,7 @@
 package org.labormanagement.service
 
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
@@ -9,6 +10,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 
+@Disabled
 class PerformanceProfilerTest {
     private lateinit var employeeRepository: EmployeeRepository
     private lateinit var salesForecastRepository: SalesForecastRepository

@@ -260,7 +260,6 @@ class ShiftModificationService(
             staffingRequirements = originalSchedule.staffingRequirements,
             employeeIds = originalSchedule.employeeIds,
             laborCostBudget = originalSchedule.laborCostBudget,
-            minShiftDurationHours = originalSchedule.minShiftDurationHours,
             optimizationObjective = originalSchedule.optimizationObjective,
             version = 1,
             createdAt = Instant.now(),

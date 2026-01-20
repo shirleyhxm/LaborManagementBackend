@@ -115,13 +115,18 @@ src/main/kotlin/org/labormanagement/
 - Constraint programming model with decision variables
 - Guarantees constraint satisfaction
 - Multiple objectives: cost minimization, sales maximization, balanced, fairness
+- Integrates with ConstraintsService for centralized constraint management
+- Supports variable-duration time slots (weighted by slot.durationHours)
+- Enforces shift length constraints on consecutive shifts (handles overnight shifts)
 
 **OptimizationConverter.kt** - Transforms between domain models and optimization inputs
 - Converts Employee/SalesForecast → OptimizationInput
 - Converts OptimizationResult → Shifts
-- Handles time slot generation
+- Handles time slot generation with configurable duration
+- Enforces minShiftLength by using it as minimum slot duration
+- Automatically groups consecutive slots into shifts
 
-**Usage Note:** The optimization module provides mathematically optimal schedules but is currently separate from the main ShiftScheduler. It can be integrated to replace the greedy approach when needed.
+**Usage Note:** The optimizer is now the default scheduling approach (configurable via `SchedulingApproach` enum). It provides mathematically optimal schedules with guaranteed constraint satisfaction.
 
 ## Scheduling Architecture
 
@@ -135,11 +140,12 @@ src/main/kotlin/org/labormanagement/
 - Good for interactive schedule generation
 
 **2. CP-SAT Optimizer** (`ScheduleOptimizer.kt`)
-- Mathematical optimization using OR-Tools
+- Mathematical optimization using OR-Tools CP-SAT solver
 - Finds globally optimal solutions
-- Slower but more accurate (< 5 seconds typical)
-- Better for complex constraint scenarios
-- Currently not integrated into main API flow
+- Slower but more accurate (< 5 seconds typical, configurable via maxSolveTimeSeconds)
+- Better for complex constraint scenarios with multiple interacting rules
+- **Now the default approach** (set via `SchedulingApproach.OPTIMIZER` in ShiftScheduler constructor)
+- Automatically falls back to GREEDY approach if no feasible solution found
 
 ### Optimization Objectives
 
@@ -197,16 +203,23 @@ See PERFORMANCE.md for detailed profiling guide.
 
 ## Constraints System
 
-The system supports comprehensive constraint management (see CONSTRAINTS_API.md):
+The system supports comprehensive constraint management through **ConstraintsService** (see CONSTRAINTS_API.md):
 
 **Constraint Types:**
 1. **Budget Constraints** - Weekly/monthly labor cost limits
-2. **Working Hours Rules** - Max hours per week, overtime limits, rest periods
+2. **Working Hours Rules** - Max/min hours per week, shift length limits, overtime limits, rest periods
 3. **Employee Contracted Hours** - Min/contracted/max hours per employee
 4. **Compliance Rules** - FLSA overtime, meal breaks, minor labor laws
 5. **Custom Compliance Rules** - Organization-specific rules
 6. **Scheduling Priorities** - Configurable priority ordering
 7. **Fairness Settings** - Weekend rotation, shift balancing
+
+**Key Constraint Enforcement:**
+- **minShiftLength**: Enforced at time slot generation level - each slot is at least minShiftLength hours, ensuring all consecutive shifts meet the minimum
+- **maxShiftLength**: Enforced on consecutive shift sequences - prevents any continuous work period from exceeding the limit (handles overnight shifts)
+- **maxHoursPerWeek**: Total weekly hours constraint (weighted by slot duration)
+- **maxOvertimeHours**: Overtime hours beyond threshold constraint
+- All constraints fetched from ConstraintsService at runtime, no hardcoded parameters
 
 **Accessing Constraints:**
 ```bash
@@ -266,11 +279,14 @@ PUT /api/v1/constraints/compliance
 
 ### Modifying Scheduling Logic
 
-**Important:** When changing `ShiftScheduler.kt`:
+**Important:** When changing `ShiftScheduler.kt` or `ScheduleOptimizer.kt`:
 - Always run performance tests to check for regressions
 - Validate all constraint types still work
 - Test all 4 optimization objectives
 - Check edge cases: zero budget, no availability, extreme forecasts
+- Remember: time slots can be variable duration (not always 1 hour)
+- Shift length constraints apply to **consecutive shifts**, not daily totals
+- All constraints should weight by `slot.durationHours` when summing hours
 
 ## Testing Strategy
 
