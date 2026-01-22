@@ -122,9 +122,9 @@ src/main/kotlin/org/labormanagement/
 **OptimizationConverter.kt** - Transforms between domain models and optimization inputs
 - Converts Employee/SalesForecast → OptimizationInput
 - Converts OptimizationResult → Shifts
-- Handles time slot generation with configurable duration
-- Enforces minShiftLength by using it as minimum slot duration
-- Automatically groups consecutive slots into shifts
+- Handles time slot generation (fixed at 1-hour granularity)
+- Groups consecutive time slots into continuous shifts
+- Applies overtime splitting when shifts cross overtime threshold
 
 **Usage Note:** The optimizer is now the default scheduling approach (configurable via `SchedulingApproach` enum). It provides mathematically optimal schedules with guaranteed constraint satisfaction.
 

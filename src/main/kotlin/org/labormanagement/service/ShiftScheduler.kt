@@ -165,9 +165,6 @@ class ShiftScheduler(
             } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
         }
 
-        // Get base slot duration from ConstraintsService
-        val minShiftDurationHours = constraintsService.getWorkingHoursRules()?.minShiftLength ?: 1.0
-
         // Convert to optimization input
         val optimizationInput = profile("generateSchedule.buildOptimizationInput") {
             OptimizationConverter.buildOptimizationInput(
@@ -175,7 +172,6 @@ class ShiftScheduler(
                 salesForecast = salesForecast,
                 scheduleDays = input.schedulePeriod.daysToSchedule,
                 operatingHoursMap = operatingHoursMap,
-                slotDurationHours = minShiftDurationHours,
                 coverageFraction = 0.8,
                 laborBudget = input.laborCostBudget.toLong(),
                 objective = input.optimizationObjective,

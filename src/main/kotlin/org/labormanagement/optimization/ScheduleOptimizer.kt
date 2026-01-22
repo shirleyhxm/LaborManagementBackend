@@ -73,6 +73,7 @@ class ScheduleOptimizer {
 
         // Add constraints
         addAvailabilityConstraints(model, x, input)
+        addMinimumShiftLengthConstraints(model, x, input)
         addHoursConstraints(model, x, totalHours, regular, overtime, input)
         addSalesCoverageConstraints(model, x, coverage, input, slack)
         addLaborCostConstraints(model, regular, overtime, laborCost, input)
@@ -123,6 +124,112 @@ class ScheduleOptimizer {
             for (t in input.timeSlots.indices) {
                 if (!input.isAvailable(e, t)) {
                     model.addEquality(x[e][t], 0)
+                }
+            }
+        }
+    }
+
+    /**
+     * Enforces minimum shift length constraint.
+     *
+     * Approach:
+     * 1. Define shiftStart[e][t] = 1 iff a shift starts at slot t for employee e
+     * 2. Link shiftStart to x variables: shiftStart[e][t] = 1 iff x[e][t]=1 AND x[e][t-1]=0
+     * 3. For every shift start, require minShiftLength consecutive slots to be worked
+     *
+     * This ensures no shift can be shorter than minShiftLength.
+     */
+    private fun addMinimumShiftLengthConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput
+    ) {
+        val minShiftLength = input.workingHoursRules?.minShiftLength ?: return
+        if (minShiftLength <= 0) return
+
+        val numEmployees = input.employees.size
+        val numSlots = input.timeSlots.size
+
+        // Calculate minimum number of consecutive slots needed
+        val slotDuration = input.timeSlots.firstOrNull()?.durationHours ?: 1.0
+        val minSlots = kotlin.math.ceil(minShiftLength / slotDuration).toInt()
+
+        if (minSlots <= 1) return // No constraint needed
+
+        // Step 1: Define shiftStart variables
+        val shiftStart = Array(numEmployees) { e ->
+            Array(numSlots) { t ->
+                model.newBoolVar("shiftStart_${e}_${t}")
+            }
+        }
+
+        // Step 2: Link shiftStart to x variables
+        for (e in 0 until numEmployees) {
+            for (t in 0 until numSlots) {
+                if (t == 0) {
+                    // First slot: shiftStart[e][0] == x[e][0]
+                    model.addEquality(shiftStart[e][0], x[e][0])
+                } else {
+                    // Check if previous slot is on same day and consecutive
+                    val currSlot = input.timeSlots[t]
+                    val prevSlot = input.timeSlots[t - 1]
+                    val isConsecutive = prevSlot.day == currSlot.day && prevSlot.endTime == currSlot.startTime
+
+                    if (isConsecutive) {
+                        // shiftStart[e][t] >= x[e][t] - x[e][t-1]
+                        // This means: if we work slot t but not t-1, shiftStart must be 1
+                        model.addGreaterOrEqual(
+                            shiftStart[e][t],
+                            LinearExpr.sum(arrayOf(x[e][t], LinearExpr.term(x[e][t - 1], -1)))
+                        )
+                    } else {
+                        // Not consecutive (different day or gap) - treat as potential shift start
+                        model.addEquality(shiftStart[e][t], x[e][t])
+                    }
+                }
+
+                // shiftStart[e][t] <= x[e][t]
+                // This means: can only start a shift if we're working
+                model.addLessOrEqual(shiftStart[e][t], x[e][t])
+            }
+        }
+
+        // Step 3: Enforce minimum shift length
+        for (e in 0 until numEmployees) {
+            for (t in 0 until numSlots) {
+                // Collect consecutive slots starting from t
+                val window = mutableListOf<IntVar>()
+                var currentIdx = t
+
+                while (window.size < minSlots && currentIdx < numSlots) {
+                    // Check if this slot is consecutive with the window
+                    if (window.isEmpty()) {
+                        window.add(x[e][currentIdx])
+                        currentIdx++
+                    } else {
+                        val prevSlot = input.timeSlots[currentIdx - 1]
+                        val currSlot = input.timeSlots[currentIdx]
+                        val isConsecutive = prevSlot.day == currSlot.day && prevSlot.endTime == currSlot.startTime
+
+                        if (isConsecutive) {
+                            window.add(x[e][currentIdx])
+                            currentIdx++
+                        } else {
+                            break // Hit a gap or day boundary
+                        }
+                    }
+                }
+
+                // If there aren't enough consecutive slots available, prevent starting a shift at this slot
+                if (window.size < minSlots) {
+                    // Not enough consecutive slots available - cannot start a shift here
+                    model.addEquality(shiftStart[e][t], 0)
+                } else {
+                    // Enough slots available - if shift starts here, all minSlots must be worked
+                    model.addGreaterOrEqual(
+                        LinearExpr.sum(window.toTypedArray()),
+                        LinearExpr.term(shiftStart[e][t], minSlots.toLong())
+                    )
                 }
             }
         }

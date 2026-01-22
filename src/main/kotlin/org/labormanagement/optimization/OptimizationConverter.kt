@@ -19,7 +19,6 @@ object OptimizationConverter {
      * @param employees List of employees to schedule
      * @param salesForecast Sales forecast data for the week
      * @param scheduleDays Days to include in the schedule
-     * @param slotDurationHours Duration of each time slot in hours (default: 1.0)
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
      * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
@@ -31,7 +30,6 @@ object OptimizationConverter {
         salesForecast: SalesForecast,
         scheduleDays: List<DayOfWeek>,
         operatingHoursMap: Map<DayOfWeek, Pair<LocalTime, LocalTime>>,
-        slotDurationHours: Double = 1.0,
         coverageFraction: Double = 0.8,
         laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
@@ -46,13 +44,8 @@ object OptimizationConverter {
         val contractedHoursMap = constraintsService?.getContractedHours(null)
             ?.associateBy { it.employeeId } ?: emptyMap()
 
-        // Use the larger of slotDurationHours and minShiftLength to ensure each slot
-        // (and therefore each consecutive shift) meets the minimum shift length requirement
-        val minShiftLength = workingHoursRules?.minShiftLength ?: 0.0
-        val effectiveSlotDuration = maxOf(slotDurationHours, minShiftLength)
-
         // Generate time slots for all scheduled days
-        val timeSlots = generateTimeSlots(scheduleDays, operatingHoursMap, effectiveSlotDuration)
+        val timeSlots = generateTimeSlots(scheduleDays, operatingHoursMap)
 
         // Build availability matrix [employee][timeSlot]
         val availability = buildAvailabilityMatrix(employees, timeSlots)
@@ -175,9 +168,12 @@ object OptimizationConverter {
     private fun generateTimeSlots(
         days: List<DayOfWeek>,
         operatingHoursMap: Map<DayOfWeek, Pair<LocalTime, LocalTime>>,
-        slotDurationHours: Double
     ): List<TimeSlot> {
         val timeSlots = mutableListOf<TimeSlot>()
+
+        // Use 1-hour time slots for granular scheduling
+        // The minimum shift length will be enforced as a constraint in the optimizer
+        val slotDurationHours = 1.0
 
         for (day in days) {
             val (openTime, closeTime) = operatingHoursMap[day] ?: continue

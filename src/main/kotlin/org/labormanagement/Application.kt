@@ -74,12 +74,14 @@ fun Application.module() {
     val timeoffRepository = TimeoffRepository()
     val salesRepository = SalesRepository()
     val constraintValidator = ConstraintValidator()
+    val constraintsService = ConstraintsService()
     val schedulingApproach = SchedulingApproach.OPTIMIZER
 
     val shiftScheduler = ShiftScheduler(
         employeeRepository = employeeRepository,
         scheduleRepository = scheduleRepository,
         salesForecastRepository = salesForecastRepository,
+        constraintsService = constraintsService,
         schedulingApproach = schedulingApproach
     )
 
@@ -111,8 +113,6 @@ fun Application.module() {
         scheduleRepository = scheduleRepository,
         attendanceRepository = attendanceRepository
     )
-
-    val constraintsService = ConstraintsService()
 
     // Initialize controllers
     val employeeController = EmployeeController(employeeRepository)

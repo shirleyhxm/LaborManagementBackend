@@ -51,7 +51,6 @@ class ScheduleOptimizerTest {
             operatingHoursMap = mapOf(
                 DayOfWeek.MONDAY to Pair(LocalTime.of(9, 0), LocalTime.of(11, 0))
             ),
-            slotDurationHours = 1.0,
             coverageFraction = 0.8
         )
 
