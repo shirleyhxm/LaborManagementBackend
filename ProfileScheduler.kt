@@ -9,8 +9,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 fun main() {
-    println("Labor Management Performance Profiling")
-    println("=" .repeat(80))
+    log.info("Labor Management Performance Profiling")
+    log.info("=" .repeat(80))
 
     // Run the medium workload test
     runMediumWorkloadProfile()
@@ -74,7 +74,7 @@ fun runMediumWorkloadProfile() {
 
     val scheduler = ShiftScheduler()
 
-    println("\n===== Medium Workload Profile (10 employees, 5 days) =====")
+    log.info("\n===== Medium Workload Profile (10 employees, 5 days) =====")
     PerformanceProfiler.profile {
         scheduler.generateSchedule(input)
     }

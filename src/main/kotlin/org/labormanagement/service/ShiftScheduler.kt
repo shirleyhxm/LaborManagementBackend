@@ -13,6 +13,7 @@ import org.labormanagement.optimization.ScheduleOptimizer
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
+import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -43,6 +44,8 @@ class ShiftScheduler(
     private val constraintsService: ConstraintsService = ConstraintsService(),
     private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
+    private val log = LoggerFactory.getLogger(ShiftScheduler::class.java)
+
     /**
      * Generate a new DRAFT schedule from ScheduleInput.
      * Returns the Schedule object with lifecycle management enabled.
@@ -188,10 +191,10 @@ class ShiftScheduler(
 
         // Handle no solution case - fallback to greedy approach
         if (result == null) {
-            println("Optimizer returned null - no feasible solution found. Falling back to GREEDY approach...")
+            log.info("Optimizer returned null - no feasible solution found. Falling back to GREEDY approach...")
             return generateScheduleGreedy(input, name, generatedBy)
         } else {
-            println("Optimizer found a feasible solution.")
+            log.info("Optimizer found a feasible solution.")
         }
 
         // Convert optimizer result to shifts

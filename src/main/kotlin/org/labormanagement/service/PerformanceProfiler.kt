@@ -1,10 +1,13 @@
 package org.labormanagement.service
 
+import org.slf4j.LoggerFactory
+
 /**
  * Simple performance profiler for measuring execution time of code blocks.
  * Tracks both individual operation times and cumulative statistics.
  */
 class PerformanceProfiler {
+    private val log = LoggerFactory.getLogger(PerformanceProfiler::class.java)
     private val measurements = mutableMapOf<String, MutableList<Long>>()
     private val startTimes = mutableMapOf<String, Long>()
 
@@ -56,17 +59,17 @@ class PerformanceProfiler {
      * Print a formatted report of all measurements
      */
     fun printReport() {
-        println("\n=== Performance Profile Report ===")
-        println("%-40s %8s %12s %12s %12s %12s".format(
+        log.info("\n=== Performance Profile Report ===")
+        log.info("%-40s %8s %12s %12s %12s %12s".format(
             "Operation", "Count", "Total (ms)", "Avg (ms)", "Min (ms)", "Max (ms)"
         ))
-        println("-".repeat(100))
+        log.info("-".repeat(100))
 
         val stats = getStats()
         val sortedStats = stats.entries.sortedByDescending { it.value.totalTimeMs }
 
         for ((name, stat) in sortedStats) {
-            println("%-40s %8d %12.3f %12.3f %12.3f %12.3f".format(
+            log.info("%-40s %8d %12.3f %12.3f %12.3f %12.3f".format(
                 name.take(40),
                 stat.count,
                 stat.totalTimeMs,
@@ -77,9 +80,9 @@ class PerformanceProfiler {
         }
 
         val totalTime = stats.values.sumOf { it.totalTimeMs }
-        println("-".repeat(100))
-        println("Total measured time: %.3f ms".format(totalTime))
-        println("=".repeat(100) + "\n")
+        log.info("-".repeat(100))
+        log.info("Total measured time: %.3f ms".format(totalTime))
+        log.info("=".repeat(100) + "\n")
     }
 
     /**

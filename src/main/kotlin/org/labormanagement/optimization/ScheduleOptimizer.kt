@@ -4,6 +4,7 @@ import com.google.ortools.Loader
 import com.google.ortools.sat.*
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OptimizationObjective
+import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.util.UUID
@@ -15,6 +16,7 @@ import java.util.UUID
  * based on sales forecasts, employee availability, labor costs, and business constraints.
  */
 class ScheduleOptimizer {
+    private val log = LoggerFactory.getLogger(ScheduleOptimizer::class.java)
 
     init {
         Loader.loadNativeLibraries()
@@ -93,22 +95,22 @@ class ScheduleOptimizer {
 
         val status = solver.solve(model)
 
-        println("[ScheduleOptimizer] Solver status: $status")
-        println("[ScheduleOptimizer] Number of employees: ${input.employees.size}")
-        println("[ScheduleOptimizer] Number of time slots: ${input.timeSlots.size}")
+        log.info("[ScheduleOptimizer] Solver status: $status")
+        log.info("[ScheduleOptimizer] Number of employees: ${input.employees.size}")
+        log.info("[ScheduleOptimizer] Number of time slots: ${input.timeSlots.size}")
 
         if (status != CpSolverStatus.OPTIMAL && status != CpSolverStatus.FEASIBLE) {
-            println("[ScheduleOptimizer] No feasible solution found")
+            log.info("[ScheduleOptimizer] No feasible solution found")
             return null // No feasible solution found
         }
 
-        println("[ScheduleOptimizer] Solution found! Objective value: ${solver.objectiveValue()}")
-        println("[ScheduleOptimizer] Is optimal: ${status == CpSolverStatus.OPTIMAL}")
+        log.info("[ScheduleOptimizer] Solution found! Objective value: ${solver.objectiveValue()}")
+        log.info("[ScheduleOptimizer] Is optimal: ${status == CpSolverStatus.OPTIMAL}")
 
-        println("Slot shortfalls:")
+        log.debug("Slot shortfalls:")
         for (t in 0 until numSlots) {
             val s = solver.value(slack[t])
-            if (s > 0) println("  Slot $t: Shortfall = $s")
+            if (s > 0) log.debug("  Slot $t: Shortfall = $s")
         }
 
         // Extract solution
@@ -560,14 +562,14 @@ class ScheduleOptimizer {
             // Note: Meal breaks would require additional modeling
             // For now, we just ensure shifts longer than the threshold are tracked
             // A full implementation would need to model break periods as non-work slots
-            println("[ScheduleOptimizer] Meal break requirement noted: ${compliance.mealBreakMinShiftHours} hours minimum")
+            log.info("[ScheduleOptimizer] Meal break requirement noted: ${compliance.mealBreakMinShiftHours} hours minimum")
         }
 
         // Minor labor laws: if enabled, additional restrictions could be added
         if (compliance.minorLaborLawsEnabled) {
             // Example: restrict work hours for employees under 18
             // This would require employee age information
-            println("[ScheduleOptimizer] Minor labor laws enabled")
+            log.info("[ScheduleOptimizer] Minor labor laws enabled")
         }
     }
 
