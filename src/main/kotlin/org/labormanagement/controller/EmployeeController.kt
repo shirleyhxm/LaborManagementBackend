@@ -4,7 +4,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.application.log
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
 import io.ktor.server.routing.post
@@ -16,10 +18,12 @@ import org.labormanagement.dto.UpdateEmployeeRequest
 import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.service.ImportService
 import java.util.*
 
 class EmployeeController(
-    private val employeeRepository: EmployeeRepository
+    private val employeeRepository: EmployeeRepository,
+    private val importService: ImportService
 ) {
 
     fun Route.employeeRoutes() {
@@ -136,6 +140,50 @@ class EmployeeController(
                     call.respond(HttpStatusCode.NoContent)
                 } else {
                     call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                }
+            }
+
+            // Import employees from CSV
+            post("/import") {
+                try {
+                    val csvContent = call.receiveText()
+
+                    if (csvContent.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "CSV content cannot be empty")
+                        )
+                        return@post
+                    }
+
+                    val response = importService.importEmployeesFromCsv(csvContent)
+
+                    if (response.success) {
+                        call.respond(HttpStatusCode.OK, response)
+                    } else {
+                        call.respond(HttpStatusCode.BadRequest, response)
+                    }
+
+                } catch (e: Exception) {
+                    call.application.log.error("[EmployeeController] Failed to import employees", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to import employees: ${e.message}")
+                    )
+                }
+            }
+
+            // Get CSV template for employee import
+            get("/import/template") {
+                try {
+                    val template = importService.generateCsvTemplate()
+                    call.respondText(template, io.ktor.http.ContentType.Text.CSV)
+                } catch (e: Exception) {
+                    call.application.log.error("[EmployeeController] Failed to generate template", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to generate template: ${e.message}")
+                    )
                 }
             }
         }

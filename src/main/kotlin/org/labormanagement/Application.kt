@@ -25,6 +25,7 @@ import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.ConstraintsController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
+import org.labormanagement.controller.OptimizationControllerV2
 import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.TestDataController
@@ -42,7 +43,9 @@ import org.labormanagement.repository.SalesRepository
 import org.labormanagement.service.AuthService
 import org.labormanagement.service.ConstraintValidator
 import org.labormanagement.service.ConstraintsService
+import org.labormanagement.service.ImportService
 import org.labormanagement.service.JwtService
+import org.labormanagement.service.OptimizationJobService
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
 import org.labormanagement.service.AttendanceService
@@ -114,8 +117,15 @@ fun Application.module() {
         attendanceRepository = attendanceRepository
     )
 
+    // Initialize v2 services (simplified optimization API - wraps ShiftScheduler)
+    val importService = ImportService(employeeRepository)
+    val optimizationJobService = OptimizationJobService(
+        shiftScheduler = shiftScheduler,
+        employeeRepository = employeeRepository
+    )
+
     // Initialize controllers
-    val employeeController = EmployeeController(employeeRepository)
+    val employeeController = EmployeeController(employeeRepository, importService)
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
     val scheduleController = ScheduleController(
         scheduleRepository = scheduleRepository,
@@ -126,6 +136,9 @@ fun Application.module() {
     val testDataController = TestDataController(employeeRepository)
     val authController = AuthController(authService)
     val constraintsController = ConstraintsController(constraintsService)
+    val optimizationControllerV2 = OptimizationControllerV2(
+        optimizationJobService = optimizationJobService
+    )
 
     // Configure plugins
     install(ContentNegotiation) {
@@ -334,8 +347,14 @@ fun Application.module() {
         with(constraintsController) {
             constraintsRoutes()
         }
+
+        // Register v2 optimization routes (simplified API)
+        with(optimizationControllerV2) {
+            optimizationRoutesV2()
+        }
     }
 
     log.info("Labor Management API started on port 8080")
     log.info("Scheduling approach: $schedulingApproach")
+    log.info("V2 Optimization API available at /api/v2")
 }
