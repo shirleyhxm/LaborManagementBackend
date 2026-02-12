@@ -29,13 +29,13 @@ class ScheduleOptimizerTest {
                 overtimeThreshold = 40.0
             ),
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
         // Create simple sales forecast
         val salesForecast = SalesForecast(
-            weeklyForecast = mapOf(
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 100.0,
                     LocalTime.of(10, 0) to 100.0
@@ -47,9 +47,9 @@ class ScheduleOptimizerTest {
         val input = OptimizationConverter.buildOptimizationInput(
             employees = listOf(employee),
             salesForecast = salesForecast,
-            scheduleDays = listOf(DayOfWeek.MONDAY),
+            scheduleDates = listOf(LocalDate.of(2024, 1, 1)),
             operatingHoursMap = mapOf(
-                DayOfWeek.MONDAY to Pair(LocalTime.of(9, 0), LocalTime.of(11, 0))
+                LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(11, 0))
             ),
             coverageFraction = 0.8
         )
@@ -81,12 +81,12 @@ class ScheduleOptimizerTest {
                 overtimeThreshold = 40.0
             ),
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
         val salesForecast = SalesForecast(
-            weeklyForecast = mapOf(
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 150.0,
                     LocalTime.of(10, 0) to 150.0,
@@ -98,9 +98,9 @@ class ScheduleOptimizerTest {
         val input = OptimizationConverter.buildOptimizationInput(
             employees = listOf(employee),
             salesForecast = salesForecast,
-            scheduleDays = listOf(DayOfWeek.MONDAY),
+            scheduleDates = listOf(LocalDate.of(2024, 1, 1)),
             operatingHoursMap = mapOf(
-                DayOfWeek.MONDAY to Pair(LocalTime.of(9, 0), LocalTime.of(12, 0))
+                LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(12, 0))
             )
         )
 

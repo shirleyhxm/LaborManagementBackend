@@ -64,8 +64,8 @@ class PerformanceProfilerTest {
                 productivity = 150.0,
                 payRate = 15.0,
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             createEmployee(
@@ -73,8 +73,8 @@ class PerformanceProfilerTest {
                 productivity = 200.0,
                 payRate = 20.0,
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -99,10 +99,11 @@ class PerformanceProfilerTest {
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY),
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 2),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -121,7 +122,7 @@ class PerformanceProfilerTest {
                 productivity = 100.0 + (i * 10.0),
                 payRate = 15.0 + (i * 0.5),
                 availability = DayOfWeek.values().filter { it != DayOfWeek.SATURDAY && it != DayOfWeek.SUNDAY }.map { day ->
-                    Availability(day, LocalTime.of(8, 0), LocalTime.of(20, 0))
+                    Availability(AvailabilityType.WEEKLY_RECURRING, day, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0))
                 }
             )
         }
@@ -154,19 +155,14 @@ class PerformanceProfilerTest {
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 10000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(
-                    DayOfWeek.MONDAY,
-                    DayOfWeek.TUESDAY,
-                    DayOfWeek.WEDNESDAY,
-                    DayOfWeek.THURSDAY,
-                    DayOfWeek.FRIDAY
-                ),
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 5),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 4) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 5) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0))
                 )
             )
         )
@@ -185,7 +181,7 @@ class PerformanceProfilerTest {
                 productivity = 100.0 + (i % 20) * 10.0,
                 payRate = 15.0 + (i % 10) * 1.0,
                 availability = DayOfWeek.values().filter { it != DayOfWeek.SATURDAY && it != DayOfWeek.SUNDAY }.map { day ->
-                    Availability(day, LocalTime.of(6, 0), LocalTime.of(22, 0))
+                    Availability(AvailabilityType.WEEKLY_RECURRING, day, null, null, LocalTime.of(6, 0), LocalTime.of(22, 0))
                 }
             )
         }
@@ -209,9 +205,10 @@ class PerformanceProfilerTest {
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 50000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = DayOfWeek.values().toList(),
-                operatingHours = DayOfWeek.values().associate { day ->
-                    day to OperatingHours(LocalTime.of(6, 0), LocalTime.of(22, 0))
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 7),
+                operatingHours = (1..7).associate { day ->
+                    LocalDate.of(2024, 1, day) to OperatingHours(LocalTime.of(6, 0), LocalTime.of(22, 0))
                 }
             )
         )
@@ -230,9 +227,9 @@ class PerformanceProfilerTest {
                 productivity = 100.0 + (i * 5.0),
                 payRate = 15.0 + (i * 0.3),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0))
                 )
             )
         }
@@ -252,11 +249,12 @@ class PerformanceProfilerTest {
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 15000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 3),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(20, 0))
                 )
             )
         )

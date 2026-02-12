@@ -5,6 +5,7 @@ import org.labormanagement.model.Employee
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.model.ViolationType
+import java.time.LocalDate
 
 class ConstraintValidator {
 
@@ -68,7 +69,7 @@ class ConstraintValidator {
                         type = ViolationType.AVAILABILITY_CONFLICT,
                         description = "${employee.fullName} is not available for shift on ${shift.dayOfWeek} ${shift.startTime}-${shift.endTime}",
                         employeeId = employee.id,
-                        dayOfWeek = shift.dayOfWeek,
+                        date = shift.date,
                         startTime = shift.startTime,
                         endTime = shift.endTime
                     )
@@ -104,7 +105,7 @@ class ConstraintValidator {
                         type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                         description = "${employee.fullName} scheduled for ${"%.2f".format(dailyHours)} hours on $day, exceeds max ${contract.maxHoursPerDay} hours/day",
                         employeeId = employee.id,
-                        dayOfWeek = day
+                        date = dayShifts[0].date
                     )
                 )
             }
@@ -124,7 +125,7 @@ class ConstraintValidator {
                             type = ViolationType.SHIFT_OVERLAP,
                             description = "${employee.fullName} has overlapping shifts on ${shifts[i].dayOfWeek}",
                             employeeId = employee.id,
-                            dayOfWeek = shifts[i].dayOfWeek,
+                            date = shifts[i].date,
                             startTime = shifts[i].startTime,
                             endTime = shifts[i].endTime
                         )
@@ -168,11 +169,11 @@ class ConstraintValidator {
                 violations.add(
                     ConstraintViolation.TimeBlock(
                         type = ViolationType.UNDERSTAFFING,
-                        description = "Understaffed on ${requirement.dayOfWeek} ${requirement.startTime}-${requirement.endTime}: " +
+                        description = "Understaffed on ${requirement.date.dayOfWeek} ${requirement.startTime}-${requirement.endTime}: " +
                                 "needs ${requirement.employeesNeeded} employees, but only ${requirement.employeesAssigned} assigned " +
                                 "(${percentage}% staffed, gap of $gap employee${if (gap > 1) "s" else ""}). " +
                                 "Expected sales: $${"%.2f".format(requirement.expectedSales)}",
-                        dayOfWeek = requirement.dayOfWeek,
+                        date = requirement.date,
                         startTime = requirement.startTime,
                         endTime = requirement.endTime
                     )

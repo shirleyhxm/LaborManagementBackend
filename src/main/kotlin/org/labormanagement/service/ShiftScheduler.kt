@@ -3,6 +3,7 @@ package org.labormanagement.service
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OperatingHours
 import org.labormanagement.model.OptimizationObjective
+import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Schedule
 import org.labormanagement.model.ScheduleInput
 import org.labormanagement.model.SchedulingMetrics
@@ -15,6 +16,7 @@ import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -83,7 +85,7 @@ class ShiftScheduler(
         val optimizationObjective = input.optimizationObjective
 
         // Get sales forecast from repository
-        val salesForecast = salesForecastRepository.get().weeklyForecast
+        val salesForecast = salesForecastRepository.get()
 
         // Track weekly hours across all days for overtime calculation and contract limits
         val weeklyHours = mutableMapOf<UUID, Double>()
@@ -94,14 +96,14 @@ class ShiftScheduler(
 
         // Generate candidate shifts for each day
         profile("generateSchedule.allDays") {
-            input.schedulePeriod.daysToSchedule.forEach { day ->
-                val operatingHours = input.schedulePeriod.operatingHours[day] ?: return@forEach
+            input.schedulePeriod.getAllDates().forEach { date ->
+                val operatingHours = input.schedulePeriod.operatingHours[date] ?: return@forEach
                 val (dayShifts, dayRequirements) = profile("generateSchedule.singleDay") {
                     generateShiftsForDay(
-                        day,
+                        date,
                         operatingHours,
                         employees,
-                        salesForecast[day] ?: emptyMap(),
+                        salesForecast.getForecastForDate(date),
                         input.laborCostBudget,
                         weeklyHours,
                         minShiftDurationHours,
@@ -162,8 +164,9 @@ class ShiftScheduler(
         val salesForecast = salesForecastRepository.get()
 
         // Build operating hours map
-        val operatingHoursMap = input.schedulePeriod.daysToSchedule.associateWith { day ->
-            input.schedulePeriod.operatingHours[day]?.let { hours ->
+        val scheduleDates = input.schedulePeriod.getAllDates()
+        val operatingHoursMap = scheduleDates.associateWith { date ->
+            input.schedulePeriod.operatingHours[date]?.let { hours ->
                 Pair(hours.openTime, hours.closeTime)
             } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
         }
@@ -173,7 +176,7 @@ class ShiftScheduler(
             OptimizationConverter.buildOptimizationInput(
                 employees = employees,
                 salesForecast = salesForecast,
-                scheduleDays = input.schedulePeriod.daysToSchedule,
+                scheduleDates = scheduleDates,
                 operatingHoursMap = operatingHoursMap,
                 coverageFraction = 0.8,
                 laborBudget = input.laborCostBudget.toLong(),
@@ -208,7 +211,7 @@ class ShiftScheduler(
                 shifts,
                 employees,
                 input.schedulePeriod,
-                salesForecast.weeklyForecast
+                salesForecast
             )
         }
 
@@ -219,7 +222,7 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(shifts, employees, salesForecast.weeklyForecast)
+            calculateMetrics(shifts, employees, salesForecast)
         }
 
         return Schedule(
@@ -246,7 +249,7 @@ class ShiftScheduler(
 
         // Group shifts by employee and day
         val groupedShifts = shifts.groupBy { shift ->
-            Pair(shift.employeeId, shift.dayOfWeek)
+            Pair(shift.employeeId, shift.date)
         }
 
         val mergedShifts = mutableListOf<Shift>()
@@ -271,7 +274,7 @@ class ShiftScheduler(
                         // Merge: extend the end time of the current merged shift
                         currentMergedShift = Shift(
                             employeeId = currentMergedShift.employeeId,
-                            dayOfWeek = currentMergedShift.dayOfWeek,
+                            date = currentMergedShift.date,
                             startTime = currentMergedShift.startTime,
                             endTime = shift.endTime,
                             payRate = currentMergedShift.payRate,
@@ -304,7 +307,7 @@ class ShiftScheduler(
         if (requirements.isEmpty()) return emptyList()
 
         // Group requirements by day
-        val groupedRequirements = requirements.groupBy { it.dayOfWeek }
+        val groupedRequirements = requirements.groupBy { it.date }
 
         val mergedRequirements = mutableListOf<StaffingRequirement>()
 
@@ -327,7 +330,7 @@ class ShiftScheduler(
                     if (canMerge) {
                         // Merge: extend the end time and sum the expected sales
                         currentMergedRequirement = StaffingRequirement(
-                            dayOfWeek = currentMergedRequirement.dayOfWeek,
+                            date = currentMergedRequirement.date,
                             startTime = currentMergedRequirement.startTime,
                             endTime = requirement.endTime,
                             employeesNeeded = currentMergedRequirement.employeesNeeded,
@@ -352,7 +355,7 @@ class ShiftScheduler(
     }
 
     private fun generateShiftsForDay(
-        day: DayOfWeek,
+        date: LocalDate,
         operatingHours: OperatingHours,
         employees: List<Employee>,
         salesForecast: Map<LocalTime, Double>,
@@ -407,7 +410,7 @@ class ShiftScheduler(
                     interval,
                     previousInterval,
                     shifts,
-                    day,
+                    date,
                     weeklyHours
                 )
 
@@ -419,7 +422,7 @@ class ShiftScheduler(
 
                     // Check if employee is available during this hour
                     val availabilityForHour = employee.availability.find { avail ->
-                        avail.dayOfWeek == day &&
+                        avail.dayOfWeek == date.dayOfWeek &&
                                 avail.startTime <= interval.first &&
                                 avail.endTime >= interval.second
                     }
@@ -433,7 +436,7 @@ class ShiftScheduler(
                     // Check if we already have a shift for this employee that covers this hour
                     val existingShift = shifts.find { shift ->
                         shift.employeeId == employee.id &&
-                                shift.dayOfWeek == day &&
+                                shift.date == date &&
                                 shift.startTime <= interval.first &&
                                 shift.endTime >= interval.second
                     }
@@ -491,7 +494,7 @@ class ShiftScheduler(
                     // Create shift
                     val shift = Shift(
                         employeeId = employee.id,
-                        dayOfWeek = day,
+                        date = date,
                         startTime = shiftStart,
                         endTime = budgetConstrainedEnd,
                         payRate = payRate,
@@ -532,7 +535,7 @@ class ShiftScheduler(
             // Determine how many employees are needed
             val availableEmployees = sortedEmployees.filter { employee ->
                 employee.availability.any { avail ->
-                    avail.dayOfWeek == day &&
+                    avail.dayOfWeek == date.dayOfWeek &&
                     avail.startTime <= startTime &&
                     avail.endTime >= endTime
                 }
@@ -553,7 +556,7 @@ class ShiftScheduler(
 
             staffingRequirements.add(
                 StaffingRequirement(
-                    dayOfWeek = day,
+                    date = date,
                     startTime = startTime,
                     endTime = endTime,
                     employeesNeeded = employeesNeeded,
@@ -680,7 +683,7 @@ class ShiftScheduler(
         currentInterval: Pair<LocalTime, LocalTime>,
         previousInterval: Pair<LocalTime, LocalTime>?,
         existingShifts: List<Shift>,
-        day: DayOfWeek,
+        date: LocalDate,
         weeklyHours: Map<UUID, Double>
     ): List<Employee> {
         // If there's no previous interval, return the base ordering
@@ -691,7 +694,7 @@ class ShiftScheduler(
         // Find employees who worked the previous consecutive hour
         val employeesWhoWorkedPreviousHour = existingShifts
             .filter { shift ->
-                shift.dayOfWeek == day &&
+                shift.date == date &&
                 shift.startTime <= previousInterval.first &&
                 shift.endTime >= previousInterval.second
             }
@@ -757,7 +760,7 @@ class ShiftScheduler(
     private fun calculateMetrics(
         shifts: List<Shift>,
         employees: List<Employee>,
-        salesForecast: Map<DayOfWeek, Map<LocalTime, Double>>
+        salesForecast: SalesForecast
     ): SchedulingMetrics {
         val totalLaborCost = shifts.sumOf { it.laborCost }
 
@@ -799,14 +802,14 @@ class ShiftScheduler(
         shifts: List<Shift>,
         employees: List<Employee>,
         schedulePeriod: org.labormanagement.model.SchedulePeriod,
-        salesForecast: Map<DayOfWeek, Map<LocalTime, Double>>
+        salesForecast: SalesForecast
     ): List<StaffingRequirement> {
         val requirements = mutableListOf<StaffingRequirement>()
         val employeeMap = employees.associateBy { it.id }
 
-        schedulePeriod.daysToSchedule.forEach { day ->
-            val operatingHours = schedulePeriod.operatingHours[day] ?: return@forEach
-            val dayForecast = salesForecast[day] ?: emptyMap()
+        schedulePeriod.getAllDates().forEach { date ->
+            val operatingHours = schedulePeriod.operatingHours[date] ?: return@forEach
+            val dayForecast = salesForecast.getForecastForDate(date)
 
             // Generate hourly intervals
             val intervals = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, 1.0)
@@ -817,7 +820,7 @@ class ShiftScheduler(
 
                 // Count employees covering this time slot
                 val assignedCount = shifts.count { shift ->
-                    shift.dayOfWeek == day &&
+                    shift.date == date &&
                     shift.startTime <= startTime &&
                     shift.endTime >= endTime
                 }
@@ -825,7 +828,7 @@ class ShiftScheduler(
                 // Calculate employees needed based on productivity
                 val availableEmployees = employees.filter { employee ->
                     employee.availability.any { avail ->
-                        avail.dayOfWeek == day &&
+                        avail.dayOfWeek == date.dayOfWeek &&
                         avail.startTime <= startTime &&
                         avail.endTime >= endTime
                     }
@@ -846,7 +849,7 @@ class ShiftScheduler(
 
                 requirements.add(
                     StaffingRequirement(
-                        dayOfWeek = day,
+                        date = date,
                         startTime = startTime,
                         endTime = endTime,
                         employeesNeeded = employeesNeeded,

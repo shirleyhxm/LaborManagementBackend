@@ -34,7 +34,7 @@ class SalesForecastRepository {
     ): SalesForecast = lock.write {
         forecast = SalesForecast(
             id = "default",
-            weeklyForecast = weeklyForecast,
+            weeklyPattern = weeklyForecast,
             lastUpdatedAt = Instant.now(),
             lastUpdatedBy = updatedBy
         )
@@ -77,7 +77,7 @@ class SalesForecastRepository {
 
             return SalesForecast(
                 id = "default",
-                weeklyForecast = mapOf(
+                weeklyPattern = mapOf(
                     DayOfWeek.MONDAY to weekdayForecast,
                     DayOfWeek.TUESDAY to weekdayForecast,
                     DayOfWeek.WEDNESDAY to weekdayForecast,

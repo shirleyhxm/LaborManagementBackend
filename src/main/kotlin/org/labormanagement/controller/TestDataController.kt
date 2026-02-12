@@ -6,6 +6,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.labormanagement.dto.toResponse
 import org.labormanagement.model.Availability
+import org.labormanagement.model.AvailabilityType
 import org.labormanagement.model.Contract
 import org.labormanagement.model.Employee
 import org.labormanagement.repository.EmployeeRepository
@@ -39,11 +40,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(20, 0))
                 )
             ),
 
@@ -64,11 +65,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(22, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(22, 0))
                 )
             ),
 
@@ -90,11 +91,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(10, 0), LocalTime.of(19, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(10, 0), LocalTime.of(19, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(19, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(19, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(19, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(19, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(19, 0))
                 )
             ),
 
@@ -115,11 +116,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(7, 0), LocalTime.of(18, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(7, 0), LocalTime.of(18, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(7, 0), LocalTime.of(18, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(7, 0), LocalTime.of(18, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(7, 0), LocalTime.of(18, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(7, 0), endTime = LocalTime.of(18, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(7, 0), endTime = LocalTime.of(18, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(7, 0), endTime = LocalTime.of(18, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(7, 0), endTime = LocalTime.of(18, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(7, 0), endTime = LocalTime.of(18, 0))
                 )
             ),
 
@@ -141,10 +142,10 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(12, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(12, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(12, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(18, 0))
                 )
             ),
 
@@ -165,11 +166,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(14, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(14, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(14, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(10, 0), LocalTime.of(18, 0)),
-                    Availability(DayOfWeek.SUNDAY, LocalTime.of(10, 0), LocalTime.of(16, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(14, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(14, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(14, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(18, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SUNDAY, startTime = LocalTime.of(10, 0), endTime = LocalTime.of(16, 0))
                 )
             ),
 
@@ -191,12 +192,12 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(16, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.TUESDAY, LocalTime.of(16, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(16, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(16, 0), LocalTime.of(22, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(12, 0), LocalTime.of(20, 0)),
-                    Availability(DayOfWeek.SUNDAY, LocalTime.of(12, 0), LocalTime.of(20, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(16, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.TUESDAY, startTime = LocalTime.of(16, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(16, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(16, 0), endTime = LocalTime.of(22, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(12, 0), endTime = LocalTime.of(20, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SUNDAY, startTime = LocalTime.of(12, 0), endTime = LocalTime.of(20, 0))
                 )
             ),
 
@@ -217,11 +218,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.MONDAY, LocalTime.of(18, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(18, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(18, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(9, 0), LocalTime.of(17, 0)),
-                    Availability(DayOfWeek.SUNDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.MONDAY, startTime = LocalTime.of(18, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(18, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(18, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(17, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SUNDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(17, 0))
                 )
             ),
 
@@ -243,9 +244,9 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(16, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(8, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.SUNDAY, LocalTime.of(8, 0), LocalTime.of(23, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(16, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SUNDAY, startTime = LocalTime.of(8, 0), endTime = LocalTime.of(23, 0))
                 )
             ),
 
@@ -266,11 +267,11 @@ class TestDataController(
                     shiftLengthThresholdHours = 6
                 ),
                 availability = listOf(
-                    Availability(DayOfWeek.WEDNESDAY, LocalTime.of(11, 0), LocalTime.of(21, 0)),
-                    Availability(DayOfWeek.THURSDAY, LocalTime.of(11, 0), LocalTime.of(21, 0)),
-                    Availability(DayOfWeek.FRIDAY, LocalTime.of(11, 0), LocalTime.of(23, 0)),
-                    Availability(DayOfWeek.SATURDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    Availability(DayOfWeek.SUNDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.WEDNESDAY, startTime = LocalTime.of(11, 0), endTime = LocalTime.of(21, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.THURSDAY, startTime = LocalTime.of(11, 0), endTime = LocalTime.of(21, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.FRIDAY, startTime = LocalTime.of(11, 0), endTime = LocalTime.of(23, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SATURDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(21, 0)),
+                    Availability(availabilityType = AvailabilityType.WEEKLY_RECURRING, dayOfWeek = DayOfWeek.SUNDAY, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(21, 0))
                 )
             )
         )

@@ -44,7 +44,12 @@ class ShiftModificationService(
         // Create modified shift
         val modifiedShift = shift.copy(
             employeeId = newEmployeeId ?: shift.employeeId,
-            dayOfWeek = newDayOfWeek ?: shift.dayOfWeek,
+            date = if (newDayOfWeek != null) {
+                // Find a date in the schedule period that matches the new day of week
+                schedule.schedulePeriod.getAllDates().find { it.dayOfWeek == newDayOfWeek } ?: shift.date
+            } else {
+                shift.date
+            },
             startTime = newStartTime ?: shift.startTime,
             endTime = newEndTime ?: shift.endTime
         )
@@ -115,7 +120,12 @@ class ShiftModificationService(
         val duplicatedShift = Shift(
             id = UUID.randomUUID(),
             employeeId = newEmployeeId ?: originalShift.employeeId,
-            dayOfWeek = newDayOfWeek ?: originalShift.dayOfWeek,
+            date = if (newDayOfWeek != null) {
+                // Find a date in the schedule period that matches the new day of week
+                schedule.schedulePeriod.getAllDates().find { it.dayOfWeek == newDayOfWeek } ?: originalShift.date
+            } else {
+                originalShift.date
+            },
             startTime = originalShift.startTime,
             endTime = originalShift.endTime,
             payRate = originalShift.payRate,
@@ -288,7 +298,7 @@ class ShiftModificationService(
                     type = ViolationType.AVAILABILITY_CONFLICT,
                     description = "Employee not found",
                     employeeId = modifiedShift.employeeId,
-                    dayOfWeek = modifiedShift.dayOfWeek,
+                    date = modifiedShift.date,
                     startTime = modifiedShift.startTime,
                     endTime = modifiedShift.endTime
                 )
@@ -296,7 +306,7 @@ class ShiftModificationService(
 
         // Check employee availability
         val isAvailable = employee.availability.any {
-            it.dayOfWeek == modifiedShift.dayOfWeek &&
+            it.dayOfWeek == modifiedShift.date.dayOfWeek &&
                     it.startTime <= modifiedShift.startTime &&
                     it.endTime >= modifiedShift.endTime
         }
@@ -305,9 +315,9 @@ class ShiftModificationService(
             violations.add(
                 ConstraintViolation.Shift(
                     type = ViolationType.AVAILABILITY_CONFLICT,
-                    description = "Employee ${employee.fullName} is not available on ${modifiedShift.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
+                    description = "Employee ${employee.fullName} is not available on ${modifiedShift.date.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
                     employeeId = modifiedShift.employeeId,
-                    dayOfWeek = modifiedShift.dayOfWeek,
+                    date = modifiedShift.date,
                     startTime = modifiedShift.startTime,
                     endTime = modifiedShift.endTime
                 )
@@ -326,7 +336,7 @@ class ShiftModificationService(
                     type = ViolationType.SHIFT_OVERLAP,
                     description = "Shift overlaps with another shift for ${employee.fullName}",
                     employeeId = modifiedShift.employeeId,
-                    dayOfWeek = modifiedShift.dayOfWeek,
+                    date = modifiedShift.date,
                     startTime = modifiedShift.startTime,
                     endTime = modifiedShift.endTime
                 )
@@ -355,7 +365,7 @@ class ShiftModificationService(
                     type = ViolationType.CONTRACT_HOURS_EXCEEDED,
                     description = "Shift duration (${String.format("%.1f", modifiedShift.durationHours)}h) exceeds daily maximum (${employee.contract.maxHoursPerDay}h) for ${employee.fullName}",
                     employeeId = modifiedShift.employeeId,
-                    dayOfWeek = modifiedShift.dayOfWeek,
+                    date = modifiedShift.date,
                     startTime = modifiedShift.startTime,
                     endTime = modifiedShift.endTime
                 )
@@ -427,7 +437,7 @@ class ShiftModificationService(
         // Update each staffing requirement with the new employee count assigned
         return originalRequirements.map { requirement ->
             val assignedCount = shifts.count { shift ->
-                shift.dayOfWeek == requirement.dayOfWeek &&
+                shift.date == requirement.date &&
                 shift.startTime <= requirement.startTime &&
                 shift.endTime >= requirement.endTime
             }

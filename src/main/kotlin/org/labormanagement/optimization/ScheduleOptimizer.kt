@@ -6,6 +6,7 @@ import org.labormanagement.model.Employee
 import org.labormanagement.model.OptimizationObjective
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
 
@@ -175,7 +176,7 @@ class ScheduleOptimizer {
                     // Check if previous slot is on same day and consecutive
                     val currSlot = input.timeSlots[t]
                     val prevSlot = input.timeSlots[t - 1]
-                    val isConsecutive = prevSlot.day == currSlot.day && prevSlot.endTime == currSlot.startTime
+                    val isConsecutive = prevSlot.date == currSlot.date && prevSlot.endTime == currSlot.startTime
 
                     if (isConsecutive) {
                         // shiftStart[e][t] >= x[e][t] - x[e][t-1]
@@ -211,7 +212,7 @@ class ScheduleOptimizer {
                     } else {
                         val prevSlot = input.timeSlots[currentIdx - 1]
                         val currSlot = input.timeSlots[currentIdx]
-                        val isConsecutive = prevSlot.day == currSlot.day && prevSlot.endTime == currSlot.startTime
+                        val isConsecutive = prevSlot.date == currSlot.date && prevSlot.endTime == currSlot.startTime
 
                         if (isConsecutive) {
                             window.add(x[e][currentIdx])
@@ -475,9 +476,10 @@ class ScheduleOptimizer {
                     if (nextIdx < input.timeSlots.size) {
                         val nextSlot = input.timeSlots[nextIdx]
                         // Check if slots are consecutive (current end == next start)
+                        // Allow consecutive slots across midnight (current date + 1 == next date)
                         if (currentSlot.endTime == nextSlot.startTime &&
-                            (currentSlot.day == nextSlot.day ||
-                             (currentSlot.day.value % 7 + 1) == nextSlot.day.value % 7 + 1)) {
+                            (currentSlot.date == nextSlot.date ||
+                             currentSlot.date.plusDays(1) == nextSlot.date)) {
                             currentIdx = nextIdx
                         } else {
                             break  // Not consecutive, stop extending this window
@@ -644,11 +646,13 @@ data class OptimizationInput(
  * Represents a time slot in the schedule (e.g., a single hour or shift period).
  */
 data class TimeSlot(
-    val day: DayOfWeek,
+    val date: LocalDate,
     val startTime: LocalTime,
     val endTime: LocalTime,
     val durationHours: Double
-)
+) {
+    val dayOfWeek: DayOfWeek = date.dayOfWeek
+}
 
 /**
  * Result from the optimization solver.

@@ -1,7 +1,8 @@
 package org.labormanagement.model
 
-import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.Period
 import java.util.UUID
 
 data class ScheduleInput(
@@ -12,9 +13,35 @@ data class ScheduleInput(
 )
 
 data class SchedulePeriod(
-    val daysToSchedule: List<DayOfWeek>,
-    val operatingHours: Map<DayOfWeek, OperatingHours>
-)
+    val startDate: LocalDate,
+    val endDate: LocalDate,
+    val operatingHours: Map<LocalDate, OperatingHours>
+) {
+    /**
+     * Returns all dates in the scheduling period (inclusive)
+     */
+    fun getAllDates(): List<LocalDate> {
+        val dates = mutableListOf<LocalDate>()
+        var currentDate = startDate
+        while (!currentDate.isAfter(endDate)) {
+            dates.add(currentDate)
+            currentDate = currentDate.plusDays(1)
+        }
+        return dates
+    }
+
+    /**
+     * The duration of the scheduling period
+     */
+    val duration: Period
+        get() = Period.between(startDate, endDate.plusDays(1))
+
+    /**
+     * Total number of days in the scheduling period (inclusive)
+     */
+    val totalDays: Int
+        get() = getAllDates().size
+}
 
 data class OperatingHours(
     val openTime: LocalTime,

@@ -65,7 +65,7 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -81,9 +81,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 150.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -101,7 +102,7 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(14, 0), LocalTime.of(20, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(14, 0), LocalTime.of(20, 0))
             )
         )
         salesForecastRepository.update(
@@ -114,9 +115,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -137,9 +139,9 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0))
             ),
             contractedHours = 20.0,
             maxHours = 20.0
@@ -156,11 +158,12 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 5000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 3),    // Wednesday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -178,7 +181,7 @@ class ShiftSchedulerTest {
             productivity = 50.0, // Low productivity
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(13, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(13, 0))
             )
         )
         salesForecastRepository.update(
@@ -193,9 +196,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -214,7 +218,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -223,7 +227,7 @@ class ShiftSchedulerTest {
             productivity = 300.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(mapOf(
@@ -234,9 +238,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(lowProductivity.id, highProductivity.id),
             laborCostBudget = 500.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -261,11 +266,11 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 20.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(22, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(22, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.THURSDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.FRIDAY, null, null, LocalTime.of(8, 0), LocalTime.of(22, 0))
             ),
             contractedHours = 40.0,
             maxHours = 50.0
@@ -335,16 +340,14 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 10000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(
-                    DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
-                    DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
-                ),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 5),    // Friday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 4) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 5) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -365,9 +368,10 @@ class ShiftSchedulerTest {
             employeeIds = emptyList(),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -384,7 +388,7 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -392,9 +396,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 0.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -411,7 +416,7 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 20.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             ),
             contractedHours = 40.0
         )
@@ -420,9 +425,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             )
         )
@@ -443,7 +449,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -451,9 +457,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -475,7 +482,7 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 25.0, // High pay rate
             availability = listOf(
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(14, 0), LocalTime.of(18, 0)) // Limited availability
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(14, 0), LocalTime.of(18, 0)) // Limited availability
             ),
             contractedHours = 10.0,
             maxHours = 10.0
@@ -491,10 +498,11 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 100.0, // Low budget
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 2),    // Tuesday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             )
         )
@@ -519,7 +527,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 10.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -528,7 +536,7 @@ class ShiftSchedulerTest {
             productivity = 300.0,
             payRate = 30.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -541,9 +549,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 500.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
@@ -566,7 +575,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 10.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -575,7 +584,7 @@ class ShiftSchedulerTest {
             productivity = 300.0,
             payRate = 30.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -588,9 +597,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, expensiveEmployee.id),
             laborCostBudget = 500.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
@@ -620,7 +630,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 20.0, // High cost, low productivity (ratio: 5.0)
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -629,7 +639,7 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 15.0, // Lower cost, high productivity (ratio: 13.33)
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -642,9 +652,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(inefficientEmployee.id, efficientEmployee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.BALANCED,
@@ -673,7 +684,7 @@ class ShiftSchedulerTest {
         // Test overnight shift (e.g., 22:00 to 02:00 = 4 hours)
         val overnightShift = Shift(
             employeeId = UUID.randomUUID(),
-            dayOfWeek = DayOfWeek.FRIDAY,
+            date = LocalDate.of(2024, 1, 5),  // Friday
             startTime = LocalTime.of(22, 0),
             endTime = LocalTime.of(2, 0),
             payRate = 19.0,
@@ -686,7 +697,7 @@ class ShiftSchedulerTest {
         // Test another overnight shift (20:00 to 12:00 = 16 hours)
         val longOvernightShift = Shift(
             employeeId = UUID.randomUUID(),
-            dayOfWeek = DayOfWeek.FRIDAY,
+            date = LocalDate.of(2024, 1, 5),  // Friday
             startTime = LocalTime.of(20, 0),
             endTime = LocalTime.of(12, 0),
             payRate = 19.0,
@@ -699,7 +710,7 @@ class ShiftSchedulerTest {
         // Test edge case: midnight to midnight (should be 24 hours)
         val midnightShift = Shift(
             employeeId = UUID.randomUUID(),
-            dayOfWeek = DayOfWeek.FRIDAY,
+            date = LocalDate.of(2024, 1, 5),  // Friday
             startTime = LocalTime.of(0, 0),
             endTime = LocalTime.of(0, 0),
             payRate = 15.0,
@@ -711,7 +722,7 @@ class ShiftSchedulerTest {
         // Test regular daytime shift still works (09:00 to 17:00 = 8 hours)
         val dayShift = Shift(
             employeeId = UUID.randomUUID(),
-            dayOfWeek = DayOfWeek.MONDAY,
+            date = LocalDate.of(2024, 1, 1),  // Monday
             startTime = LocalTime.of(9, 0),
             endTime = LocalTime.of(17, 0),
             payRate = 15.0,
@@ -729,7 +740,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 10.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -738,7 +749,7 @@ class ShiftSchedulerTest {
             productivity = 300.0,
             payRate = 25.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -751,9 +762,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_SALES,
@@ -762,9 +774,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
@@ -799,9 +812,9 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -810,9 +823,9 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
 
@@ -821,9 +834,9 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
         salesForecastRepository.update(
@@ -859,11 +872,12 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee1.id, employee2.id, employee3.id),
             laborCostBudget = 5000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 3),    // Wednesday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS,
@@ -928,7 +942,7 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -946,9 +960,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             )
         )
@@ -973,7 +988,7 @@ class ShiftSchedulerTest {
             productivity = 180.0,
             payRate = 18.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(14, 0), LocalTime.of(18, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(14, 0), LocalTime.of(18, 0))
             )
         )
 
@@ -990,9 +1005,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 500.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(19, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(19, 0))
                 )
             )
         )
@@ -1025,9 +1041,9 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 12.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(21, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             ),
             contractedHours = 15.0,
             maxHours = 15.0  // Strict 15 hour limit
@@ -1045,11 +1061,12 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 5000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 3),    // Wednesday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
                 )
             )
         )
@@ -1076,7 +1093,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 10.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1085,7 +1102,7 @@ class ShiftSchedulerTest {
             productivity = 300.0,
             payRate = 25.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1103,9 +1120,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.MONDAY),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_SALES
@@ -1135,7 +1153,7 @@ class ShiftSchedulerTest {
             productivity = 120.0,
             payRate = 12.0,
             availability = listOf(
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1144,7 +1162,7 @@ class ShiftSchedulerTest {
             productivity = 140.0,
             payRate = 28.0,
             availability = listOf(
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1161,9 +1179,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, expensiveEmployee.id),
             laborCostBudget = 1500.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.TUESDAY),
+                startDate = LocalDate.of(2024, 1, 2),  // Tuesday
+                endDate = LocalDate.of(2024, 1, 2),
                 operatingHours = mapOf(
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST
@@ -1199,9 +1218,10 @@ class ShiftSchedulerTest {
             employeeIds = emptyList(),
             laborCostBudget = 1000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 3),  // Wednesday
+                endDate = LocalDate.of(2024, 1, 3),
                 operatingHours = mapOf(
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             )
         )
@@ -1224,7 +1244,7 @@ class ShiftSchedulerTest {
             productivity = 180.0,
             payRate = 16.0,
             availability = listOf(
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.THURSDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1244,9 +1264,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 800.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.THURSDAY),
+                startDate = LocalDate.of(2024, 1, 4),  // Thursday
+                endDate = LocalDate.of(2024, 1, 4),
                 operatingHours = mapOf(
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 4) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             )
         )
@@ -1281,11 +1302,11 @@ class ShiftSchedulerTest {
             productivity = 200.0,
             payRate = 20.0,
             availability = listOf(
-                Availability(DayOfWeek.MONDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(8, 0), LocalTime.of(20, 0)),
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(8, 0), LocalTime.of(20, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.THURSDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.FRIDAY, null, null, LocalTime.of(8, 0), LocalTime.of(20, 0))
             ),
             contractedHours = 40.0,
             maxHours = 50.0
@@ -1305,19 +1326,14 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee.id),
             laborCostBudget = 10000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(
-                    DayOfWeek.MONDAY,
-                    DayOfWeek.TUESDAY,
-                    DayOfWeek.WEDNESDAY,
-                    DayOfWeek.THURSDAY,
-                    DayOfWeek.FRIDAY
-                ),
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 5),    // Friday
                 operatingHours = mapOf(
-                    DayOfWeek.MONDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 4) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0)),
+                    LocalDate.of(2024, 1, 5) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
                 )
             )
         )
@@ -1356,7 +1372,7 @@ class ShiftSchedulerTest {
             productivity = 150.0,
             payRate = 15.0,
             availability = listOf(
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.FRIDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1365,7 +1381,7 @@ class ShiftSchedulerTest {
             productivity = 160.0,
             payRate = 16.0,
             availability = listOf(
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.FRIDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1374,7 +1390,7 @@ class ShiftSchedulerTest {
             productivity = 155.0,
             payRate = 15.5,
             availability = listOf(
-                Availability(DayOfWeek.FRIDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.FRIDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1392,9 +1408,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee1.id, employee2.id, employee3.id),
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.FRIDAY),
+                startDate = LocalDate.of(2024, 1, 5),  // Friday
+                endDate = LocalDate.of(2024, 1, 5),
                 operatingHours = mapOf(
-                    DayOfWeek.FRIDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 5) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             )
         )
@@ -1428,7 +1445,7 @@ class ShiftSchedulerTest {
             productivity = 100.0,
             payRate = 25.0, // High cost, low productivity (ratio: 4.0)
             availability = listOf(
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1437,7 +1454,7 @@ class ShiftSchedulerTest {
             productivity = 220.0,
             payRate = 16.0, // Lower cost, higher productivity (ratio: 13.75)
             availability = listOf(
-                Availability(DayOfWeek.TUESDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1455,9 +1472,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(inefficientEmployee.id, efficientEmployee.id),
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.TUESDAY),
+                startDate = LocalDate.of(2024, 1, 2),  // Tuesday
+                endDate = LocalDate.of(2024, 1, 2),
                 operatingHours = mapOf(
-                    DayOfWeek.TUESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.BALANCED
@@ -1501,7 +1519,7 @@ class ShiftSchedulerTest {
             productivity = 160.0,
             payRate = 16.0,
             availability = listOf(
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(18, 0))
             )
         )
 
@@ -1510,7 +1528,7 @@ class ShiftSchedulerTest {
             productivity = 160.0,
             payRate = 16.0,
             availability = listOf(
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(18, 0))
             )
         )
 
@@ -1519,7 +1537,7 @@ class ShiftSchedulerTest {
             productivity = 160.0,
             payRate = 16.0,
             availability = listOf(
-                Availability(DayOfWeek.WEDNESDAY, LocalTime.of(9, 0), LocalTime.of(18, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(18, 0))
             )
         )
 
@@ -1540,9 +1558,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(employee1.id, employee2.id, employee3.id),
             laborCostBudget = 3000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.WEDNESDAY),
+                startDate = LocalDate.of(2024, 1, 3),  // Wednesday
+                endDate = LocalDate.of(2024, 1, 3),
                 operatingHours = mapOf(
-                    DayOfWeek.WEDNESDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
+                    LocalDate.of(2024, 1, 3) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(18, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_FAIRNESS
@@ -1583,7 +1602,7 @@ class ShiftSchedulerTest {
             productivity = 120.0,
             payRate = 12.0,
             availability = listOf(
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.THURSDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1592,7 +1611,7 @@ class ShiftSchedulerTest {
             productivity = 280.0,
             payRate = 26.0,
             availability = listOf(
-                Availability(DayOfWeek.THURSDAY, LocalTime.of(9, 0), LocalTime.of(17, 0))
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.THURSDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
             )
         )
 
@@ -1610,9 +1629,10 @@ class ShiftSchedulerTest {
             employeeIds = listOf(cheapEmployee.id, productiveEmployee.id),
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = listOf(DayOfWeek.THURSDAY),
+                startDate = LocalDate.of(2024, 1, 4),  // Thursday
+                endDate = LocalDate.of(2024, 1, 4),
                 operatingHours = mapOf(
-                    DayOfWeek.THURSDAY to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                    LocalDate.of(2024, 1, 4) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
                 )
             ),
             optimizationObjective = OptimizationObjective.MAXIMIZE_SALES

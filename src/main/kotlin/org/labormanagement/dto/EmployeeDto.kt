@@ -1,6 +1,7 @@
 package org.labormanagement.dto
 
 import org.labormanagement.model.Availability
+import org.labormanagement.model.AvailabilityType
 import org.labormanagement.model.Contract
 import org.labormanagement.model.Employee
 import java.time.DayOfWeek
@@ -100,7 +101,7 @@ fun Contract.toDto(): ContractDto {
 
 fun Availability.toDto(): AvailabilityDto {
     return AvailabilityDto(
-        dayOfWeek = this.dayOfWeek.name,
+        dayOfWeek = this.dayOfWeek?.name ?: "",
         startTime = this.startTime.toString(),
         endTime = this.endTime.toString()
     )
@@ -120,6 +121,7 @@ fun ContractDto.toModel(): Contract {
 
 fun AvailabilityDto.toModel(): Availability {
     return Availability(
+        availabilityType = AvailabilityType.WEEKLY_RECURRING,
         dayOfWeek = DayOfWeek.valueOf(this.dayOfWeek.uppercase()),
         startTime = LocalTime.parse(this.startTime),
         endTime = LocalTime.parse(this.endTime)

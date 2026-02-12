@@ -60,7 +60,7 @@ fun ConstraintViolation.toDto(): ViolationDto {
             type = this.type,
             description = this.description,
             scope = ViolationScope.TIME_BLOCK,
-            dayOfWeek = this.dayOfWeek.toString(),
+            dayOfWeek = this.date.dayOfWeek.toString(),
             startTime = this.startTime.toString(),
             endTime = this.endTime.toString()
         )
@@ -77,7 +77,7 @@ fun ConstraintViolation.toDto(): ViolationDto {
             description = this.description,
             scope = ViolationScope.EMPLOYEE_DAY,
             employeeId = this.employeeId.toString(),
-            dayOfWeek = this.dayOfWeek.toString()
+            dayOfWeek = this.date.dayOfWeek.toString()
         )
 
         is ConstraintViolation.Shift -> ViolationDto(
@@ -85,7 +85,7 @@ fun ConstraintViolation.toDto(): ViolationDto {
             description = this.description,
             scope = ViolationScope.SHIFT,
             employeeId = this.employeeId.toString(),
-            dayOfWeek = this.dayOfWeek.toString(),
+            dayOfWeek = this.date.dayOfWeek.toString(),
             startTime = this.startTime.toString(),
             endTime = this.endTime.toString()
         )

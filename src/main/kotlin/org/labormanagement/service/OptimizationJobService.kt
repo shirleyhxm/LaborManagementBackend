@@ -139,14 +139,6 @@ class OptimizationJobService(
         val startDate = LocalDate.parse(request.demandMatrix.startDate)
         val endDate = LocalDate.parse(request.demandMatrix.endDate)
 
-        // Build list of days to schedule
-        val daysToSchedule = mutableListOf<DayOfWeek>()
-        var currentDate = startDate
-        while (!currentDate.isAfter(endDate)) {
-            daysToSchedule.add(currentDate.dayOfWeek)
-            currentDate = currentDate.plusDays(1)
-        }
-
         // Get employee IDs (all employees if none specified)
         val employeeIds = if (request.employeeIds != null && request.employeeIds.isNotEmpty()) {
             request.employeeIds.map { UUID.fromString(it) }
@@ -158,17 +150,32 @@ class OptimizationJobService(
             throw IllegalArgumentException("No employees available for optimization. Please create employees first.")
         }
 
-        // Build operating hours map from demand matrix slots
-        val operatingHoursMap = mutableMapOf<DayOfWeek, OperatingHours>()
-        request.demandMatrix.slots.groupBy { DayOfWeek.valueOf(it.day.uppercase()) }.forEach { (day, slots) ->
-            val earliestStart = slots.minByOrNull { LocalTime.parse(it.startTime) }?.startTime
-            val latestEnd = slots.maxByOrNull { LocalTime.parse(it.endTime) }?.endTime
+        // Build operating hours map by LocalDate from demand matrix slots
+        val operatingHoursMap = mutableMapOf<LocalDate, OperatingHours>()
 
-            if (earliestStart != null && latestEnd != null) {
-                operatingHoursMap[day] = OperatingHours(
-                    openTime = LocalTime.parse(earliestStart),
-                    closeTime = LocalTime.parse(latestEnd)
-                )
+        // Group slots by date and determine operating hours for each date
+        request.demandMatrix.slots.groupBy { slot ->
+            // Parse the day string (e.g., "MONDAY") and find the corresponding date in the period
+            val dayOfWeek = DayOfWeek.valueOf(slot.day.uppercase())
+            var currentDate = startDate
+            while (!currentDate.isAfter(endDate)) {
+                if (currentDate.dayOfWeek == dayOfWeek) {
+                    return@groupBy currentDate
+                }
+                currentDate = currentDate.plusDays(1)
+            }
+            null
+        }.forEach { (date, slots) ->
+            if (date != null) {
+                val earliestStart = slots.minByOrNull { LocalTime.parse(it.startTime) }?.startTime
+                val latestEnd = slots.maxByOrNull { LocalTime.parse(it.endTime) }?.endTime
+
+                if (earliestStart != null && latestEnd != null) {
+                    operatingHoursMap[date] = OperatingHours(
+                        openTime = LocalTime.parse(earliestStart),
+                        closeTime = LocalTime.parse(latestEnd)
+                    )
+                }
             }
         }
 
@@ -181,13 +188,15 @@ class OptimizationJobService(
             else -> OptimizationObjective.BALANCED
         }
 
-        log.info("[OptimizationJobService] Creating schedule for ${employeeIds.size} employees across ${daysToSchedule.size} days")
+        val totalDays = startDate.datesUntil(endDate.plusDays(1)).count()
+        log.info("[OptimizationJobService] Creating schedule for ${employeeIds.size} employees across $totalDays days")
 
         return ScheduleInput(
             employeeIds = employeeIds,
             laborCostBudget = Double.MAX_VALUE,  // Budget fetched from ConstraintsService by ShiftScheduler
             schedulePeriod = SchedulePeriod(
-                daysToSchedule = daysToSchedule.distinct(),
+                startDate = startDate,
+                endDate = endDate,
                 operatingHours = operatingHoursMap
             ),
             optimizationObjective = objective
@@ -206,7 +215,7 @@ class OptimizationJobService(
 
             val shiftDtos = shifts.map { shift ->
                 ShiftDto(
-                    day = shift.dayOfWeek.toString(),
+                    day = shift.date.dayOfWeek.toString(),
                     startTime = shift.startTime.format(DateTimeFormatter.ofPattern("HH:mm")),
                     endTime = shift.endTime.format(DateTimeFormatter.ofPattern("HH:mm")),
                     duration = shift.durationHours,

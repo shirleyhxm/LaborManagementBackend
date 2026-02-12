@@ -5,6 +5,7 @@ import org.labormanagement.model.OptimizationObjective
 import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Shift
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
@@ -18,7 +19,8 @@ object OptimizationConverter {
      *
      * @param employees List of employees to schedule
      * @param salesForecast Sales forecast data for the week
-     * @param scheduleDays Days to include in the schedule
+     * @param scheduleDates Dates to include in the schedule
+     * @param operatingHoursMap Operating hours for each date
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
      * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
@@ -28,8 +30,8 @@ object OptimizationConverter {
     fun buildOptimizationInput(
         employees: List<Employee>,
         salesForecast: SalesForecast,
-        scheduleDays: List<DayOfWeek>,
-        operatingHoursMap: Map<DayOfWeek, Pair<LocalTime, LocalTime>>,
+        scheduleDates: List<LocalDate>,
+        operatingHoursMap: Map<LocalDate, Pair<LocalTime, LocalTime>>,
         coverageFraction: Double = 0.8,
         laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
@@ -44,8 +46,8 @@ object OptimizationConverter {
         val contractedHoursMap = constraintsService?.getContractedHours(null)
             ?.associateBy { it.employeeId } ?: emptyMap()
 
-        // Generate time slots for all scheduled days
-        val timeSlots = generateTimeSlots(scheduleDays, operatingHoursMap)
+        // Generate time slots for all scheduled dates
+        val timeSlots = generateTimeSlots(scheduleDates, operatingHoursMap)
 
         // Build availability matrix [employee][timeSlot]
         val availability = buildAvailabilityMatrix(employees, timeSlots)
@@ -118,7 +120,7 @@ object OptimizationConverter {
                     shifts.add(
                         Shift(
                             employeeId = employee.id,
-                            dayOfWeek = startSlot.day,
+                            date = startSlot.date,
                             startTime = startSlot.startTime,
                             endTime = overtimeStartTime,
                             payRate = employee.normalPayRate,
@@ -130,7 +132,7 @@ object OptimizationConverter {
                     shifts.add(
                         Shift(
                             employeeId = employee.id,
-                            dayOfWeek = endSlot.day,
+                            date = endSlot.date,
                             startTime = overtimeStartTime,
                             endTime = endSlot.endTime,
                             payRate = employee.overtimePayRate,
@@ -145,7 +147,7 @@ object OptimizationConverter {
                     shifts.add(
                         Shift(
                             employeeId = employee.id,
-                            dayOfWeek = startSlot.day,
+                            date = startSlot.date,
                             startTime = startSlot.startTime,
                             endTime = endSlot.endTime,
                             payRate = payRate,
@@ -163,11 +165,11 @@ object OptimizationConverter {
     }
 
     /**
-     * Generates time slots for the given days and operating hours.
+     * Generates time slots for the given dates and operating hours.
      */
     private fun generateTimeSlots(
-        days: List<DayOfWeek>,
-        operatingHoursMap: Map<DayOfWeek, Pair<LocalTime, LocalTime>>,
+        dates: List<LocalDate>,
+        operatingHoursMap: Map<LocalDate, Pair<LocalTime, LocalTime>>,
     ): List<TimeSlot> {
         val timeSlots = mutableListOf<TimeSlot>()
 
@@ -175,8 +177,8 @@ object OptimizationConverter {
         // The minimum shift length will be enforced as a constraint in the optimizer
         val slotDurationHours = 1.0
 
-        for (day in days) {
-            val (openTime, closeTime) = operatingHoursMap[day] ?: continue
+        for (date in dates) {
+            val (openTime, closeTime) = operatingHoursMap[date] ?: continue
 
             var currentTime = openTime
             val slotDurationMinutes = (slotDurationHours * 60).toLong()
@@ -189,7 +191,7 @@ object OptimizationConverter {
 
                 timeSlots.add(
                     TimeSlot(
-                        day = day,
+                        date = date,
                         startTime = currentTime,
                         endTime = actualEnd,
                         durationHours = actualDuration
@@ -213,9 +215,7 @@ object OptimizationConverter {
         return employees.map { employee ->
             timeSlots.map { slot ->
                 employee.availability.any { avail ->
-                    avail.dayOfWeek == slot.day &&
-                    avail.startTime <= slot.startTime &&
-                    avail.endTime >= slot.endTime
+                    avail.isAvailableOn(slot.date, slot.startTime, slot.endTime)
                 }
             }
         }
@@ -245,7 +245,7 @@ object OptimizationConverter {
         timeSlots: List<TimeSlot>
     ): List<Double> {
         return timeSlots.map { slot ->
-            val dayForecast = salesForecast.weeklyForecast[slot.day] ?: emptyMap()
+            val dayForecast = salesForecast.getForecastForDate(slot.date)
 
             // Find forecasts that fall within this time slot
             val relevantForecasts = dayForecast.filter { (time, _) ->
@@ -262,9 +262,9 @@ object OptimizationConverter {
     }
 
     /**
-     * Groups consecutive time slot indices into continuous ranges within the same day.
+     * Groups consecutive time slot indices into continuous ranges within the same date.
      * For example: [0, 1, 2, 5, 6, 8] -> [[0, 1, 2], [5, 6], [8]]
-     * Ensures that slots from different days are never grouped together.
+     * Ensures that slots from different dates are never grouped together.
      */
     private fun groupConsecutiveSlots(indices: List<Int>, timeSlots: List<TimeSlot>): List<List<Int>> {
         if (indices.isEmpty()) return emptyList()
@@ -277,12 +277,12 @@ object OptimizationConverter {
             val prevSlot = timeSlots[sorted[i - 1]]
             val currSlot = timeSlots[sorted[i]]
 
-            // Check if consecutive AND on the same day AND times align
+            // Check if consecutive AND on the same date AND times align
             val isConsecutive = sorted[i] == sorted[i - 1] + 1
-            val isSameDay = prevSlot.day == currSlot.day
+            val isSameDate = prevSlot.date == currSlot.date
             val timesAlign = prevSlot.endTime == currSlot.startTime
 
-            if (isConsecutive && isSameDay && timesAlign) {
+            if (isConsecutive && isSameDate && timesAlign) {
                 // Consecutive - add to current group
                 currentGroup.add(sorted[i])
             } else {

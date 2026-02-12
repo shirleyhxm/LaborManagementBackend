@@ -2,6 +2,7 @@ package org.labormanagement.model
 
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -120,7 +121,7 @@ sealed class ConstraintViolation {
     data class TimeBlock(
         override val type: ViolationType,
         override val description: String,
-        val dayOfWeek: DayOfWeek,
+        val date: LocalDate,
         val startTime: LocalTime,
         val endTime: LocalTime
     ) : ConstraintViolation()
@@ -141,7 +142,7 @@ sealed class ConstraintViolation {
         override val type: ViolationType,
         override val description: String,
         val employeeId: UUID,
-        val dayOfWeek: DayOfWeek
+        val date: LocalDate
     ) : ConstraintViolation()
 
     /**
@@ -151,7 +152,7 @@ sealed class ConstraintViolation {
         override val type: ViolationType,
         override val description: String,
         val employeeId: UUID,
-        val dayOfWeek: DayOfWeek,
+        val date: LocalDate,
         val startTime: LocalTime,
         val endTime: LocalTime
     ) : ConstraintViolation()
@@ -167,7 +168,7 @@ enum class ViolationType {
 }
 
 data class StaffingRequirement(
-    val dayOfWeek: DayOfWeek,
+    val date: LocalDate,
     val startTime: LocalTime,
     val endTime: LocalTime,
     val employeesNeeded: Int,
@@ -184,12 +185,16 @@ data class StaffingRequirement(
 data class Shift(
     val id: UUID = UUID.randomUUID(),
     val employeeId: UUID,
-    val dayOfWeek: DayOfWeek,
+    val date: LocalDate,
     val startTime: LocalTime,
     val endTime: LocalTime,
     val payRate: Double,
     val isOvertime: Boolean = false
 ) {
+    // Derived property: day of week from the date
+    val dayOfWeek: DayOfWeek
+        get() = date.dayOfWeek
+
     // Calculated once during construction, cached for performance and frontend access
     // Handle overnight shifts (e.g., 22:00 to 02:00) by adding 24 hours if endTime < startTime
     val durationHours: Double = run {
@@ -206,7 +211,38 @@ data class Shift(
     val laborCost: Double = durationHours * payRate
 
     fun overlaps(other: Shift): Boolean {
-        if (this.dayOfWeek != other.dayOfWeek) return false
-        return this.startTime < other.endTime && this.endTime > other.startTime
+        // For overnight shifts, need to check both the same date and the next date
+        if (this.endTime <= this.startTime) {
+            // This is an overnight shift
+            val thisEndDate = this.date.plusDays(1)
+            if (other.endTime <= other.startTime) {
+                // Other is also overnight
+                val otherEndDate = other.date.plusDays(1)
+                // Check if either overlaps with the other's date range
+                if (this.date == other.date || this.date == otherEndDate ||
+                    thisEndDate == other.date || thisEndDate == otherEndDate) {
+                    return this.startTime < other.endTime && this.endTime > other.startTime
+                }
+            } else {
+                // Other is same-day shift
+                if (this.date == other.date || thisEndDate == other.date) {
+                    return this.startTime < other.endTime && this.endTime > other.startTime
+                }
+            }
+        } else {
+            // This is a same-day shift
+            if (other.endTime <= other.startTime) {
+                // Other is overnight
+                val otherEndDate = other.date.plusDays(1)
+                if (this.date == other.date || this.date == otherEndDate) {
+                    return this.startTime < other.endTime && this.endTime > other.startTime
+                }
+            } else {
+                // Both are same-day shifts - simple date comparison
+                if (this.date != other.date) return false
+                return this.startTime < other.endTime && this.endTime > other.startTime
+            }
+        }
+        return false
     }
 }
