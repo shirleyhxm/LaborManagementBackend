@@ -76,6 +76,7 @@ src/main/kotlin/org/labormanagement/
 ### Key Controllers
 - `ScheduleController.kt` - Schedule generation and management
 - `EmployeeController.kt` - Employee CRUD operations
+- `SalesForecastController.kt` - Sales forecast management (date-specific and weekly patterns)
 - `ConstraintsController.kt` - Constraint configuration (budget, hours, compliance)
 - `TestDataController.kt` - Test data generation endpoints
 - `AuthController.kt` - User authentication
@@ -84,7 +85,7 @@ src/main/kotlin/org/labormanagement/
 - `Employee.kt` - Employee with contract and availability
 - `Schedule.kt` - Shift assignments and scheduling metadata
 - `Constraints.kt` - Budget, hours, compliance rules
-- `SalesForecast.kt` - Sales projections for scheduling
+- `SalesForecast.kt` - Sales projections (date-specific and weekly patterns) for scheduling
 - `Timeoff.kt` - Time-off requests and approvals
 
 ### Services (`service/`)
@@ -245,9 +246,47 @@ PUT /api/v1/constraints/compliance
 - Use `TestDataController` to quickly recreate sample data
 
 ### Sales Forecasting
-- Sales forecasts are hour-specific: `Map<DayOfWeek, Map<String, Double>>`
-- Example: `{"MONDAY": {"09:00": 800.0, "12:00": 1500.0}}`
-- Used to calculate staffing needs per hour
+
+The system supports both **date-specific forecasts** and **recurring weekly patterns**:
+
+**Data Structure:**
+- Date-specific: `Map<LocalDate, Map<LocalTime, Double>>` - For specific dates (holidays, events)
+- Weekly pattern: `Map<DayOfWeek, Map<LocalTime, Double>>` - For recurring patterns
+
+**Forecast Priority:**
+1. First check: Date-specific forecast for exact date
+2. Fallback: Weekly pattern based on day of week
+3. Default: Empty forecast
+
+**API Endpoint:**
+```bash
+# Update forecast (at least one parameter required)
+PUT /api/sales-forecast
+{
+  "dateSpecificForecast": {
+    "2024-12-25": {"09:00": 2000.0, "10:00": 2500.0}
+  },
+  "weeklyPattern": {
+    "MONDAY": {"09:00": 800.0, "10:00": 1000.0},
+    "TUESDAY": {"09:00": 750.0, "10:00": 950.0}
+  },
+  "updatedBy": "manager"
+}
+
+# Get current forecast
+GET /api/sales-forecast
+
+# Reset to default
+POST /api/sales-forecast/reset
+```
+
+**Format Requirements:**
+- Dates: `"YYYY-MM-DD"` (e.g., `"2024-01-15"`)
+- Days: `"MONDAY"`, `"TUESDAY"`, etc. (uppercase)
+- Times: `"HH:mm"` format (e.g., `"09:00"` not `"9:00"`)
+- Sales values: Numbers (e.g., `1000.0`, `1234.56`)
+
+**Usage:** Sales forecasts calculate staffing needs per hour. The scheduler uses `getForecastForDate(date)` which automatically handles the priority lookup.
 
 ### Overtime Calculation
 - Tracks weekly hours per employee
@@ -315,6 +354,7 @@ PUT /api/v1/constraints/compliance
 2. **No shifts generated** - Check operating hours match employee availability
 3. **Employee not found errors** - Ensure sample employees created before scheduling
 4. **Time format issues** - Use "HH:mm" format (e.g., "09:00" not "9:00")
+5. **Sales forecast 400 errors** - Ensure at least one of `dateSpecificForecast` or `weeklyPattern` is provided; verify date format `"YYYY-MM-DD"`, day format `"MONDAY"` (uppercase), and time format `"HH:mm"`
 
 ## References
 

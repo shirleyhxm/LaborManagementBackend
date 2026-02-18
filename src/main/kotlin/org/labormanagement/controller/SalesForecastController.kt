@@ -10,6 +10,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import org.labormanagement.repository.SalesForecastRepository
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
 
 class SalesForecastController(
@@ -26,8 +27,19 @@ class SalesForecastController(
         put("/api/sales-forecast") {
             try {
                 val request = call.receive<UpdateSalesForecastRequest>()
+
+                // Validate that at least one forecast type is provided
+                if (request.dateSpecificForecast == null && request.weeklyPattern == null) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf("error" to "At least one of dateSpecificForecast or weeklyPattern must be provided")
+                    )
+                    return@put
+                }
+
                 val forecast = salesForecastRepository.update(
-                    weeklyForecast = request.weeklyForecast,
+                    dateSpecificForecast = request.dateSpecificForecast,
+                    weeklyPattern = request.weeklyPattern,
                     updatedBy = request.updatedBy ?: "system"
                 )
                 call.respond(HttpStatusCode.OK, forecast)
@@ -47,7 +59,15 @@ class SalesForecastController(
     }
 }
 
+/**
+ * Request DTO for updating sales forecast.
+ * Supports both date-specific forecasts and recurring weekly patterns.
+ * At least one of dateSpecificForecast or weeklyPattern must be provided.
+ */
 data class UpdateSalesForecastRequest(
-    val weeklyForecast: Map<DayOfWeek, Map<LocalTime, Double>>,
+    // Optional: date-specific forecasts (e.g., {"2024-01-15": {"09:00": 1000.0, "10:00": 1200.0}})
+    val dateSpecificForecast: Map<LocalDate, Map<LocalTime, Double>>? = null,
+    // Optional: weekly pattern forecasts (e.g., {"MONDAY": {"09:00": 800.0, "10:00": 1000.0}})
+    val weeklyPattern: Map<DayOfWeek, Map<LocalTime, Double>>? = null,
     val updatedBy: String? = null
 )

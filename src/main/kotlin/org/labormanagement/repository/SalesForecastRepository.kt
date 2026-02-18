@@ -3,6 +3,7 @@ package org.labormanagement.repository
 import org.labormanagement.model.SalesForecast
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
@@ -26,20 +27,36 @@ class SalesForecastRepository {
     }
 
     /**
-     * Update the sales forecast.
+     * Update the sales forecast with date-specific and/or weekly pattern data.
      */
     fun update(
-        weeklyForecast: Map<DayOfWeek, Map<LocalTime, Double>>,
+        dateSpecificForecast: Map<LocalDate, Map<LocalTime, Double>>? = null,
+        weeklyPattern: Map<DayOfWeek, Map<LocalTime, Double>>? = null,
         updatedBy: String = "system"
     ): SalesForecast = lock.write {
         forecast = SalesForecast(
             id = "default",
-            weeklyPattern = weeklyForecast,
+            dateSpecificForecast = dateSpecificForecast,
+            weeklyPattern = weeklyPattern,
             lastUpdatedAt = Instant.now(),
             lastUpdatedBy = updatedBy
         )
         forecast
     }
+
+    /**
+     * Update the sales forecast (backward compatibility method).
+     * @deprecated Use update(dateSpecificForecast, weeklyPattern, updatedBy) instead
+     */
+    @Deprecated("Use update(dateSpecificForecast, weeklyPattern, updatedBy) instead")
+    fun update(
+        weeklyForecast: Map<DayOfWeek, Map<LocalTime, Double>>,
+        updatedBy: String = "system"
+    ): SalesForecast = update(
+        dateSpecificForecast = null,
+        weeklyPattern = weeklyForecast,
+        updatedBy = updatedBy
+    )
 
     /**
      * Reset to default forecast.
