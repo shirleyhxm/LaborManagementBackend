@@ -78,7 +78,7 @@ class PerformanceProfilerTest {
                 )
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 300.0,
@@ -141,7 +141,7 @@ class PerformanceProfilerTest {
             LocalTime.of(18, 0) to 250.0,
             LocalTime.of(19, 0) to 200.0
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,
@@ -189,7 +189,7 @@ class PerformanceProfilerTest {
         val salesPerHour = (6..21).associate { hour ->
             LocalTime.of(hour, 0) to (200.0 + (hour - 6) * 50.0 - if (hour > 14) (hour - 14) * 30.0 else 0.0)
         }
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,
@@ -237,7 +237,7 @@ class PerformanceProfilerTest {
         val salesPerHour = (8..19).associate { hour ->
             LocalTime.of(hour, 0) to 400.0
         }
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,

@@ -45,20 +45,6 @@ class SalesForecastRepository {
     }
 
     /**
-     * Update the sales forecast (backward compatibility method).
-     * @deprecated Use update(dateSpecificForecast, weeklyPattern, updatedBy) instead
-     */
-    @Deprecated("Use update(dateSpecificForecast, weeklyPattern, updatedBy) instead")
-    fun update(
-        weeklyForecast: Map<DayOfWeek, Map<LocalTime, Double>>,
-        updatedBy: String = "system"
-    ): SalesForecast = update(
-        dateSpecificForecast = null,
-        weeklyPattern = weeklyForecast,
-        updatedBy = updatedBy
-    )
-
-    /**
      * Reset to default forecast.
      */
     fun reset(): SalesForecast = lock.write {

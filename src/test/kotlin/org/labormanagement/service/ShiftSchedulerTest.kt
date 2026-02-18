@@ -68,7 +68,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 1000.0,
@@ -105,7 +105,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(14, 0), LocalTime.of(20, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             )
@@ -146,7 +146,7 @@ class ShiftSchedulerTest {
             contractedHours = 20.0,
             maxHours = 20.0
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 2000.0),
@@ -184,7 +184,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(13, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 5000.0 // Very high sales forecast
@@ -230,7 +230,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(mapOf(
+        salesForecastRepository.update(weeklyPattern =mapOf(
             DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
         ))
 
@@ -275,7 +275,7 @@ class ShiftSchedulerTest {
             contractedHours = 40.0,
             maxHours = 50.0
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 // Each day has sales across 9 hours (8am-5pm), requiring ~9-hour shifts per day
                 DayOfWeek.MONDAY to mapOf(
@@ -487,7 +487,7 @@ class ShiftSchedulerTest {
             contractedHours = 10.0,
             maxHours = 10.0
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 2000.0), // Not available Monday
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 2000.0) // High demand
@@ -539,7 +539,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             )
@@ -587,7 +587,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 100.0)
             )
@@ -642,7 +642,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1500.0)
             )
@@ -752,7 +752,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1500.0)
             )
@@ -839,7 +839,7 @@ class ShiftSchedulerTest {
                 Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.WEDNESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
             )
         )
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 300.0,
@@ -946,7 +946,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 500.0,
@@ -992,7 +992,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 400.0,
@@ -1049,7 +1049,7 @@ class ShiftSchedulerTest {
             maxHours = 15.0  // Strict 15 hour limit
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1000.0),
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 1000.0),
@@ -1106,7 +1106,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 600.0,
@@ -1166,7 +1166,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.TUESDAY to mapOf(
                     LocalTime.of(11, 0) to 500.0,
@@ -1208,7 +1208,7 @@ class ShiftSchedulerTest {
             schedulingApproach = SchedulingApproach.OPTIMIZER
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.WEDNESDAY to mapOf(LocalTime.of(12, 0) to 1000.0)
             )
@@ -1248,7 +1248,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.THURSDAY to mapOf(
                     LocalTime.of(10, 0) to 400.0,
@@ -1312,7 +1312,7 @@ class ShiftSchedulerTest {
             maxHours = 50.0
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.MONDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
                 DayOfWeek.TUESDAY to mapOf(LocalTime.of(12, 0) to 1200.0),
@@ -1394,7 +1394,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.FRIDAY to mapOf(
                     LocalTime.of(10, 0) to 800.0,
@@ -1458,7 +1458,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.TUESDAY to mapOf(
                     LocalTime.of(10, 0) to 600.0,
@@ -1541,7 +1541,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.WEDNESDAY to mapOf(
                     LocalTime.of(10, 0) to 500.0,
@@ -1615,7 +1615,7 @@ class ShiftSchedulerTest {
             )
         )
 
-        salesForecastRepository.update(
+        salesForecastRepository.update(weeklyPattern =
             mapOf(
                 DayOfWeek.THURSDAY to mapOf(
                     LocalTime.of(10, 0) to 600.0,
