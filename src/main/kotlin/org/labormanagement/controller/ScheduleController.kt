@@ -88,6 +88,58 @@ class ScheduleController(
                 }
             }
 
+            // Get schedule by date range
+            get("/by-date-range") {
+                try {
+                    val startDateParam = call.request.queryParameters["startDate"]
+                    val endDateParam = call.request.queryParameters["endDate"]
+
+                    if (startDateParam == null || endDateParam == null) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Both startDate and endDate query parameters are required (format: YYYY-MM-DD)")
+                        )
+                        return@get
+                    }
+
+                    val startDate = try {
+                        java.time.LocalDate.parse(startDateParam)
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Invalid startDate format. Use YYYY-MM-DD")
+                        )
+                        return@get
+                    }
+
+                    val endDate = try {
+                        java.time.LocalDate.parse(endDateParam)
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Invalid endDate format. Use YYYY-MM-DD")
+                        )
+                        return@get
+                    }
+
+                    val schedule = scheduleRepository.findByDateRange(startDate, endDate)
+                    if (schedule != null) {
+                        call.respond(HttpStatusCode.OK, schedule)
+                    } else {
+                        call.respond(
+                            HttpStatusCode.NotFound,
+                            mapOf("error" to "No schedule found for date range $startDate to $endDate")
+                        )
+                    }
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to fetch schedule by date range", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to fetch schedule by date range: ${e.message}")
+                    )
+                }
+            }
+
             // Get schedule by ID
             get("/{id}") {
                 try {
