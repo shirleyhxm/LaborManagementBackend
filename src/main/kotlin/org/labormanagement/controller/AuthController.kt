@@ -9,9 +9,12 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.labormanagement.model.*
 import org.labormanagement.service.AuthService
+import org.labormanagement.service.RateLimiter
+import org.labormanagement.service.Requires2FAException
 
 class AuthController(
-    private val authService: AuthService
+    private val authService: AuthService,
+    private val rateLimiter: RateLimiter = RateLimiter()
 ) {
     fun Routing.authRoutes() {
         route("/api/auth") {
@@ -29,21 +32,179 @@ class AuthController(
                         return@post
                     }
 
-                    // Attempt authentication
-                    val authResponse = authService.login(loginRequest)
+                    // Get identifier for rate limiting (use IP + username combination)
+                    val ipAddress = call.request.local.remoteHost
+                    val identifier = "${ipAddress}:${loginRequest.username}"
 
-                    if (authResponse != null) {
-                        call.respond(HttpStatusCode.OK, authResponse)
-                    } else {
+                    // Check if locked out due to too many failed attempts
+                    if (rateLimiter.isLockedOut(identifier)) {
+                        val timeRemaining = rateLimiter.getLockoutTimeRemaining(identifier)
                         call.respond(
-                            HttpStatusCode.Unauthorized,
-                            ErrorResponse("Invalid username or password")
+                            HttpStatusCode.TooManyRequests,
+                            ErrorResponse(
+                                "Too many failed login attempts. " +
+                                "Account locked for ${timeRemaining ?: 0} minutes."
+                            )
+                        )
+                        return@post
+                    }
+
+                    // Attempt authentication
+                    try {
+                        val authResponse = authService.login(loginRequest)
+
+                        if (authResponse != null) {
+                            // Successful login - clear failed attempts
+                            rateLimiter.recordSuccessfulLogin(identifier)
+                            call.respond(HttpStatusCode.OK, authResponse)
+                        } else {
+                            // Failed login - record attempt
+                            val isLockedOut = rateLimiter.recordFailedAttempt(identifier)
+
+                            if (isLockedOut) {
+                                val timeRemaining = rateLimiter.getLockoutTimeRemaining(identifier)
+                                call.respond(
+                                    HttpStatusCode.TooManyRequests,
+                                    ErrorResponse(
+                                        "Too many failed login attempts. " +
+                                        "Account locked for ${timeRemaining ?: 0} minutes."
+                                    )
+                                )
+                            } else {
+                                val remaining = rateLimiter.getRemainingAttempts(identifier)
+                                call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ErrorResponse(
+                                        "Invalid username or password. " +
+                                        "$remaining attempts remaining before lockout."
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Requires2FAException) {
+                        // 2FA is required - don't clear rate limit attempts yet
+                        call.respond(
+                            HttpStatusCode.Accepted,
+                            Login2FARequiredResponse(
+                                requires2FA = true,
+                                message = "Two-factor authentication required. Please provide your verification code."
+                            )
                         )
                     }
                 } catch (e: Exception) {
                     call.respond(
                         HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid request format")
+                    )
+                }
+            }
+
+            // POST /api/auth/verify-2fa - Verify 2FA code and complete login
+            post("/verify-2fa") {
+                try {
+                    val request = call.receive<Verify2FARequest>()
+
+                    // Validate input
+                    if (request.username.isBlank() || request.code.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("Username and verification code are required")
+                        )
+                        return@post
+                    }
+
+                    // Get identifier for rate limiting
+                    val ipAddress = call.request.local.remoteHost
+                    val identifier = "${ipAddress}:${request.username}"
+
+                    // Verify 2FA and complete login
+                    val authResponse = authService.verify2FAAndLogin(request)
+
+                    if (authResponse != null) {
+                        // Successful 2FA verification - clear failed attempts
+                        rateLimiter.recordSuccessfulLogin(identifier)
+                        call.respond(HttpStatusCode.OK, authResponse)
+                    } else {
+                        // Failed verification - record attempt
+                        val isLockedOut = rateLimiter.recordFailedAttempt(identifier)
+
+                        if (isLockedOut) {
+                            val timeRemaining = rateLimiter.getLockoutTimeRemaining(identifier)
+                            call.respond(
+                                HttpStatusCode.TooManyRequests,
+                                ErrorResponse(
+                                    "Too many failed attempts. " +
+                                    "Account locked for ${timeRemaining ?: 0} minutes."
+                                )
+                            )
+                        } else {
+                            val remaining = rateLimiter.getRemainingAttempts(identifier)
+                            call.respond(
+                                HttpStatusCode.Unauthorized,
+                                ErrorResponse(
+                                    "Invalid verification code. " +
+                                    "$remaining attempts remaining before lockout."
+                                )
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse("Invalid request format")
+                    )
+                }
+            }
+
+            // POST /api/auth/forgot-password - Request password reset
+            post("/forgot-password") {
+                try {
+                    val request = call.receive<ForgotPasswordRequest>()
+
+                    // Validate email
+                    if (request.email.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("Email is required")
+                        )
+                        return@post
+                    }
+
+                    val response = authService.forgotPassword(request)
+                    call.respond(HttpStatusCode.OK, response)
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse("Invalid request format")
+                    )
+                }
+            }
+
+            // POST /api/auth/reset-password - Reset password with token
+            post("/reset-password") {
+                try {
+                    val request = call.receive<ResetPasswordRequest>()
+
+                    // Validate input
+                    if (request.token.isBlank() || request.newPassword.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("Token and new password are required")
+                        )
+                        return@post
+                    }
+
+                    val response = authService.resetPassword(request)
+                    call.respond(HttpStatusCode.OK, response)
+                } catch (e: IllegalArgumentException) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse(e.message ?: "Invalid request")
+                    )
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        ErrorResponse("Failed to reset password")
                     )
                 }
             }
@@ -108,6 +269,117 @@ class AuthController(
                         call.respond(
                             HttpStatusCode.Unauthorized,
                             ErrorResponse("Invalid or expired token")
+                        )
+                    }
+                }
+
+                // POST /api/auth/2fa/setup - Set up 2FA for current user
+                post("/2fa/setup") {
+                    try {
+                        val principal = call.principal<JWTPrincipal>()
+                        if (principal == null) {
+                            call.respond(
+                                HttpStatusCode.Unauthorized,
+                                ErrorResponse("Invalid or expired token")
+                            )
+                            return@post
+                        }
+
+                        val userId = principal.payload.getClaim("userId").asString()
+                        val response = authService.setup2FA(userId)
+                        call.respond(HttpStatusCode.OK, response)
+                    } catch (e: IllegalArgumentException) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse(e.message ?: "Invalid request")
+                        )
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorResponse("Failed to set up 2FA")
+                        )
+                    }
+                }
+
+                // POST /api/auth/2fa/enable - Enable 2FA after verifying code
+                post("/2fa/enable") {
+                    try {
+                        val principal = call.principal<JWTPrincipal>()
+                        if (principal == null) {
+                            call.respond(
+                                HttpStatusCode.Unauthorized,
+                                ErrorResponse("Invalid or expired token")
+                            )
+                            return@post
+                        }
+
+                        val request = call.receive<Enable2FARequest>()
+                        val userId = principal.payload.getClaim("userId").asString()
+
+                        // Ensure user can only enable 2FA for themselves
+                        if (request.userId != userId) {
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                ErrorResponse("Cannot enable 2FA for another user")
+                            )
+                            return@post
+                        }
+
+                        val response = authService.enable2FA(request)
+                        call.respond(HttpStatusCode.OK, response)
+                    } catch (e: IllegalArgumentException) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse(e.message ?: "Invalid request")
+                        )
+                    } catch (e: IllegalStateException) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse(e.message ?: "Invalid state")
+                        )
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorResponse("Failed to enable 2FA")
+                        )
+                    }
+                }
+
+                // POST /api/auth/2fa/disable - Disable 2FA for current user
+                post("/2fa/disable") {
+                    try {
+                        val principal = call.principal<JWTPrincipal>()
+                        if (principal == null) {
+                            call.respond(
+                                HttpStatusCode.Unauthorized,
+                                ErrorResponse("Invalid or expired token")
+                            )
+                            return@post
+                        }
+
+                        val request = call.receive<Disable2FARequest>()
+                        val userId = principal.payload.getClaim("userId").asString()
+
+                        // Ensure user can only disable 2FA for themselves
+                        if (request.userId != userId) {
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                ErrorResponse("Cannot disable 2FA for another user")
+                            )
+                            return@post
+                        }
+
+                        val response = authService.disable2FA(request)
+                        call.respond(HttpStatusCode.OK, response)
+                    } catch (e: IllegalArgumentException) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse(e.message ?: "Invalid request")
+                        )
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorResponse("Failed to disable 2FA")
                         )
                     }
                 }

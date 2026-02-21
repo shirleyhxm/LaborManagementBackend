@@ -7,7 +7,9 @@ data class User(
     val firstName: String,
     val lastName: String,
     val passwordHash: String,
-    val role: UserRole
+    val role: UserRole,
+    val twoFactorEnabled: Boolean = false,
+    val twoFactorSecret: String? = null
 )
 
 enum class UserRole {

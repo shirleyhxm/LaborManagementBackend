@@ -298,6 +298,164 @@ POST /api/sales-forecast/reset
 - Groups have associated constraints and rules
 - Used for role-based or department-based scheduling
 
+## Security & Authentication
+
+The application includes comprehensive password security measures and authentication features:
+
+### 1. Password Strength Requirements
+
+**Implementation**: `PasswordValidator.kt` - Enforced at user creation and password updates
+
+**Requirements:**
+- Minimum length: 8 characters
+- Uppercase letter: At least one (A-Z)
+- Lowercase letter: At least one (a-z)
+- Number: At least one (0-9)
+- Special character: At least one (!@#$%^&*()_+-=[]{}|;:'",.<>?/~`)
+
+**Test User Passwords:**
+- Admin: `Admin123!`
+- Manager: `Manager123!`
+- Employee: `Employee123!`
+
+### 2. Password Reset/Forgot Password Flow
+
+**Implementation**: `PasswordReset.kt`, `PasswordResetRepository.kt`, `AuthService`
+
+**Endpoints:**
+```bash
+# Request password reset
+POST /api/auth/forgot-password
+{
+  "email": "admin@shiftoptimizer.com"
+}
+
+# Reset password with token
+POST /api/auth/reset-password
+{
+  "token": "<reset-token>",
+  "newPassword": "NewSecurePass123!"
+}
+```
+
+**Token Details:**
+- 32 bytes (Base64 URL-encoded)
+- 1 hour expiration
+- Single use (invalidated after reset)
+- Cryptographically secure (SecureRandom)
+
+**Development Note**: Reset tokens are currently logged to console. In production, integrate with email service.
+
+### 3. Rate Limiting for Login Attempts
+
+**Implementation**: `RateLimiter.kt` - Integrated in `AuthController`
+
+**Configuration:**
+- MAX_ATTEMPTS: 5 failed attempts
+- LOCKOUT_DURATION: 15 minutes
+- ATTEMPT_WINDOW: 10 minutes
+
+**How It Works:**
+- Tracks failed attempts by IP + username
+- Progressive warnings (4 attempts remaining, 3 remaining, etc.)
+- Account lockout after 5 failed attempts
+- Automatic cleanup of old attempts
+- Successful login clears failed attempts
+
+**Security Benefits:**
+- Prevents brute force attacks
+- IP-based tracking
+- Automatic recovery (no manual intervention)
+
+### 4. Two-Factor Authentication (2FA/MFA)
+
+**Implementation**: `TotpService.kt`, `TwoFactorAuth.kt` - TOTP (Time-based One-Time Password)
+
+**Compatible with**: Google Authenticator, Authy, Microsoft Authenticator
+
+**Setup Flow:**
+```bash
+# Step 1: Set up 2FA (requires JWT)
+POST /api/auth/2fa/setup
+Authorization: Bearer <jwt-token>
+
+# Response includes secret and QR code URL
+{
+  "secret": "JBSWY3DPEHPK3PXP",
+  "qrCodeUrl": "otpauth://totp/...",
+  "message": "Scan the QR code..."
+}
+
+# Step 2: Enable 2FA (verify code)
+POST /api/auth/2fa/enable
+{
+  "userId": "1",
+  "verificationCode": "123456"
+}
+```
+
+**Login with 2FA:**
+```bash
+# Initial login returns 2FA required
+POST /api/auth/login
+{
+  "username": "admin",
+  "password": "Admin123!"
+}
+# Response: { "requires2FA": true, "message": "..." }
+
+# Complete login with 2FA code
+POST /api/auth/verify-2fa
+{
+  "username": "admin",
+  "code": "123456"
+}
+```
+
+**Technical Details:**
+- Algorithm: HMAC-SHA1
+- Time Step: 30 seconds
+- Digits: 6
+- Tolerance: ±1 time step (clock drift)
+
+### Authentication Endpoints Summary
+
+**Public Endpoints:**
+- `POST /api/auth/login` - Login with username/password
+- `POST /api/auth/verify-2fa` - Verify 2FA code during login
+- `POST /api/auth/forgot-password` - Request password reset
+- `POST /api/auth/reset-password` - Reset password with token
+
+**Protected Endpoints (Require JWT):**
+- `POST /api/auth/logout` - Logout user
+- `GET /api/auth/validate` - Validate JWT token
+- `POST /api/auth/2fa/setup` - Set up 2FA
+- `POST /api/auth/2fa/enable` - Enable 2FA after verification
+- `POST /api/auth/2fa/disable` - Disable 2FA
+
+### Security Best Practices
+
+**For Development:**
+- Test users use strong passwords (Admin123!, etc.)
+- Reset tokens logged to console (REMOVE IN PRODUCTION)
+- In-memory storage (use database in production)
+
+**For Production:**
+- Use HTTPS for all authentication endpoints
+- Send reset links via email (not console)
+- Implement distributed rate limiting (Redis)
+- Recommend 2FA for all admin users
+- Store 2FA secrets encrypted at rest
+- Enable CORS restrictions, CSRF protection
+- Use security headers (HSTS, CSP, etc.)
+- Log authentication events for monitoring
+
+**Troubleshooting:**
+- "Password validation failed" - Check all requirements (8 chars, uppercase, lowercase, number, special char)
+- "Invalid or expired reset token" - Tokens expire after 1 hour, single use only
+- "Too many failed login attempts" - Wait 15 minutes or restart server (dev only)
+- "Invalid verification code" (2FA) - Ensure device clock is synchronized (±30 seconds tolerance)
+
 ## Common Development Patterns
 
 ### Adding a New Constraint
@@ -355,6 +513,8 @@ POST /api/sales-forecast/reset
 3. **Employee not found errors** - Ensure sample employees created before scheduling
 4. **Time format issues** - Use "HH:mm" format (e.g., "09:00" not "9:00")
 5. **Sales forecast 400 errors** - Ensure at least one of `dateSpecificForecast` or `weeklyPattern` is provided; verify date format `"YYYY-MM-DD"`, day format `"MONDAY"` (uppercase), and time format `"HH:mm"`
+6. **Authentication errors** - Default test users now require strong passwords: `Admin123!`, `Manager123!`, `Employee123!`
+7. **2FA setup issues** - Must call `/api/auth/2fa/setup` before `/api/auth/2fa/enable`
 
 ## References
 

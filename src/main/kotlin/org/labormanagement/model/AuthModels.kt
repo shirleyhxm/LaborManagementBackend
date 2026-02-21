@@ -16,7 +16,8 @@ data class UserDTO(
     val email: String,
     val firstName: String,
     val lastName: String,
-    val role: UserRole
+    val role: UserRole,
+    val twoFactorEnabled: Boolean
 )
 
 data class ValidateResponse(
@@ -32,12 +33,13 @@ data class LogoutResponse(
     val message: String
 )
 
-// Extension function to convert User to UserDTO (never expose password hash)
+// Extension function to convert User to UserDTO (never expose password hash or 2FA secret)
 fun User.toDTO() = UserDTO(
     id = id,
     username = username,
     email = email,
     firstName = firstName,
     lastName = lastName,
-    role = role
+    role = role,
+    twoFactorEnabled = twoFactorEnabled
 )
