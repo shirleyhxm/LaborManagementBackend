@@ -12,25 +12,44 @@ import org.labormanagement.service.OptimizationJobService
 /**
  * Simplified V2 API controller for optimization-focused workflow.
  * Provides async job-based optimization with minimal complexity.
- * Uses V1 employee APIs for employee management.
+ * Uses business-scoped routes for multi-tenant support.
  */
 class OptimizationControllerV2(
     private val optimizationJobService: OptimizationJobService
 ) {
 
     fun Route.optimizationRoutesV2() {
-        route("/api/v2") {
+        route("/api/businesses/{businessId}/v2") {
 
             /**
-             * POST /api/v2/optimize
-             * Submit a new optimization job.
+             * POST /api/businesses/{businessId}/v2/optimize
+             * Submit a new optimization job for a specific business.
              * Returns immediately with jobId for status tracking.
              */
             post("/optimize") {
                 try {
+                    val businessIdStr = call.parameters["businessId"]
+                        ?: run {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "Missing businessId parameter")
+                            )
+                            return@post
+                        }
+
+                    val businessId = try {
+                        java.util.UUID.fromString(businessIdStr)
+                    } catch (e: IllegalArgumentException) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Invalid businessId format: $businessIdStr")
+                        )
+                        return@post
+                    }
+
                     val request = call.receive<OptimizationRequestV2>()
 
-                    call.application.log.info("[OptimizationV2] Received optimization request")
+                    call.application.log.info("[OptimizationV2] Received optimization request for business $businessId")
 
                     // Validate request
                     val validation = validateOptimizationRequest(request)
@@ -45,8 +64,8 @@ class OptimizationControllerV2(
                         return@post
                     }
 
-                    // Submit job
-                    val response = optimizationJobService.submitJob(request)
+                    // Submit job with businessId from path
+                    val response = optimizationJobService.submitJob(businessId, request)
 
                     call.respond(HttpStatusCode.Accepted, response)
 
@@ -60,8 +79,8 @@ class OptimizationControllerV2(
             }
 
             /**
-             * GET /api/v2/optimize/{jobId}
-             * Get optimization job status and results.
+             * GET /api/businesses/{businessId}/v2/optimize/{jobId}
+             * Get optimization job status and results for a specific business.
              */
             get("/optimize/{jobId}") {
                 try {
@@ -96,17 +115,19 @@ class OptimizationControllerV2(
             }
 
             /**
-             * GET /api/v2/health
+             * GET /api/businesses/{businessId}/v2/health
              * Health check endpoint for v2 API.
              */
             get("/health") {
+                val businessIdStr = call.parameters["businessId"] ?: "unknown"
                 call.respond(
                     HttpStatusCode.OK,
                     mapOf(
                         "status" to "healthy",
                         "version" to "2.0",
                         "service" to "OptimalAssign",
-                        "employeeManagement" to "Use /api/employees endpoints for employee CRUD and CSV import"
+                        "businessId" to businessIdStr,
+                        "employeeManagement" to "Use /api/businesses/{businessId}/employees endpoints for employee CRUD and CSV import"
                     )
                 )
             }

@@ -9,6 +9,7 @@ import org.labormanagement.repository.EmployeeRepository
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.util.UUID
 
 /**
  * Service for importing employees from CSV files.
@@ -27,7 +28,7 @@ class ImportService(
      * Example:
      * "John Doe","01/01/1990",18.50,27.75,"cashier;supervisor","MON 9:00-17:00;TUE 9:00-17:00",40,1.2
      */
-    fun importEmployeesFromCsv(csvContent: String): EmployeeImportResponse {
+    fun importEmployeesFromCsv(csvContent: String, businessId: UUID): EmployeeImportResponse {
         val errors = mutableListOf<String>()
         val employees = mutableListOf<Employee>()
 
@@ -55,7 +56,7 @@ class ImportService(
 
                 try {
                     val employeeRequest = parseCsvLine(line, index + 1)
-                    val employee = employeeRepository.create(employeeRequest.toModel())
+                    val employee = employeeRepository.create(employeeRequest.toModel(businessId))
                     if (employee != null) {
                         employees.add(employee)
                     } else {

@@ -36,14 +36,15 @@ object OptimizationConverter {
         laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         maxSolveTimeSeconds: Double = 5.0,
-        constraintsService: org.labormanagement.service.ConstraintsService? = null
+        constraintsService: org.labormanagement.service.ConstraintsService? = null,
+        businessId: java.util.UUID
     ): OptimizationInput {
         // Fetch constraints from ConstraintsService if provided
-        val budgetConstraints = constraintsService?.getBudgetConstraints()
-        val workingHoursRules = constraintsService?.getWorkingHoursRules()
-        val complianceRules = constraintsService?.getComplianceRules()
-        val fairnessSettings = constraintsService?.getFairnessSettings()
-        val contractedHoursMap = constraintsService?.getContractedHours(null)
+        val budgetConstraints = constraintsService?.getBudgetConstraints(businessId)
+        val workingHoursRules = constraintsService?.getWorkingHoursRules(businessId)
+        val complianceRules = constraintsService?.getComplianceRules(businessId)
+        val fairnessSettings = constraintsService?.getFairnessSettings(businessId)
+        val contractedHoursMap = constraintsService?.getContractedHours(businessId, null)
             ?.associateBy { it.employeeId } ?: emptyMap()
 
         // Generate time slots for all scheduled dates

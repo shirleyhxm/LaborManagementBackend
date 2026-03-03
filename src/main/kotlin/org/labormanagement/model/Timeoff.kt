@@ -9,6 +9,7 @@ import java.util.*
  */
 data class TimeoffRequest(
     val id: UUID = UUID.randomUUID(),
+    val businessId: UUID,            // Multi-tenancy: Business this request belongs to
     val employeeId: UUID,
     val startDate: LocalDate,
     val endDate: LocalDate,

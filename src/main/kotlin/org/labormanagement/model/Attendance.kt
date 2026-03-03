@@ -9,6 +9,7 @@ import java.util.*
  */
 data class ClockRecord(
     val id: UUID = UUID.randomUUID(),
+    val businessId: UUID,            // Multi-tenancy: Business this record belongs to
     val employeeId: UUID,
     val scheduleId: UUID?,          // Optional: Link to scheduled shift
     val shiftId: UUID?,             // Optional: Link to specific shift

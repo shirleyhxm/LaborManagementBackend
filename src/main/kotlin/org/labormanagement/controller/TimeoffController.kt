@@ -11,6 +11,7 @@ import org.labormanagement.dto.*
 import org.labormanagement.model.ErrorResponse
 import org.labormanagement.model.UserRole
 import org.labormanagement.service.TimeoffService
+import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
 import java.util.*
 
@@ -19,14 +20,30 @@ import java.util.*
  */
 fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
-    route("/api/timeoff") {
+    route("/api/businesses/{businessId}/timeoff") {
 
         /**
          * Submit a timeoff request
-         * POST /api/timeoff
+         * POST /api/businesses/{businessId}/timeoff
          */
         post {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@post
+                }
+
                 val request = call.receive<SubmitTimeoffRequest>()
 
                 val employeeId = try {
@@ -51,6 +68,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 }
 
                 val result = timeoffService.submitTimeoffRequest(
+                    businessId = businessId,
                     employeeId = employeeId,
                     startDate = startDate,
                     endDate = endDate,
@@ -72,10 +90,26 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
         /**
          * Cancel a timeoff request
-         * DELETE /api/timeoff/{id}/cancel
+         * DELETE /api/businesses/{businessId}/timeoff/{id}/cancel
          */
         delete("/{id}/cancel") {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@delete
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@delete
+                }
+
                 val requestId = try {
                     UUID.fromString(call.parameters["id"])
                 } catch (e: IllegalArgumentException) {
@@ -108,10 +142,26 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
         /**
          * Approve a timeoff request (manager/admin only)
-         * POST /api/timeoff/{id}/approve
+         * POST /api/businesses/{businessId}/timeoff/{id}/approve
          */
         post("/{id}/approve") {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@post
+                }
+
                 val requestId = try {
                     UUID.fromString(call.parameters["id"])
                 } catch (e: IllegalArgumentException) {
@@ -125,6 +175,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 val reviewerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: "system"
 
                 val result = timeoffService.approveTimeoffRequest(
+                    businessId = businessId,
                     requestId = requestId,
                     reviewerId = reviewerId,
                     reviewNotes = request.reviewNotes
@@ -145,10 +196,26 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
         /**
          * Deny a timeoff request (manager/admin only)
-         * POST /api/timeoff/{id}/deny
+         * POST /api/businesses/{businessId}/timeoff/{id}/deny
          */
         post("/{id}/deny") {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@post
+                }
+
                 val requestId = try {
                     UUID.fromString(call.parameters["id"])
                 } catch (e: IllegalArgumentException) {
@@ -182,9 +249,25 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
         /**
          * Get timeoff requests for an employee
-         * GET /api/timeoff/employee/{employeeId}
+         * GET /api/businesses/{businessId}/timeoff/employee/{employeeId}
          */
         get("/employee/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -198,27 +281,75 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
 
         /**
          * Get pending timeoff requests (manager/admin)
-         * GET /api/timeoff/pending
+         * GET /api/businesses/{businessId}/timeoff/pending
          */
         get("/pending") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                return@get
+            }
+
             val requests = timeoffService.getPendingTimeoffRequests()
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
 
         /**
          * Get all timeoff requests (admin)
-         * GET /api/timeoff
+         * GET /api/businesses/{businessId}/timeoff
          */
         get {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                return@get
+            }
+
             val requests = timeoffService.getAllTimeoffRequests()
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
 
         /**
          * Get a timeoff request by ID
-         * GET /api/timeoff/{id}
+         * GET /api/businesses/{businessId}/timeoff/{id}
          */
         get("/{id}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                return@get
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {

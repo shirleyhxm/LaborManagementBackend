@@ -23,6 +23,7 @@ class ShiftModificationService(
      * Can change employee, day, or time.
      */
     fun modifyShift(
+        businessId: UUID,
         scheduleId: UUID,
         shiftId: UUID,
         newEmployeeId: UUID? = null,
@@ -31,7 +32,7 @@ class ShiftModificationService(
         newEndTime: LocalTime? = null,
         modifiedBy: String
     ): ShiftModificationResult {
-        val schedule = scheduleRepository.findById(scheduleId)
+        val schedule = scheduleRepository.findById(businessId, scheduleId)
             ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
 
         if (!schedule.isDraft) {
@@ -64,7 +65,7 @@ class ShiftModificationService(
             }
 
             // Recalculate metrics and staffing requirements with updated shifts
-            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
             val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
             val updatedStaffingRequirements = recalculateStaffingRequirements(
                 shifts = updatedShifts,
@@ -101,13 +102,14 @@ class ShiftModificationService(
      * Duplicate a shift within the same schedule (creates a new shift)
      */
     fun duplicateShift(
+        businessId: UUID,
         scheduleId: UUID,
         shiftId: UUID,
         newEmployeeId: UUID? = null,
         newDayOfWeek: DayOfWeek? = null,
         createdBy: String
     ): DuplicateShiftResult {
-        val schedule = scheduleRepository.findById(scheduleId)
+        val schedule = scheduleRepository.findById(businessId, scheduleId)
             ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
 
         if (!schedule.isDraft) {
@@ -139,7 +141,7 @@ class ShiftModificationService(
             val updatedShifts = schedule.shifts + duplicatedShift
 
             // Recalculate metrics and staffing requirements
-            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+            val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
             val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
             val updatedStaffingRequirements = recalculateStaffingRequirements(
                 shifts = updatedShifts,
@@ -176,11 +178,12 @@ class ShiftModificationService(
      * Delete a shift from a draft schedule
      */
     fun deleteShift(
+        businessId: UUID,
         scheduleId: UUID,
         shiftId: UUID,
         modifiedBy: String
     ) {
-        val schedule = scheduleRepository.findById(scheduleId)
+        val schedule = scheduleRepository.findById(businessId, scheduleId)
             ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
 
         if (!schedule.isDraft) {
@@ -193,7 +196,7 @@ class ShiftModificationService(
         val updatedShifts = schedule.shifts.filter { it.id != shiftId }
 
         // Recalculate metrics and staffing requirements
-        val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(it) }
+        val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
         val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
         val updatedStaffingRequirements = recalculateStaffingRequirements(
             shifts = updatedShifts,
@@ -217,10 +220,11 @@ class ShiftModificationService(
      * Publish a schedule (makes it immutable)
      */
     fun publishSchedule(
+        businessId: UUID,
         scheduleId: UUID,
         publishedBy: String
     ): Schedule {
-        val schedule = scheduleRepository.findById(scheduleId)
+        val schedule = scheduleRepository.findById(businessId, scheduleId)
             ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
 
         if (schedule.isPublished) {
@@ -247,11 +251,12 @@ class ShiftModificationService(
      * Duplicate an entire schedule (creates new draft from any schedule)
      */
     fun duplicateSchedule(
+        businessId: UUID,
         scheduleId: UUID,
         newName: String?,
         createdBy: String
     ): Schedule {
-        val originalSchedule = scheduleRepository.findById(scheduleId)
+        val originalSchedule = scheduleRepository.findById(businessId, scheduleId)
             ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
 
         // Create new shifts with new IDs
@@ -260,6 +265,7 @@ class ShiftModificationService(
         }
 
         val newSchedule = Schedule(
+            businessId = businessId,
             id = UUID.randomUUID(),
             name = newName ?: "${originalSchedule.name} (Copy)",
             status = ScheduleStatus.DRAFT,
@@ -292,7 +298,7 @@ class ShiftModificationService(
         val violations = mutableListOf<ConstraintViolation>()
 
         // Get employee
-        val employee = employeeRepository.findById(modifiedShift.employeeId)
+        val employee = employeeRepository.findById(schedule.businessId, modifiedShift.employeeId)
             ?: return listOf(
                 ConstraintViolation.Shift(
                     type = ViolationType.AVAILABILITY_CONFLICT,

@@ -3,10 +3,12 @@ package org.labormanagement.service
 import org.labormanagement.model.*
 import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.UserRepository
+import org.labormanagement.dto.CreateBusinessRequest
 
 class AuthService(
     private val userRepository: UserRepository,
     private val jwtService: JwtService,
+    private val businessService: BusinessService? = null, // Optional for registration with auto-business creation
     private val passwordResetRepository: PasswordResetRepository = PasswordResetRepository(),
     private val totpService: TotpService = TotpService()
 ) {
@@ -14,19 +16,19 @@ class AuthService(
     // In production, use Redis or similar with expiration
     private val pending2FALogins = mutableMapOf<String, User>()
     /**
-     * Authenticate user with username and password
+     * Authenticate user with email and password
      * Returns AuthResponse with user info and token if successful
      * Returns null if authentication fails
      * Throws Requires2FAException if 2FA is enabled for the user
      */
     fun login(loginRequest: LoginRequest): AuthResponse? {
         // Validate input
-        if (loginRequest.username.isBlank() || loginRequest.password.isBlank()) {
+        if (loginRequest.email.isBlank() || loginRequest.password.isBlank()) {
             return null
         }
 
-        // Find user by username
-        val user = userRepository.findByUsername(loginRequest.username) ?: return null
+        // Find user by email
+        val user = userRepository.findByEmail(loginRequest.email) ?: return null
 
         // Verify password
         if (!userRepository.verifyPassword(loginRequest.password, user.passwordHash)) {
@@ -36,7 +38,7 @@ class AuthService(
         // Check if 2FA is enabled
         if (user.twoFactorEnabled && user.twoFactorSecret != null) {
             // Store user temporarily for 2FA verification (expires after 5 minutes in production)
-            pending2FALogins[loginRequest.username] = user
+            pending2FALogins[loginRequest.email] = user
             throw Requires2FAException("Two-factor authentication required")
         }
 
@@ -51,11 +53,72 @@ class AuthService(
     }
 
     /**
+     * Register a new user and automatically create a default business.
+     * Returns AuthResponse with user info, token, and businessId if successful.
+     * Throws exceptions for validation errors (email exists, weak password, etc.)
+     */
+    fun register(registerRequest: RegisterRequest): AuthResponse {
+        // Validate input
+        if (registerRequest.email.isBlank() ||
+            registerRequest.firstName.isBlank() ||
+            registerRequest.lastName.isBlank() ||
+            registerRequest.password.isBlank()) {
+            throw BadRequestException("All fields are required")
+        }
+
+        // Check if email already exists
+        if (userRepository.findByEmail(registerRequest.email) != null) {
+            throw ConflictException("Email '${registerRequest.email}' is already registered")
+        }
+
+        // Create the user (this validates password strength)
+        val user = try {
+            userRepository.createUser(
+                email = registerRequest.email,
+                firstName = registerRequest.firstName,
+                lastName = registerRequest.lastName,
+                password = registerRequest.password,
+                role = UserRole.ADMIN, // New users get admin role for their business
+                accountType = AccountType.BUSINESS_OWNER
+            )
+        } catch (e: IllegalArgumentException) {
+            // Password validation failure
+            throw BadRequestException(e.message ?: "Registration failed")
+        }
+
+        // Auto-create default business if BusinessService is available
+        val businessId = if (businessService != null) {
+            try {
+                val businessName = registerRequest.businessName ?: "${registerRequest.firstName}'s Business"
+                val createBusinessRequest = CreateBusinessRequest(name = businessName)
+                val business = businessService.createBusiness(user.id, createBusinessRequest)
+                business.id
+            } catch (e: Exception) {
+                // Log error but don't fail registration - user can create business later
+                println("Warning: Failed to auto-create business for user ${user.id}: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+
+        // Generate JWT token
+        val token = jwtService.generateToken(user)
+
+        // Return auth response with user DTO and businessId
+        return AuthResponse(
+            user = user.toDTO(),
+            token = token,
+            businessId = businessId?.toString()
+        )
+    }
+
+    /**
      * Verify 2FA code and complete login
      */
     fun verify2FAAndLogin(request: Verify2FARequest): AuthResponse? {
         // Get pending user
-        val user = pending2FALogins[request.username] ?: return null
+        val user = pending2FALogins[request.email] ?: return null
 
         // Verify 2FA code
         if (user.twoFactorSecret == null || !totpService.verifyCode(user.twoFactorSecret, request.code)) {
@@ -63,7 +126,7 @@ class AuthService(
         }
 
         // Remove from pending logins
-        pending2FALogins.remove(request.username)
+        pending2FALogins.remove(request.email)
 
         // Generate JWT token
         val token = jwtService.generateToken(user)

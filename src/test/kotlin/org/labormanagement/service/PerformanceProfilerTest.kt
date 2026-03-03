@@ -9,9 +9,12 @@ import org.labormanagement.repository.SalesForecastRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 @Disabled
 class PerformanceProfilerTest {
+    // Test business ID for all tests
+    private val testBusinessId = UUID.fromString("00000000-0000-0000-0000-000000000001")
     private lateinit var employeeRepository: EmployeeRepository
     private lateinit var salesForecastRepository: SalesForecastRepository
     private lateinit var scheduler: ShiftScheduler
@@ -35,6 +38,7 @@ class PerformanceProfilerTest {
         maxHours: Double = 50.0
     ): Employee {
         val employee = Employee(
+            businessId = testBusinessId,
             firstName = firstName,
             lastName = "Test",
             dateOfBirth = LocalDate.of(1990, 1, 1),
@@ -78,8 +82,9 @@ class PerformanceProfilerTest {
                 )
             )
         )
-        salesForecastRepository.update(weeklyPattern =
-            mapOf(
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(10, 0) to 300.0,
                     LocalTime.of(12, 0) to 500.0,
@@ -96,6 +101,7 @@ class PerformanceProfilerTest {
         )
 
         val input = ScheduleInput(
+            businessId = testBusinessId,
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 2000.0,
             schedulePeriod = SchedulePeriod(
@@ -110,7 +116,7 @@ class PerformanceProfilerTest {
 
         println("\n===== Small Workload Profile (2 employees, 2 days) =====")
         PerformanceProfiler.profile {
-            scheduler.generateSchedule(input)
+            scheduler.generateSchedule(input, businessId = testBusinessId)
         }
     }
 
@@ -141,8 +147,9 @@ class PerformanceProfilerTest {
             LocalTime.of(18, 0) to 250.0,
             LocalTime.of(19, 0) to 200.0
         )
-        salesForecastRepository.update(weeklyPattern =
-            mapOf(
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,
                 DayOfWeek.WEDNESDAY to salesPerHour,
@@ -152,6 +159,7 @@ class PerformanceProfilerTest {
         )
 
         val input = ScheduleInput(
+            businessId = testBusinessId,
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 10000.0,
             schedulePeriod = SchedulePeriod(
@@ -169,7 +177,7 @@ class PerformanceProfilerTest {
 
         println("\n===== Medium Workload Profile (10 employees, 5 days) =====")
         PerformanceProfiler.profile {
-            scheduler.generateSchedule(input)
+            scheduler.generateSchedule(input, businessId = testBusinessId)
         }
     }
 
@@ -189,8 +197,9 @@ class PerformanceProfilerTest {
         val salesPerHour = (6..21).associate { hour ->
             LocalTime.of(hour, 0) to (200.0 + (hour - 6) * 50.0 - if (hour > 14) (hour - 14) * 30.0 else 0.0)
         }
-        salesForecastRepository.update(weeklyPattern =
-            mapOf(
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,
                 DayOfWeek.WEDNESDAY to salesPerHour,
@@ -202,6 +211,7 @@ class PerformanceProfilerTest {
         )
 
         val input = ScheduleInput(
+            businessId = testBusinessId,
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 50000.0,
             schedulePeriod = SchedulePeriod(
@@ -215,7 +225,7 @@ class PerformanceProfilerTest {
 
         println("\n===== Large Workload Profile (50 employees, 7 days, 16 hours/day) =====")
         PerformanceProfiler.profile {
-            scheduler.generateSchedule(input)
+            scheduler.generateSchedule(input, businessId = testBusinessId)
         }
     }
 
@@ -237,8 +247,9 @@ class PerformanceProfilerTest {
         val salesPerHour = (8..19).associate { hour ->
             LocalTime.of(hour, 0) to 400.0
         }
-        salesForecastRepository.update(weeklyPattern =
-            mapOf(
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to salesPerHour,
                 DayOfWeek.TUESDAY to salesPerHour,
                 DayOfWeek.WEDNESDAY to salesPerHour
@@ -246,6 +257,7 @@ class PerformanceProfilerTest {
         )
 
         val baseInput = ScheduleInput(
+            businessId = testBusinessId,
             employeeIds = employees.map { e -> e.id },
             laborCostBudget = 15000.0,
             schedulePeriod = SchedulePeriod(
@@ -271,7 +283,7 @@ class PerformanceProfilerTest {
         for (objective in objectives) {
             println("--- $objective ---")
             PerformanceProfiler.profile {
-                scheduler.generateSchedule(baseInput.copy(optimizationObjective = objective))
+                scheduler.generateSchedule(baseInput.copy(optimizationObjective = objective), businessId = testBusinessId)
             }
             println()
         }

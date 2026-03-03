@@ -5,71 +5,87 @@ import org.labormanagement.model.*
 import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
 
 class ConstraintsService {
-    // Simple in-memory storage for global configurations
-    private val budget = AtomicReference<BudgetConstraints?>()
-    private val workingHours = AtomicReference<WorkingHoursRules?>()
-    private val compliance = AtomicReference<ComplianceRules?>()
-    private val fairness = AtomicReference<FairnessSettings?>()
+    // Per-business storage for constraints (businessId -> constraint)
+    private val budgets = ConcurrentHashMap<UUID, BudgetConstraints>()
+    private val workingHoursMap = ConcurrentHashMap<UUID, WorkingHoursRules>()
+    private val complianceMap = ConcurrentHashMap<UUID, ComplianceRules>()
+    private val fairnessMap = ConcurrentHashMap<UUID, FairnessSettings>()
+    private val prioritiesMap = ConcurrentHashMap<UUID, List<SchedulingPriority>>()
 
-    private val hourlyRates = ConcurrentHashMap<String?, HourlyRateRule>()
-    private val contractedHours = ConcurrentHashMap<UUID, EmployeeContractedHours>()
-    private val customCompliance = ConcurrentHashMap<String, CustomComplianceRule>()
-    private val priorities = AtomicReference<List<SchedulingPriority>>(emptyList())
+    // Per-business storage for collections (businessId -> Map<key, value>)
+    private val hourlyRatesMap = ConcurrentHashMap<UUID, ConcurrentHashMap<String?, HourlyRateRule>>()
+    private val contractedHoursMap = ConcurrentHashMap<UUID, ConcurrentHashMap<UUID, EmployeeContractedHours>>()
+    private val customComplianceMap = ConcurrentHashMap<UUID, ConcurrentHashMap<String, CustomComplianceRule>>()
 
     // ====== Budget Constraints ======
 
-    fun getBudgetConstraints() = budget.get()
+    fun getBudgetConstraints(businessId: UUID): BudgetConstraints? = budgets[businessId]
 
-    fun updateBudgetConstraints(request: BudgetConstraintsRequest) =
-        request.toModel().also { budget.set(it) }
+    fun updateBudgetConstraints(businessId: UUID, request: BudgetConstraintsRequest): BudgetConstraints =
+        request.toModel(businessId).also { budgets[businessId] = it }
 
     // ====== Hourly Rate Rules ======
 
-    fun getHourlyRateRules(roleId: String?) =
-        if (roleId != null) {
-            listOfNotNull(hourlyRates[roleId])
+    fun getHourlyRateRules(businessId: UUID, roleId: String?): List<HourlyRateRule> {
+        val businessRates = hourlyRatesMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return if (roleId != null) {
+            listOfNotNull(businessRates[roleId])
         } else {
-            hourlyRates.values.toList()
+            businessRates.values.toList()
         }
+    }
 
-    fun createHourlyRateRule(request: HourlyRateRuleRequest) =
-        request.toModel().also { hourlyRates[it.roleId] = it }
+    fun createHourlyRateRule(businessId: UUID, request: HourlyRateRuleRequest): HourlyRateRule {
+        val businessRates = hourlyRatesMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return request.toModel().also { businessRates[it.roleId] = it }
+    }
 
-    fun deleteHourlyRateRule(roleId: String?) = hourlyRates.remove(roleId) != null
+    fun deleteHourlyRateRule(businessId: UUID, roleId: String?): Boolean {
+        val businessRates = hourlyRatesMap[businessId] ?: return false
+        return businessRates.remove(roleId) != null
+    }
 
     // ====== Working Hours Rules ======
 
-    fun getWorkingHoursRules() = workingHours.get()
+    fun getWorkingHoursRules(businessId: UUID): WorkingHoursRules? = workingHoursMap[businessId]
 
-    fun updateWorkingHoursRules(request: WorkingHoursRulesRequest) =
-        request.toModel().also { workingHours.set(it) }
+    fun updateWorkingHoursRules(businessId: UUID, request: WorkingHoursRulesRequest): WorkingHoursRules =
+        request.toModel(businessId).also { workingHoursMap[businessId] = it }
 
     // ====== Employee Contracted Hours ======
 
-    fun getContractedHours(employeeId: UUID?) =
-        if (employeeId != null) {
-            listOfNotNull(contractedHours[employeeId])
+    fun getContractedHours(businessId: UUID, employeeId: UUID?): List<EmployeeContractedHours> {
+        val businessHours = contractedHoursMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return if (employeeId != null) {
+            listOfNotNull(businessHours[employeeId])
         } else {
-            contractedHours.values.toList()
+            businessHours.values.toList()
         }
+    }
 
-    fun createContractedHours(request: EmployeeContractedHoursRequest) =
-        request.toModel().also { contractedHours[it.employeeId] = it }
+    fun createContractedHours(businessId: UUID, request: EmployeeContractedHoursRequest): EmployeeContractedHours {
+        val businessHours = contractedHoursMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return request.toModel(businessId).also { businessHours[it.employeeId] = it }
+    }
 
-    fun updateContractedHours(employeeId: UUID, request: EmployeeContractedHoursRequest): Boolean {
-        val hours = request.toModel()
+    fun updateContractedHours(businessId: UUID, employeeId: UUID, request: EmployeeContractedHoursRequest): Boolean {
+        val businessHours = contractedHoursMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        val hours = request.toModel(businessId)
         if (hours.employeeId != employeeId) return false
-        contractedHours[employeeId] = hours
+        businessHours[employeeId] = hours
         return true
     }
 
-    fun deleteContractedHours(employeeId: UUID) = contractedHours.remove(employeeId) != null
+    fun deleteContractedHours(businessId: UUID, employeeId: UUID): Boolean {
+        val businessHours = contractedHoursMap[businessId] ?: return false
+        return businessHours.remove(employeeId) != null
+    }
 
-    fun getActiveContractedHours(employeeId: UUID, asOfDate: LocalDate = LocalDate.now()): EmployeeContractedHours? {
-        val hours = contractedHours[employeeId] ?: return null
+    fun getActiveContractedHours(businessId: UUID, employeeId: UUID, asOfDate: LocalDate = LocalDate.now()): EmployeeContractedHours? {
+        val businessHours = contractedHoursMap[businessId] ?: return null
+        val hours = businessHours[employeeId] ?: return null
         return if (!asOfDate.isBefore(hours.effectiveFrom) &&
             (hours.effectiveTo == null || !asOfDate.isAfter(hours.effectiveTo))) {
             hours
@@ -80,50 +96,63 @@ class ConstraintsService {
 
     // ====== Compliance Rules ======
 
-    fun getComplianceRules() = compliance.get()
+    fun getComplianceRules(businessId: UUID): ComplianceRules? = complianceMap[businessId]
 
-    fun updateComplianceRules(request: ComplianceRulesRequest) =
-        request.toModel().also { compliance.set(it) }
+    fun updateComplianceRules(businessId: UUID, request: ComplianceRulesRequest): ComplianceRules =
+        request.toModel(businessId).also { complianceMap[businessId] = it }
 
     // ====== Custom Compliance Rules ======
 
-    fun getCustomComplianceRules() = customCompliance.values.toList()
+    fun getCustomComplianceRules(businessId: UUID): List<CustomComplianceRule> {
+        val businessCompliance = customComplianceMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return businessCompliance.values.toList()
+    }
 
-    fun createCustomComplianceRule(request: CustomComplianceRuleRequest) =
-        request.toModel().also { customCompliance[it.name] = it }
+    fun createCustomComplianceRule(businessId: UUID, request: CustomComplianceRuleRequest): CustomComplianceRule {
+        val businessCompliance = customComplianceMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return request.toModel(businessId).also { businessCompliance[it.name] = it }
+    }
 
-    fun updateCustomComplianceRule(name: String, request: CustomComplianceRuleRequest) =
-        if (name == request.name) {
-            request.toModel().also { customCompliance[name] = it }
+    fun updateCustomComplianceRule(businessId: UUID, name: String, request: CustomComplianceRuleRequest): CustomComplianceRule? {
+        val businessCompliance = customComplianceMap.computeIfAbsent(businessId) { ConcurrentHashMap() }
+        return if (name == request.name) {
+            request.toModel(businessId).also { businessCompliance[name] = it }
         } else null
+    }
 
-    fun deleteCustomComplianceRule(name: String) = customCompliance.remove(name) != null
+    fun deleteCustomComplianceRule(businessId: UUID, name: String): Boolean {
+        val businessCompliance = customComplianceMap[businessId] ?: return false
+        return businessCompliance.remove(name) != null
+    }
 
     // ====== Scheduling Priorities ======
 
-    fun getSchedulingPriorities() = priorities.get().sortedBy { it.priorityOrder }
+    fun getSchedulingPriorities(businessId: UUID): List<SchedulingPriority> {
+        return prioritiesMap[businessId]?.sortedBy { it.priorityOrder } ?: emptyList()
+    }
 
-    fun reorderPriorities(request: PriorityReorderRequest) =
-        request.priorities.map { it.toModel() }.also { priorities.set(it) }
+    fun reorderPriorities(businessId: UUID, request: PriorityReorderRequest): List<SchedulingPriority> {
+        return request.priorities.map { it.toModel(businessId) }.also { prioritiesMap[businessId] = it }
+    }
 
     // ====== Fairness Settings ======
 
-    fun getFairnessSettings() = fairness.get()
+    fun getFairnessSettings(businessId: UUID): FairnessSettings? = fairnessMap[businessId]
 
-    fun updateFairnessSettings(request: FairnessSettingsRequest) =
-        request.toModel().also { fairness.set(it) }
+    fun updateFairnessSettings(businessId: UUID, request: FairnessSettingsRequest): FairnessSettings =
+        request.toModel(businessId).also { fairnessMap[businessId] = it }
 
     // ====== Bulk Operations ======
 
-    fun getAllConstraints() = AllConstraintsResponse(
-        budget = getBudgetConstraints()?.toResponse(),
-        hourlyRates = getHourlyRateRules(null).map { it.toResponse() },
-        workingHours = getWorkingHoursRules()?.toResponse(),
-        contractedHours = contractedHours.values.map { it.toResponse() },
-        compliance = getComplianceRules()?.toResponse(),
-        customCompliance = getCustomComplianceRules().map { it.toResponse() },
-        priorities = getSchedulingPriorities().map { it.toResponse() },
-        fairness = getFairnessSettings()?.toResponse()
+    fun getAllConstraints(businessId: UUID) = AllConstraintsResponse(
+        budget = getBudgetConstraints(businessId)?.toResponse(),
+        hourlyRates = getHourlyRateRules(businessId, null).map { it.toResponse() },
+        workingHours = getWorkingHoursRules(businessId)?.toResponse(),
+        contractedHours = getContractedHours(businessId, null).map { it.toResponse() },
+        compliance = getComplianceRules(businessId)?.toResponse(),
+        customCompliance = getCustomComplianceRules(businessId).map { it.toResponse() },
+        priorities = getSchedulingPriorities(businessId).map { it.toResponse() },
+        fairness = getFairnessSettings(businessId)?.toResponse()
     )
 
     // ====== Validation ======

@@ -10,6 +10,7 @@ import io.ktor.server.routing.*
 import org.labormanagement.dto.*
 import org.labormanagement.model.ErrorResponse
 import org.labormanagement.service.SalesService
+import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
 import java.util.*
 
@@ -18,14 +19,30 @@ import java.util.*
  */
 fun Route.salesRoutes(salesService: SalesService) {
 
-    route("/api/sales") {
+    route("/api/businesses/{businessId}/sales") {
 
         /**
          * Record a sale
-         * POST /api/sales
+         * POST /api/businesses/{businessId}/sales
          */
         post {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                    return@post
+                }
+
                 val request = call.receive<RecordSaleRequest>()
 
                 val employeeId = try {
@@ -57,6 +74,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 val recordedBy = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: "system"
 
                 val result = salesService.recordSale(
+                    businessId = businessId,
                     employeeId = employeeId,
                     amount = request.amount,
                     category = request.category,
@@ -81,9 +99,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Get sales records for an employee
-         * GET /api/sales/employee/{employeeId}
+         * GET /api/businesses/{businessId}/sales/employee/{employeeId}
          */
         get("/employee/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -97,9 +131,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Get sales records for a shift
-         * GET /api/sales/shift/{shiftId}
+         * GET /api/businesses/{businessId}/sales/shift/{shiftId}
          */
         get("/shift/{shiftId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val shiftId = try {
                 UUID.fromString(call.parameters["shiftId"])
             } catch (e: IllegalArgumentException) {
@@ -113,9 +163,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Get sales records for a schedule
-         * GET /api/sales/schedule/{scheduleId}
+         * GET /api/businesses/{businessId}/sales/schedule/{scheduleId}
          */
         get("/schedule/{scheduleId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val scheduleId = try {
                 UUID.fromString(call.parameters["scheduleId"])
             } catch (e: IllegalArgumentException) {
@@ -129,9 +195,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Get sales performance for an employee
-         * GET /api/sales/performance/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+         * GET /api/businesses/{businessId}/sales/performance/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
          */
         get("/performance/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -161,7 +243,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val result = salesService.getSalesPerformance(employeeId, startDate, endDate)
+            val result = salesService.getSalesPerformance(businessId, employeeId, startDate, endDate)
             result.fold(
                 onSuccess = { performance ->
                     call.respond(HttpStatusCode.OK, performance.toResponse())
@@ -174,9 +256,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Get daily sales summary
-         * GET /api/sales/summary/daily?date=YYYY-MM-DD
+         * GET /api/businesses/{businessId}/sales/summary/daily?date=YYYY-MM-DD
          */
         get("/summary/daily") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val dateStr = call.request.queryParameters["date"]
 
             if (dateStr == null) {
@@ -191,15 +289,31 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val summary = salesService.getDailySalesSummary(date)
+            val summary = salesService.getDailySalesSummary(businessId, date)
             call.respond(HttpStatusCode.OK, summary.toResponse())
         }
 
         /**
          * Get a sales record by ID
-         * GET /api/sales/{id}
+         * GET /api/businesses/{businessId}/sales/{id}
          */
         get("/{id}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@get
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {
@@ -217,9 +331,25 @@ fun Route.salesRoutes(salesService: SalesService) {
 
         /**
          * Delete a sales record (admin only)
-         * DELETE /api/sales/{id}
+         * DELETE /api/businesses/{businessId}/sales/{id}
          */
         delete("/{id}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@delete
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access sales from different business"))
+                return@delete
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {

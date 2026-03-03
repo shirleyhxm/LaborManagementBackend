@@ -56,12 +56,13 @@ class ShiftScheduler(
     fun generateSchedule(
         input: ScheduleInput,
         name: String = "Generated Schedule",
-        generatedBy: String = "system"
+        generatedBy: String = "system",
+        businessId: UUID
     ): Schedule = profile {
         // Choose scheduling approach
         val schedule = when (schedulingApproach) {
-            SchedulingApproach.GREEDY -> generateScheduleGreedy(input, name, generatedBy)
-            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(input, name, generatedBy)
+            SchedulingApproach.GREEDY -> generateScheduleGreedy(input, name, generatedBy, businessId)
+            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(input, name, generatedBy, businessId)
         }
 
         scheduleRepository.save(schedule)
@@ -75,23 +76,24 @@ class ShiftScheduler(
     private fun generateScheduleGreedy(
         input: ScheduleInput,
         name: String,
-        generatedBy: String
+        generatedBy: String,
+        businessId: UUID
     ): Schedule {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
         // Get configuration from ConstraintsService and input
-        val minShiftDurationHours = constraintsService.getWorkingHoursRules()?.minShiftLength ?: 1.0
+        val minShiftDurationHours = constraintsService.getWorkingHoursRules(businessId)?.minShiftLength ?: 1.0
         val optimizationObjective = input.optimizationObjective
 
         // Get sales forecast from repository
-        val salesForecast = salesForecastRepository.get()
+        val salesForecast = salesForecastRepository.getByBusiness(businessId)
 
         // Track weekly hours across all days for overtime calculation and contract limits
         val weeklyHours = mutableMapOf<UUID, Double>()
 
         val employees = input.employeeIds.mapNotNull { id ->
-            employeeRepository.findById(id)
+            employeeRepository.findById(businessId, id)
         }
 
         // Generate candidate shifts for each day
@@ -135,6 +137,7 @@ class ShiftScheduler(
 
         // Create and return Schedule with all data (starts as DRAFT)
         return Schedule(
+            businessId = businessId,
             name = name,
             schedulePeriod = input.schedulePeriod,
             shifts = mergedShifts,
@@ -155,13 +158,14 @@ class ShiftScheduler(
     private fun generateScheduleOptimizer(
         input: ScheduleInput,
         name: String,
-        generatedBy: String
+        generatedBy: String,
+        businessId: UUID
     ): Schedule {
         val employees = input.employeeIds.mapNotNull { id ->
-            employeeRepository.findById(id)
+            employeeRepository.findById(businessId, id)
         }
 
-        val salesForecast = salesForecastRepository.get()
+        val salesForecast = salesForecastRepository.getByBusiness(businessId)
 
         // Build operating hours map
         val scheduleDates = input.schedulePeriod.getAllDates()
@@ -182,7 +186,8 @@ class ShiftScheduler(
                 laborBudget = input.laborCostBudget.toLong(),
                 objective = input.optimizationObjective,
                 maxSolveTimeSeconds = 30.0,
-                constraintsService = constraintsService
+                constraintsService = constraintsService,
+                businessId = businessId
             )
         }
 
@@ -195,7 +200,7 @@ class ShiftScheduler(
         // Handle no solution case - fallback to greedy approach
         if (result == null) {
             log.info("Optimizer returned null - no feasible solution found. Falling back to GREEDY approach...")
-            return generateScheduleGreedy(input, name, generatedBy)
+            return generateScheduleGreedy(input, name, generatedBy, businessId)
         } else {
             log.info("Optimizer found a feasible solution.")
         }
@@ -226,6 +231,7 @@ class ShiftScheduler(
         }
 
         return Schedule(
+            businessId = businessId,
             name = name,
             schedulePeriod = input.schedulePeriod,
             shifts = shifts,

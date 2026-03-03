@@ -10,12 +10,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ScheduleOptimizerTest {
+    private val testBusinessId = UUID.fromString("00000000-0000-0000-0000-000000000001")
 
     @Test
     fun `optimizer should find a feasible solution for simple scenario`() {
         // Create a simple employee
         val employee = Employee(
             id = UUID.randomUUID(),
+            businessId = testBusinessId,
             firstName = "Test",
             lastName = "Employee",
             dateOfBirth = LocalDate.of(1990, 1, 1),
@@ -35,6 +37,7 @@ class ScheduleOptimizerTest {
 
         // Create simple sales forecast
         val salesForecast = SalesForecast(
+            businessId = testBusinessId,
             weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 100.0,
@@ -51,7 +54,8 @@ class ScheduleOptimizerTest {
             operatingHoursMap = mapOf(
                 LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(11, 0))
             ),
-            coverageFraction = 0.8
+            coverageFraction = 0.8,
+            businessId = testBusinessId
         )
 
         // Run optimizer
@@ -68,6 +72,7 @@ class ScheduleOptimizerTest {
     fun `optimizer should convert results to shifts correctly`() {
         val employee = Employee(
             id = UUID.randomUUID(),
+            businessId = testBusinessId,
             firstName = "Alice",
             lastName = "Smith",
             dateOfBirth = LocalDate.of(1995, 3, 15),
@@ -86,6 +91,7 @@ class ScheduleOptimizerTest {
         )
 
         val salesForecast = SalesForecast(
+            businessId = testBusinessId,
             weeklyPattern = mapOf(
                 DayOfWeek.MONDAY to mapOf(
                     LocalTime.of(9, 0) to 150.0,
@@ -101,7 +107,8 @@ class ScheduleOptimizerTest {
             scheduleDates = listOf(LocalDate.of(2024, 1, 1)),
             operatingHoursMap = mapOf(
                 LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(12, 0))
-            )
+            ),
+            businessId = testBusinessId
         )
 
         val optimizer = ScheduleOptimizer()

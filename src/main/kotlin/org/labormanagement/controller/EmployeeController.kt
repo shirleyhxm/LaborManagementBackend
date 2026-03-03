@@ -19,6 +19,8 @@ import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.ImportService
+import org.labormanagement.service.TenantContextHolder
+import org.labormanagement.service.ForbiddenException
 import java.util.*
 
 class EmployeeController(
@@ -27,21 +29,38 @@ class EmployeeController(
 ) {
 
     fun Route.employeeRoutes() {
-        route("/api/employees") {
+        route("/api/businesses/{businessId}/employees") {
 
             // Create employee
             post {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@post
+                    }
+
                     val request = call.receive<CreateEmployeeRequest>()
-                    val employee = request.toModel()
+                    val employee = request.toModel(businessId)
                     val created = employeeRepository.create(employee)
                     if (created == null) {
                         call.respond(HttpStatusCode.Conflict, mapOf("error" to "Employee already exists"))
                     } else {
                         call.respond(HttpStatusCode.Created, created.toResponse())
                     }
+                } catch (e: ForbiddenException) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to e.message))
                 } catch (e: Exception) {
-                    // Log full exception details for debugging
                     call.application.log.error("Failed to create employee", e)
                     call.respond(
                         HttpStatusCode.BadRequest,
@@ -55,50 +74,104 @@ class EmployeeController(
 
             // Get all employees (optionally filtered by group)
             get {
-                val groupName = call.request.queryParameters["group"]
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
 
-                val employees = if (groupName != null) {
-                    employeeRepository.findByGroup(groupName)
-                } else {
-                    employeeRepository.findAll()
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@get
+                    }
+
+                    val groupName = call.request.queryParameters["group"]
+
+                    val employees = if (groupName != null) {
+                        employeeRepository.findByGroup(businessId, groupName)
+                    } else {
+                        employeeRepository.findAllByBusiness(businessId)
+                    }
+
+                    call.respond(HttpStatusCode.OK, employees.map { it.toResponse() })
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
-
-                call.respond(HttpStatusCode.OK, employees.map { it.toResponse() })
             }
 
             // Get employee by ID
             get("/{id}") {
-                val id = call.parameters["id"]?.let {
-                    try { UUID.fromString(it) } catch (e: Exception) { null }
-                }
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
 
-                if (id == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
-                    return@get
-                }
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@get
+                    }
 
-                val employee = employeeRepository.findById(id)
-                if (employee != null) {
-                    call.respond(HttpStatusCode.OK, employee.toResponse())
-                } else {
-                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                    val id = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (id == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@get
+                    }
+
+                    val employee = employeeRepository.findById(businessId, id)
+                    if (employee != null) {
+                        call.respond(HttpStatusCode.OK, employee.toResponse())
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                    }
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
             }
 
             // Update employee
             put("/{id}") {
-                val id = call.parameters["id"]?.let {
-                    try { UUID.fromString(it) } catch (e: Exception) { null }
-                }
-
-                if (id == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
-                    return@put
-                }
-
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@put
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@put
+                    }
+
+                    val id = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (id == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@put
+                    }
+
                     val request = call.receive<UpdateEmployeeRequest>()
-                    val existing = employeeRepository.findById(id)
+                    val existing = employeeRepository.findById(businessId, id)
 
                     if (existing == null) {
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
@@ -117,7 +190,7 @@ class EmployeeController(
                         groups = request.groups ?: existing.groups
                     )
 
-                    employeeRepository.update(id, updated)
+                    employeeRepository.update(businessId, id, updated)
                     call.respond(HttpStatusCode.OK, updated.toResponse())
                 } catch (e: Exception) {
                     call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
@@ -126,26 +199,61 @@ class EmployeeController(
 
             // Delete employee
             delete("/{id}") {
-                val id = call.parameters["id"]?.let {
-                    try { UUID.fromString(it) } catch (e: Exception) { null }
-                }
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@delete
+                    }
 
-                if (id == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
-                    return@delete
-                }
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@delete
+                    }
 
-                val deleted = employeeRepository.delete(id)
-                if (deleted) {
-                    call.respond(HttpStatusCode.NoContent)
-                } else {
-                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                    val id = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (id == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@delete
+                    }
+
+                    val deleted = employeeRepository.delete(businessId, id)
+                    if (deleted) {
+                        call.respond(HttpStatusCode.NoContent)
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                    }
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
             }
 
             // Import employees from CSV
             post("/import") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@post
+                    }
+
                     val csvContent = call.receiveText()
 
                     if (csvContent.isBlank()) {
@@ -156,7 +264,7 @@ class EmployeeController(
                         return@post
                     }
 
-                    val response = importService.importEmployeesFromCsv(csvContent)
+                    val response = importService.importEmployeesFromCsv(csvContent, businessId)
 
                     if (response.success) {
                         call.respond(HttpStatusCode.OK, response)

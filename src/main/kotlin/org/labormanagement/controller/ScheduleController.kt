@@ -11,6 +11,7 @@ import org.labormanagement.model.ScheduleInput
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
+import org.labormanagement.service.TenantContextHolder
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.util.UUID
@@ -28,17 +29,34 @@ class ScheduleController(
 ) {
 
     fun Route.scheduleRoutes() {
-        route("/api/schedules") {
+        route("/api/businesses/{businessId}/schedules") {
 
             // Generate a new draft schedule from ScheduleInput
             post("/generate") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@post
+                    }
+
                     val request = call.receive<GenerateScheduleRequest>()
 
                     val schedule = shiftScheduler.generateSchedule(
                         input = request.input,
                         name = request.name ?: "Generated Schedule",
-                        generatedBy = request.generatedBy ?: "system"
+                        generatedBy = request.generatedBy ?: "system",
+                        businessId = businessId
                     )
 
                     call.respond(HttpStatusCode.Created, schedule)
@@ -59,11 +77,27 @@ class ScheduleController(
             // Get all schedules (with optional status filter)
             get {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@get
+                    }
+
                     val statusParam = call.request.queryParameters["status"]
                     val schedules = if (statusParam != null) {
                         try {
                             val status = org.labormanagement.model.ScheduleStatus.valueOf(statusParam.uppercase())
-                            scheduleRepository.findByStatus(status)
+                            scheduleRepository.findByBusinessAndStatus(businessId, status)
                         } catch (e: IllegalArgumentException) {
                             call.respond(
                                 HttpStatusCode.BadRequest,
@@ -72,7 +106,7 @@ class ScheduleController(
                             return@get
                         }
                     } else {
-                        scheduleRepository.findAll()
+                        scheduleRepository.findAllByBusiness(businessId)
                     }
 
                     call.respond(HttpStatusCode.OK, mapOf(
@@ -91,6 +125,22 @@ class ScheduleController(
             // Get schedule by date range
             get("/by-date-range") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@get
+                    }
+
                     val startDateParam = call.request.queryParameters["startDate"]
                     val endDateParam = call.request.queryParameters["endDate"]
 
@@ -122,7 +172,7 @@ class ScheduleController(
                         return@get
                     }
 
-                    val schedule = scheduleRepository.findByDateRange(startDate, endDate)
+                    val schedule = scheduleRepository.findByBusinessAndDateRange(businessId, startDate, endDate)
                     if (schedule != null) {
                         call.respond(HttpStatusCode.OK, schedule)
                     } else {
@@ -143,6 +193,22 @@ class ScheduleController(
             // Get schedule by ID
             get("/{id}") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@get
+                    }
+
                     val id = call.parameters["id"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -152,7 +218,7 @@ class ScheduleController(
                             return@get
                         }
 
-                    val schedule = scheduleRepository.findById(id)
+                    val schedule = scheduleRepository.findById(businessId, id)
                     if (schedule != null) {
                         call.respond(HttpStatusCode.OK, schedule)
                     } else {
@@ -173,6 +239,22 @@ class ScheduleController(
             // Publish a schedule
             post("/{id}/publish") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@post
+                    }
+
                     val id = call.parameters["id"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -185,6 +267,7 @@ class ScheduleController(
                     val request = call.receive<PublishScheduleRequest>()
 
                     val published = shiftModificationService.publishSchedule(
+                        businessId = businessId,
                         scheduleId = id,
                         publishedBy = request.publishedBy
                     )
@@ -212,6 +295,22 @@ class ScheduleController(
             // Duplicate a schedule
             post("/{id}/duplicate") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@post
+                    }
+
                     val id = call.parameters["id"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -224,6 +323,7 @@ class ScheduleController(
                     val request = call.receive<DuplicateScheduleRequest>()
 
                     val duplicated = shiftModificationService.duplicateSchedule(
+                        businessId = businessId,
                         scheduleId = id,
                         newName = request.name,
                         createdBy = request.createdBy
@@ -247,6 +347,22 @@ class ScheduleController(
             // Delete a draft schedule
             delete("/{id}") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@delete
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@delete
+                    }
+
                     val id = call.parameters["id"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -286,6 +402,22 @@ class ScheduleController(
             // Modify a shift (move to different employee/day/time)
             patch("/{scheduleId}/shifts/{shiftId}") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@patch
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@patch
+                    }
+
                     val scheduleId = call.parameters["scheduleId"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -318,6 +450,7 @@ class ScheduleController(
                     call.application.log.info("Modifying shift: scheduleId=$scheduleId, shiftId=$shiftId, request=$request")
 
                     val result = shiftModificationService.modifyShift(
+                        businessId = businessId,
                         scheduleId = scheduleId,
                         shiftId = shiftId,
                         newEmployeeId = request.employeeId?.let { UUID.fromString(it) },
@@ -369,6 +502,22 @@ class ScheduleController(
             // Duplicate a shift
             post("/{scheduleId}/shifts/{shiftId}/duplicate") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@post
+                    }
+
                     val scheduleId = call.parameters["scheduleId"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -390,6 +539,7 @@ class ScheduleController(
                     val request = call.receive<DuplicateShiftRequest>()
 
                     val result = shiftModificationService.duplicateShift(
+                        businessId = businessId,
                         scheduleId = scheduleId,
                         shiftId = shiftId,
                         newEmployeeId = request.employeeId?.let { UUID.fromString(it) },
@@ -437,6 +587,22 @@ class ScheduleController(
             // Delete a shift
             delete("/{scheduleId}/shifts/{shiftId}") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@delete
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@delete
+                    }
+
                     val scheduleId = call.parameters["scheduleId"]?.let { UUID.fromString(it) }
                         ?: run {
                             call.respond(
@@ -458,6 +624,7 @@ class ScheduleController(
                     val request = call.receive<DeleteShiftRequest>()
 
                     shiftModificationService.deleteShift(
+                        businessId = businessId,
                         scheduleId = scheduleId,
                         shiftId = shiftId,
                         modifiedBy = request.modifiedBy

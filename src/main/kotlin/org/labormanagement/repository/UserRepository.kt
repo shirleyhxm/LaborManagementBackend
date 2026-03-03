@@ -1,5 +1,6 @@
 package org.labormanagement.repository
 
+import org.labormanagement.model.AccountType
 import org.labormanagement.model.User
 import org.labormanagement.model.UserRole
 import org.labormanagement.service.PasswordValidator
@@ -22,46 +23,45 @@ class UserRepository(
         val testUsers = listOf(
             User(
                 id = "1",
-                username = "admin",
                 email = "admin@shiftoptimizer.com",
                 firstName = "Admin",
                 lastName = "User",
                 // Password: Admin123! (meets all requirements)
                 passwordHash = BCrypt.hashpw("Admin123!", BCrypt.gensalt(12)),
-                role = UserRole.ADMIN
+                role = UserRole.ADMIN,
+                accountType = AccountType.BUSINESS_OWNER,
+                ownedBusinessIds = emptyList(),
+                memberBusinessIds = emptyList()
             ),
             User(
                 id = "2",
-                username = "manager",
                 email = "manager@shiftoptimizer.com",
                 firstName = "Manager",
                 lastName = "Smith",
                 // Password: Manager123! (meets all requirements)
                 passwordHash = BCrypt.hashpw("Manager123!", BCrypt.gensalt(12)),
-                role = UserRole.MANAGER
+                role = UserRole.MANAGER,
+                accountType = AccountType.BUSINESS_OWNER,
+                ownedBusinessIds = emptyList(),
+                memberBusinessIds = emptyList()
             ),
             User(
                 id = "3",
-                username = "employee",
                 email = "employee@shiftoptimizer.com",
                 firstName = "John",
                 lastName = "Doe",
                 // Password: Employee123! (meets all requirements)
                 passwordHash = BCrypt.hashpw("Employee123!", BCrypt.gensalt(12)),
-                role = UserRole.EMPLOYEE
+                role = UserRole.EMPLOYEE,
+                accountType = AccountType.BUSINESS_OWNER,
+                ownedBusinessIds = emptyList(),
+                memberBusinessIds = emptyList()
             )
         )
 
         testUsers.forEach { user ->
-            users[user.username] = user
+            users[user.email] = user
         }
-    }
-
-    /**
-     * Find user by username
-     */
-    fun findByUsername(username: String): User? {
-        return users[username]
     }
 
     /**
@@ -83,19 +83,19 @@ class UserRepository(
      * @throws PasswordValidationException if password doesn't meet strength requirements
      */
     fun createUser(
-        username: String,
         email: String,
         firstName: String,
         lastName: String,
         password: String,
-        role: UserRole
+        role: UserRole,
+        accountType: AccountType = AccountType.BUSINESS_OWNER
     ): User {
         // Validate password strength (throws exception if invalid)
         passwordValidator.validatePasswordOrThrow(password)
 
-        // Check if username already exists
-        if (users.containsKey(username)) {
-            throw IllegalArgumentException("Username '$username' already exists")
+        // Check if email already exists
+        if (users.containsKey(email)) {
+            throw IllegalArgumentException("Email '$email' already exists")
         }
 
         val id = (users.size + 1).toString()
@@ -103,15 +103,26 @@ class UserRepository(
 
         val user = User(
             id = id,
-            username = username,
             email = email,
             firstName = firstName,
             lastName = lastName,
             passwordHash = passwordHash,
-            role = role
+            role = role,
+            accountType = accountType,
+            ownedBusinessIds = emptyList(),
+            memberBusinessIds = emptyList()
         )
 
-        users[username] = user
+        users[email] = user
+        return user
+    }
+
+    /**
+     * Update a user (for multi-tenancy updates like adding businesses)
+     */
+    fun update(userId: String, user: User): User? {
+        val existing = findById(userId) ?: return null
+        users[existing.email] = user
         return user
     }
 
@@ -127,7 +138,7 @@ class UserRepository(
         val passwordHash = BCrypt.hashpw(newPassword, BCrypt.gensalt(12))
 
         val updatedUser = user.copy(passwordHash = passwordHash)
-        users[user.username] = updatedUser
+        users[user.email] = updatedUser
         return true
     }
 
@@ -144,7 +155,7 @@ class UserRepository(
     fun setup2FA(userId: String, secret: String): Boolean {
         val user = findById(userId) ?: return false
         val updatedUser = user.copy(twoFactorSecret = secret, twoFactorEnabled = false)
-        users[user.username] = updatedUser
+        users[user.email] = updatedUser
         return true
     }
 
@@ -156,7 +167,7 @@ class UserRepository(
         if (user.twoFactorSecret == null) return false
 
         val updatedUser = user.copy(twoFactorEnabled = true)
-        users[user.username] = updatedUser
+        users[user.email] = updatedUser
         return true
     }
 
@@ -166,7 +177,7 @@ class UserRepository(
     fun disable2FA(userId: String): Boolean {
         val user = findById(userId) ?: return false
         val updatedUser = user.copy(twoFactorEnabled = false, twoFactorSecret = null)
-        users[user.username] = updatedUser
+        users[user.email] = updatedUser
         return true
     }
 

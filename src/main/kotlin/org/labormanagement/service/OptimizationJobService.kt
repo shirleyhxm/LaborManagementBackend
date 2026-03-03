@@ -33,19 +33,20 @@ class OptimizationJobService(
      * Submit a new optimization job.
      * Returns immediately with a job ID for tracking.
      */
-    fun submitJob(request: OptimizationRequestV2): OptimizationJobResponse {
+    fun submitJob(businessId: UUID, request: OptimizationRequestV2): OptimizationJobResponse {
         val jobId = UUID.randomUUID().toString()
 
         val job = OptimizationJob(
             id = jobId,
             status = JobStatus.QUEUED,
+            businessId = businessId,
             request = request,
             createdAt = LocalDateTime.now()
         )
 
         jobs[jobId] = job
 
-        log.info("[OptimizationJobService] Job $jobId submitted")
+        log.info("[OptimizationJobService] Job $jobId submitted for business $businessId")
 
         // Start async processing
         jobScope.launch {
@@ -91,7 +92,7 @@ class OptimizationJobService(
             jobs[jobId] = job.copy(status = JobStatus.RUNNING, progress = 0)
 
             // Convert V2 DTO to ScheduleInput
-            val scheduleInput = convertToScheduleInput(job.request)
+            val scheduleInput = convertToScheduleInput(job.businessId, job.request)
 
             jobs[jobId] = job.copy(progress = 20)
 
@@ -100,7 +101,8 @@ class OptimizationJobService(
             val schedule = shiftScheduler.generateSchedule(
                 input = scheduleInput,
                 name = "V2 API Schedule ${job.id}",
-                generatedBy = job.request.requestedBy ?: "v2-api"
+                generatedBy = job.request.requestedBy ?: "v2-api",
+                businessId = job.businessId
             )
             val solveTime = System.currentTimeMillis() - startTime
 
@@ -134,7 +136,7 @@ class OptimizationJobService(
      * Convert V2 API request to ScheduleInput for ShiftScheduler.
      * Simple conversion - ShiftScheduler handles fetching employees, constraints, etc.
      */
-    private fun convertToScheduleInput(request: OptimizationRequestV2): ScheduleInput {
+    private fun convertToScheduleInput(businessId: UUID, request: OptimizationRequestV2): ScheduleInput {
         // Parse dates
         val startDate = LocalDate.parse(request.demandMatrix.startDate)
         val endDate = LocalDate.parse(request.demandMatrix.endDate)
@@ -143,7 +145,7 @@ class OptimizationJobService(
         val employeeIds = if (request.employeeIds != null && request.employeeIds.isNotEmpty()) {
             request.employeeIds.map { UUID.fromString(it) }
         } else {
-            employeeRepository.findAll().map { it.id }
+            employeeRepository.findAllByBusiness(businessId).map { it.id }
         }
 
         if (employeeIds.isEmpty()) {
@@ -192,6 +194,7 @@ class OptimizationJobService(
         log.info("[OptimizationJobService] Creating schedule for ${employeeIds.size} employees across $totalDays days")
 
         return ScheduleInput(
+            businessId = businessId,
             employeeIds = employeeIds,
             laborCostBudget = Double.MAX_VALUE,  // Budget fetched from ConstraintsService by ShiftScheduler
             schedulePeriod = SchedulePeriod(
@@ -211,7 +214,7 @@ class OptimizationJobService(
         val shiftsByEmployee = schedule.shifts.groupBy { it.employeeId }
 
         val assignments = shiftsByEmployee.map { (employeeId, shifts) ->
-            val employee = employeeRepository.findById(employeeId)!!
+            val employee = employeeRepository.findById(schedule.businessId, employeeId)!!
 
             val shiftDtos = shifts.map { shift ->
                 ShiftDto(
@@ -288,6 +291,7 @@ class OptimizationJobService(
 data class OptimizationJob(
     val id: String,
     val status: JobStatus,
+    val businessId: UUID,
     val request: OptimizationRequestV2,
     val progress: Int? = null,
     val solveStatus: SolveStatus? = null,

@@ -7,6 +7,7 @@ import java.util.UUID
 // ====== Budget Constraints ======
 
 data class BudgetConstraints(
+    val businessId: UUID,  // Multi-tenancy: Business these constraints belong to
     val weeklyBudget: Double,
     val monthlyBudget: Double,
     val hardBudgetLimit: Boolean,
@@ -24,6 +25,7 @@ data class HourlyRateRule(
 // ====== Hours Constraints ======
 
 data class WorkingHoursRules(
+    val businessId: UUID,  // Multi-tenancy: Business these rules belong to
     val maxHoursPerWeek: Double,
     val maxOvertimeHours: Double,
     val minRestBetweenShifts: Double, // in hours
@@ -34,6 +36,7 @@ data class WorkingHoursRules(
 )
 
 data class EmployeeContractedHours(
+    val businessId: UUID,  // Multi-tenancy: Business these hours belong to
     val employeeId: UUID,
     val minHours: Double,
     val contractedHours: Double,
@@ -46,6 +49,7 @@ data class EmployeeContractedHours(
 // ====== Compliance Rules ======
 
 data class ComplianceRules(
+    val businessId: UUID,  // Multi-tenancy: Business these rules belong to
     val flsaOvertimeEnabled: Boolean,
     val mealBreakRequired: Boolean,
     val mealBreakMinShiftHours: Double, // e.g., 6 hours
@@ -62,6 +66,7 @@ enum class CustomComplianceRuleType {
 }
 
 data class CustomComplianceRule(
+    val businessId: UUID,  // Multi-tenancy: Business this rule belongs to
     val name: String,
     val description: String,
     val isActive: Boolean,
@@ -80,6 +85,7 @@ enum class PriorityType {
 }
 
 data class SchedulingPriority(
+    val businessId: UUID,  // Multi-tenancy: Business this priority belongs to
     val priorityOrder: Int, // 1-5
     val priorityType: PriorityType,
     val name: String,
@@ -88,6 +94,7 @@ data class SchedulingPriority(
 )
 
 data class FairnessSettings(
+    val businessId: UUID,  // Multi-tenancy: Business these settings belong to
     val rotateWeekendShifts: Boolean,
     val balanceDesirableShifts: Boolean,
     val seniorityPreference: Boolean,

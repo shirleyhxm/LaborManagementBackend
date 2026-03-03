@@ -52,7 +52,7 @@ data class Disable2FAResponse(
  * Request to verify 2FA code during login
  */
 data class Verify2FARequest(
-    val username: String,
+    val email: String,
     val code: String
 )
 

@@ -1,18 +1,26 @@
 package org.labormanagement.model
 
 data class LoginRequest(
-    val username: String,
+    val email: String,
     val password: String
+)
+
+data class RegisterRequest(
+    val email: String,
+    val firstName: String,
+    val lastName: String,
+    val password: String,
+    val businessName: String
 )
 
 data class AuthResponse(
     val user: UserDTO,
-    val token: String
+    val token: String,
+    val businessId: String? = null // Include businessId for initial business created during registration
 )
 
 data class UserDTO(
     val id: String,
-    val username: String,
     val email: String,
     val firstName: String,
     val lastName: String,
@@ -36,7 +44,6 @@ data class LogoutResponse(
 // Extension function to convert User to UserDTO (never expose password hash or 2FA secret)
 fun User.toDTO() = UserDTO(
     id = id,
-    username = username,
     email = email,
     firstName = firstName,
     lastName = lastName,

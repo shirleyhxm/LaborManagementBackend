@@ -8,6 +8,7 @@ import io.ktor.server.routing.*
 import org.labormanagement.dto.*
 import org.labormanagement.model.ErrorResponse
 import org.labormanagement.service.AttendanceService
+import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
 import java.util.*
 
@@ -16,14 +17,30 @@ import java.util.*
  */
 fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
-    route("/api/attendance") {
+    route("/api/businesses/{businessId}/attendance") {
 
         /**
          * Clock in an employee
-         * POST /api/attendance/clock-in
+         * POST /api/businesses/{businessId}/attendance/clock-in
          */
         post("/clock-in") {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                    return@post
+                }
+
                 val request = call.receive<ClockInRequest>()
 
                 val employeeId = try {
@@ -52,6 +69,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 }
 
                 val result = attendanceService.clockIn(
+                    businessId = businessId,
                     employeeId = employeeId,
                     scheduleId = scheduleId,
                     shiftId = shiftId,
@@ -73,10 +91,26 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Clock out an employee
-         * POST /api/attendance/clock-out
+         * POST /api/businesses/{businessId}/attendance/clock-out
          */
         post("/clock-out") {
             try {
+                // Extract and validate businessId from path
+                val businessId = call.parameters["businessId"]?.let {
+                    try { UUID.fromString(it) } catch (e: Exception) { null }
+                }
+                if (businessId == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                    return@post
+                }
+
+                // Validate businessId matches tenant context
+                val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                if (contextBusinessId != null && contextBusinessId != businessId) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                    return@post
+                }
+
                 val request = call.receive<ClockOutRequest>()
 
                 val employeeId = try {
@@ -106,9 +140,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get active clock record for an employee
-         * GET /api/attendance/active/{employeeId}
+         * GET /api/businesses/{businessId}/attendance/active/{employeeId}
          */
         get("/active/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -126,9 +176,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get all clock records for an employee
-         * GET /api/attendance/employee/{employeeId}
+         * GET /api/businesses/{businessId}/attendance/employee/{employeeId}
          */
         get("/employee/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -142,9 +208,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get clock records for a shift
-         * GET /api/attendance/shift/{shiftId}
+         * GET /api/businesses/{businessId}/attendance/shift/{shiftId}
          */
         get("/shift/{shiftId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val shiftId = try {
                 UUID.fromString(call.parameters["shiftId"])
             } catch (e: IllegalArgumentException) {
@@ -158,9 +240,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get clock records for a schedule
-         * GET /api/attendance/schedule/{scheduleId}
+         * GET /api/businesses/{businessId}/attendance/schedule/{scheduleId}
          */
         get("/schedule/{scheduleId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val scheduleId = try {
                 UUID.fromString(call.parameters["scheduleId"])
             } catch (e: IllegalArgumentException) {
@@ -174,9 +272,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get attendance statistics for an employee
-         * GET /api/attendance/stats/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+         * GET /api/businesses/{businessId}/attendance/stats/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
          */
         get("/stats/{employeeId}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val employeeId = try {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
@@ -206,7 +320,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val result = attendanceService.getAttendanceStats(employeeId, startDate, endDate)
+            val result = attendanceService.getAttendanceStats(businessId, employeeId, startDate, endDate)
             result.fold(
                 onSuccess = { stats ->
                     call.respond(HttpStatusCode.OK, stats.toResponse())
@@ -219,9 +333,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Get a clock record by ID
-         * GET /api/attendance/{id}
+         * GET /api/businesses/{businessId}/attendance/{id}
          */
         get("/{id}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@get
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {
@@ -239,9 +369,25 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
 
         /**
          * Delete a clock record (admin only)
-         * DELETE /api/attendance/{id}
+         * DELETE /api/businesses/{businessId}/attendance/{id}
          */
         delete("/{id}") {
+            // Extract and validate businessId from path
+            val businessId = call.parameters["businessId"]?.let {
+                try { UUID.fromString(it) } catch (e: Exception) { null }
+            }
+            if (businessId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid business ID"))
+                return@delete
+            }
+
+            // Validate businessId matches tenant context
+            val contextBusinessId = TenantContextHolder.getContext()?.businessId
+            if (contextBusinessId != null && contextBusinessId != businessId) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@delete
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {

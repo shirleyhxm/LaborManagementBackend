@@ -9,6 +9,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
 
 val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH)
 
@@ -23,6 +24,7 @@ data class CreateEmployeeRequest(
     val contract: ContractDto = ContractDto(),
     val availability: List<AvailabilityDto> = emptyList(),
     val groups: Set<String> = emptySet()
+    // Note: businessId is NOT in the request - it comes from the URL path/context
 )
 
 data class UpdateEmployeeRequest(
@@ -40,6 +42,7 @@ data class UpdateEmployeeRequest(
 
 data class EmployeeResponse(
     val id: String,
+    val businessId: String,  // Include businessId for frontend reference
     val firstName: String,
     val lastName: String,
     val middleName: String,
@@ -73,6 +76,7 @@ data class AvailabilityDto(
 fun Employee.toResponse(): EmployeeResponse {
     return EmployeeResponse(
         id = this.id.toString(),
+        businessId = this.businessId.toString(),
         firstName = this.firstName,
         lastName = this.lastName,
         middleName = this.middleName,
@@ -128,8 +132,13 @@ fun AvailabilityDto.toModel(): Availability {
     )
 }
 
-fun CreateEmployeeRequest.toModel(): Employee {
+/**
+ * Convert CreateEmployeeRequest to Employee model.
+ * The businessId must be provided by the controller/service from the request context.
+ */
+fun CreateEmployeeRequest.toModel(businessId: UUID): Employee {
     return Employee(
+        businessId = businessId,
         firstName = this.firstName,
         lastName = this.lastName,
         middleName = this.middleName,

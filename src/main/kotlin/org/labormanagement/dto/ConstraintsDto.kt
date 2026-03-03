@@ -279,8 +279,9 @@ fun FairnessSettings.toResponse(): FairnessSettingsResponse {
 }
 
 // Conversion from request to model
-fun BudgetConstraintsRequest.toModel(): BudgetConstraints {
+fun BudgetConstraintsRequest.toModel(businessId: UUID): BudgetConstraints {
     return BudgetConstraints(
+        businessId = businessId,
         weeklyBudget = this.weeklyBudget,
         monthlyBudget = this.monthlyBudget,
         hardBudgetLimit = this.hardBudgetLimit,
@@ -298,8 +299,9 @@ fun HourlyRateRuleRequest.toModel(): HourlyRateRule {
     )
 }
 
-fun WorkingHoursRulesRequest.toModel(): WorkingHoursRules {
+fun WorkingHoursRulesRequest.toModel(businessId: UUID): WorkingHoursRules {
     return WorkingHoursRules(
+        businessId = businessId,
         maxHoursPerWeek = this.maxHoursPerWeek,
         maxOvertimeHours = this.maxOvertimeHours,
         minRestBetweenShifts = this.minRestBetweenShifts,
@@ -310,8 +312,9 @@ fun WorkingHoursRulesRequest.toModel(): WorkingHoursRules {
     )
 }
 
-fun EmployeeContractedHoursRequest.toModel(): EmployeeContractedHours {
+fun EmployeeContractedHoursRequest.toModel(businessId: UUID): EmployeeContractedHours {
     return EmployeeContractedHours(
+        businessId = businessId,
         employeeId = UUID.fromString(this.employeeId),
         minHours = this.minHours,
         contractedHours = this.contractedHours,
@@ -322,8 +325,9 @@ fun EmployeeContractedHoursRequest.toModel(): EmployeeContractedHours {
     )
 }
 
-fun ComplianceRulesRequest.toModel(): ComplianceRules {
+fun ComplianceRulesRequest.toModel(businessId: UUID): ComplianceRules {
     return ComplianceRules(
+        businessId = businessId,
         flsaOvertimeEnabled = this.flsaOvertimeEnabled,
         mealBreakRequired = this.mealBreakRequired,
         mealBreakMinShiftHours = this.mealBreakMinShiftHours,
@@ -334,8 +338,9 @@ fun ComplianceRulesRequest.toModel(): ComplianceRules {
     )
 }
 
-fun CustomComplianceRuleRequest.toModel(): CustomComplianceRule {
+fun CustomComplianceRuleRequest.toModel(businessId: UUID): CustomComplianceRule {
     return CustomComplianceRule(
+        businessId = businessId,
         name = this.name,
         description = this.description,
         isActive = this.isActive,
@@ -344,8 +349,9 @@ fun CustomComplianceRuleRequest.toModel(): CustomComplianceRule {
     )
 }
 
-fun SchedulingPriorityRequest.toModel(): SchedulingPriority {
+fun SchedulingPriorityRequest.toModel(businessId: UUID): SchedulingPriority {
     return SchedulingPriority(
+        businessId = businessId,
         priorityOrder = this.priorityOrder,
         priorityType = PriorityType.valueOf(this.priorityType.uppercase()),
         name = this.name,
@@ -354,8 +360,9 @@ fun SchedulingPriorityRequest.toModel(): SchedulingPriority {
     )
 }
 
-fun FairnessSettingsRequest.toModel(): FairnessSettings {
+fun FairnessSettingsRequest.toModel(businessId: UUID): FairnessSettings {
     return FairnessSettings(
+        businessId = businessId,
         rotateWeekendShifts = this.rotateWeekendShifts,
         balanceDesirableShifts = this.balanceDesirableShifts,
         seniorityPreference = this.seniorityPreference,

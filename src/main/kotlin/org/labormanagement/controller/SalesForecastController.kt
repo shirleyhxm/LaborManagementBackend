@@ -8,53 +8,115 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
+import io.ktor.server.routing.route
 import org.labormanagement.repository.SalesForecastRepository
+import org.labormanagement.service.TenantContextHolder
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 class SalesForecastController(
     private val salesForecastRepository: SalesForecastRepository
 ) {
     fun Route.salesForecastRoutes() {
-        // GET /api/sales-forecast - Get current sales forecast
-        get("/api/sales-forecast") {
-            val forecast = salesForecastRepository.get()
-            call.respond(HttpStatusCode.OK, forecast)
-        }
+        route("/api/businesses/{businessId}/sales-forecast") {
+            // GET - Get current sales forecast for business
+            get {
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
 
-        // PUT /api/sales-forecast - Update sales forecast
-        put("/api/sales-forecast") {
-            try {
-                val request = call.receive<UpdateSalesForecastRequest>()
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access sales forecast from different business"))
+                        return@get
+                    }
 
-                // Validate that at least one forecast type is provided
-                if (request.dateSpecificForecast == null && request.weeklyPattern == null) {
+                    val forecast = salesForecastRepository.getByBusiness(businessId)
+                    call.respond(HttpStatusCode.OK, forecast)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                }
+            }
+
+            // PUT - Update sales forecast
+            put {
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@put
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access sales forecast from different business"))
+                        return@put
+                    }
+
+                    val request = call.receive<UpdateSalesForecastRequest>()
+
+                    // Validate that at least one forecast type is provided
+                    if (request.dateSpecificForecast == null && request.weeklyPattern == null) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "At least one of dateSpecificForecast or weeklyPattern must be provided")
+                        )
+                        return@put
+                    }
+
+                    val forecast = salesForecastRepository.updateForBusiness(
+                        businessId = businessId,
+                        dateSpecificForecast = request.dateSpecificForecast,
+                        weeklyPattern = request.weeklyPattern,
+                        updatedBy = request.updatedBy ?: "system"
+                    )
+                    call.respond(HttpStatusCode.OK, forecast)
+                } catch (e: Exception) {
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        mapOf("error" to "At least one of dateSpecificForecast or weeklyPattern must be provided")
+                        mapOf("error" to "Invalid request: ${e.message}")
                     )
-                    return@put
                 }
-
-                val forecast = salesForecastRepository.update(
-                    dateSpecificForecast = request.dateSpecificForecast,
-                    weeklyPattern = request.weeklyPattern,
-                    updatedBy = request.updatedBy ?: "system"
-                )
-                call.respond(HttpStatusCode.OK, forecast)
-            } catch (e: Exception) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    mapOf("error" to "Invalid request: ${e.message}")
-                )
             }
-        }
 
-        // POST /api/sales-forecast/reset - Reset to default forecast
-        post("/api/sales-forecast/reset") {
-            val forecast = salesForecastRepository.reset()
-            call.respond(HttpStatusCode.OK, forecast)
+            // POST /reset - Reset to default forecast
+            post("/reset") {
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access sales forecast from different business"))
+                        return@post
+                    }
+
+                    val forecast = salesForecastRepository.resetForBusiness(businessId)
+                    call.respond(HttpStatusCode.OK, forecast)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                }
+            }
         }
     }
 }

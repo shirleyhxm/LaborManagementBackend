@@ -7,10 +7,11 @@ import java.time.LocalTime
 
 /**
  * Represents sales forecast data supporting both date-specific and pattern-based forecasts.
- * This is a singleton resource - only one forecast exists at a time.
+ * One forecast per business.
  */
 data class SalesForecast(
     val id: String = "default",
+    val businessId: java.util.UUID,  // Multi-tenancy: Business this forecast belongs to
     // Support both date-specific and pattern-based forecasts
     val dateSpecificForecast: Map<LocalDate, Map<LocalTime, Double>>? = null,
     val weeklyPattern: Map<DayOfWeek, Map<LocalTime, Double>>? = null,  // For recurring patterns

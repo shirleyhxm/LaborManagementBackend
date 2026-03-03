@@ -13,16 +13,21 @@ import org.labormanagement.repository.EmployeeRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
 
 class TestDataController(
     private val employeeRepository: EmployeeRepository
 ) {
 
     companion object {
+        // Test business ID for creating sample employees
+        private val TEST_BUSINESS_ID = UUID.fromString("00000000-0000-0000-0000-000000000001")
+
         // Static sample employee templates to avoid recreating objects on every API call
         private val SAMPLE_EMPLOYEE_TEMPLATES = listOf(
             // High performers - Full time
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Alice",
                 lastName = "Johnson",
                 middleName = "Marie",
@@ -49,6 +54,7 @@ class TestDataController(
             ),
 
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Bob",
                 lastName = "Smith",
                 dateOfBirth = LocalDate.of(1988, 8, 22),
@@ -75,6 +81,7 @@ class TestDataController(
 
             // Mid-level - Full time
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Carol",
                 lastName = "Davis",
                 dateOfBirth = LocalDate.of(1992, 3, 10),
@@ -100,6 +107,7 @@ class TestDataController(
             ),
 
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "David",
                 lastName = "Wilson",
                 dateOfBirth = LocalDate.of(1995, 11, 5),
@@ -126,6 +134,7 @@ class TestDataController(
 
             // Part-time employees
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Emma",
                 lastName = "Brown",
                 dateOfBirth = LocalDate.of(1998, 6, 18),
@@ -150,6 +159,7 @@ class TestDataController(
             ),
 
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Frank",
                 lastName = "Miller",
                 dateOfBirth = LocalDate.of(1997, 9, 25),
@@ -176,6 +186,7 @@ class TestDataController(
 
             // Junior employees - Lower productivity
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Grace",
                 lastName = "Taylor",
                 dateOfBirth = LocalDate.of(2000, 1, 30),
@@ -202,6 +213,7 @@ class TestDataController(
             ),
 
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Henry",
                 lastName = "Anderson",
                 dateOfBirth = LocalDate.of(1999, 12, 8),
@@ -228,6 +240,7 @@ class TestDataController(
 
             // Weekend specialists
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Isabel",
                 lastName = "Martinez",
                 dateOfBirth = LocalDate.of(1994, 4, 12),
@@ -251,6 +264,7 @@ class TestDataController(
             ),
 
             Employee(
+                businessId = TEST_BUSINESS_ID,
                 firstName = "Jack",
                 lastName = "Thomas",
                 dateOfBirth = LocalDate.of(1996, 7, 20),
@@ -284,8 +298,8 @@ class TestDataController(
             post("/create-sample-employees") {
                 try {
                     // Clear existing employees first
-                    val existingEmployees = employeeRepository.findAll()
-                    existingEmployees.forEach { employeeRepository.delete(it.id) }
+                    val existingEmployees = employeeRepository.findAllByBusiness(TEST_BUSINESS_ID)
+                    existingEmployees.forEach { employeeRepository.delete(TEST_BUSINESS_ID, it.id) }
 
                     val createdEmployees = SAMPLE_EMPLOYEE_TEMPLATES.map { employee ->
                         employeeRepository.create(employee)
@@ -308,7 +322,7 @@ class TestDataController(
 
             // Get IDs of all employees (useful for scheduling requests)
             get("/employee-ids") {
-                val employees = employeeRepository.findAll()
+                val employees = employeeRepository.findAllByBusiness(TEST_BUSINESS_ID)
                 call.respond(
                     HttpStatusCode.OK,
                     mapOf(

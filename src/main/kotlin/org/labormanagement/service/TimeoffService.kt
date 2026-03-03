@@ -18,13 +18,14 @@ class TimeoffService(
      * Submit a timeoff request
      */
     fun submitTimeoffRequest(
+        businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate,
         reason: String
     ): Result<TimeoffRequest> {
         // Verify employee exists
-        val employee = employeeRepository.findById(employeeId)
+        val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         // Validate dates
@@ -41,6 +42,7 @@ class TimeoffService(
         }
 
         val request = TimeoffRequest(
+            businessId = businessId,
             employeeId = employeeId,
             startDate = startDate,
             endDate = endDate,
@@ -85,6 +87,7 @@ class TimeoffService(
      * Approve a timeoff request (manager/admin only)
      */
     fun approveTimeoffRequest(
+        businessId: UUID,
         requestId: UUID,
         reviewerId: String,
         reviewNotes: String = ""
@@ -97,7 +100,7 @@ class TimeoffService(
         }
 
         // Get employee to update availability
-        val employee = employeeRepository.findById(request.employeeId)
+        val employee = employeeRepository.findById(businessId, request.employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         // Approve the request

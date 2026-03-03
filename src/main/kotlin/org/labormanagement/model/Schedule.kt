@@ -24,6 +24,7 @@ import java.util.UUID
  */
 data class Schedule(
     val id: UUID = UUID.randomUUID(),
+    val businessId: UUID,  // Multi-tenancy: Business this schedule belongs to
     val name: String,
     val status: ScheduleStatus = ScheduleStatus.DRAFT,
     val schedulePeriod: SchedulePeriod,

@@ -13,6 +13,7 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.delete
 import org.labormanagement.dto.*
 import org.labormanagement.service.ConstraintsService
+import org.labormanagement.service.TenantContextHolder
 import java.util.UUID
 
 class ConstraintsController(
@@ -20,14 +21,30 @@ class ConstraintsController(
 ) {
 
     fun Route.constraintsRoutes() {
-        route("/api/v1/constraints") {
+        route("/api/businesses/{businessId}/constraints") {
 
             // ====== Budget Constraints ======
 
             route("/budget") {
                 get {
                     try {
-                        val budget = constraintsService.getBudgetConstraints()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val budget = constraintsService.getBudgetConstraints(businessId)
                         if (budget != null) {
                             call.respond(HttpStatusCode.OK, budget.toResponse())
                         } else {
@@ -41,8 +58,24 @@ class ConstraintsController(
 
                 put {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val request = call.receive<BudgetConstraintsRequest>()
-                        val budget = constraintsService.updateBudgetConstraints(request)
+                        val budget = constraintsService.updateBudgetConstraints(businessId, request)
                         call.respond(HttpStatusCode.OK, budget.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to update budget constraints", e)
@@ -56,8 +89,24 @@ class ConstraintsController(
             route("/hourly-rates") {
                 get {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
                         val roleId = call.request.queryParameters["roleId"]
-                        val rates = constraintsService.getHourlyRateRules(roleId)
+                        val rates = constraintsService.getHourlyRateRules(businessId, roleId)
                         call.respond(HttpStatusCode.OK, rates.map { it.toResponse() })
                     } catch (e: Exception) {
                         call.application.log.error("Failed to get hourly rate rules", e)
@@ -67,8 +116,24 @@ class ConstraintsController(
 
                 post {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@post
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@post
+                        }
+
                         val request = call.receive<HourlyRateRuleRequest>()
-                        val rate = constraintsService.createHourlyRateRule(request)
+                        val rate = constraintsService.createHourlyRateRule(businessId, request)
                         call.respond(HttpStatusCode.Created, rate.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to create hourly rate rule", e)
@@ -78,8 +143,24 @@ class ConstraintsController(
 
                 delete {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@delete
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@delete
+                        }
+
                         val roleId = call.request.queryParameters["roleId"]
-                        val deleted = constraintsService.deleteHourlyRateRule(roleId)
+                        val deleted = constraintsService.deleteHourlyRateRule(businessId, roleId)
                         if (deleted) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
@@ -97,7 +178,23 @@ class ConstraintsController(
             route("/working-hours") {
                 get {
                     try {
-                        val rules = constraintsService.getWorkingHoursRules()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val rules = constraintsService.getWorkingHoursRules(businessId)
                         if (rules != null) {
                             call.respond(HttpStatusCode.OK, rules.toResponse())
                         } else {
@@ -111,8 +208,24 @@ class ConstraintsController(
 
                 put {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val request = call.receive<WorkingHoursRulesRequest>()
-                        val rules = constraintsService.updateWorkingHoursRules(request)
+                        val rules = constraintsService.updateWorkingHoursRules(businessId, request)
                         call.respond(HttpStatusCode.OK, rules.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to update working hours rules", e)
@@ -126,10 +239,26 @@ class ConstraintsController(
             route("/contracted-hours") {
                 get {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
                         val employeeIdParam = call.request.queryParameters["employeeId"]
                         val employeeId = employeeIdParam?.let { UUID.fromString(it) }
 
-                        val hours = constraintsService.getContractedHours(employeeId)
+                        val hours = constraintsService.getContractedHours(businessId, employeeId)
                         call.respond(HttpStatusCode.OK, hours.map { it.toResponse() })
                     } catch (e: Exception) {
                         call.application.log.error("Failed to get contracted hours", e)
@@ -139,8 +268,24 @@ class ConstraintsController(
 
                 post {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@post
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@post
+                        }
+
                         val request = call.receive<EmployeeContractedHoursRequest>()
-                        val hours = constraintsService.createContractedHours(request)
+                        val hours = constraintsService.createContractedHours(businessId, request)
                         call.respond(HttpStatusCode.Created, hours.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to create contracted hours", e)
@@ -150,13 +295,29 @@ class ConstraintsController(
 
                 put("/{employeeId}") {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val employeeId = call.parameters["employeeId"]?.let { UUID.fromString(it) }
                             ?: return@put call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
 
                         val request = call.receive<EmployeeContractedHoursRequest>()
 
-                        if (constraintsService.updateContractedHours(employeeId, request)) {
-                            val updated = constraintsService.getContractedHours(employeeId).first()
+                        if (constraintsService.updateContractedHours(businessId, employeeId, request)) {
+                            val updated = constraintsService.getContractedHours(businessId, employeeId).first()
                             call.respond(HttpStatusCode.OK, updated.toResponse())
                         } else {
                             call.respond(HttpStatusCode.NotFound, mapOf("error" to "Contracted hours not found"))
@@ -169,10 +330,26 @@ class ConstraintsController(
 
                 delete("/{employeeId}") {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@delete
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@delete
+                        }
+
                         val employeeId = call.parameters["employeeId"]?.let { UUID.fromString(it) }
                             ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
 
-                        if (constraintsService.deleteContractedHours(employeeId)) {
+                        if (constraintsService.deleteContractedHours(businessId, employeeId)) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
                             call.respond(HttpStatusCode.NotFound, mapOf("error" to "Contracted hours not found"))
@@ -189,7 +366,23 @@ class ConstraintsController(
             route("/compliance") {
                 get {
                     try {
-                        val rules = constraintsService.getComplianceRules()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val rules = constraintsService.getComplianceRules(businessId)
                         if (rules != null) {
                             call.respond(HttpStatusCode.OK, rules.toResponse())
                         } else {
@@ -203,8 +396,24 @@ class ConstraintsController(
 
                 put {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val request = call.receive<ComplianceRulesRequest>()
-                        val rules = constraintsService.updateComplianceRules(request)
+                        val rules = constraintsService.updateComplianceRules(businessId, request)
                         call.respond(HttpStatusCode.OK, rules.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to update compliance rules", e)
@@ -218,7 +427,23 @@ class ConstraintsController(
             route("/custom-compliance") {
                 get {
                     try {
-                        val rules = constraintsService.getCustomComplianceRules()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val rules = constraintsService.getCustomComplianceRules(businessId)
                         call.respond(HttpStatusCode.OK, rules.map { it.toResponse() })
                     } catch (e: Exception) {
                         call.application.log.error("Failed to get custom compliance rules", e)
@@ -228,8 +453,24 @@ class ConstraintsController(
 
                 post {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@post
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@post
+                        }
+
                         val request = call.receive<CustomComplianceRuleRequest>()
-                        val rule = constraintsService.createCustomComplianceRule(request)
+                        val rule = constraintsService.createCustomComplianceRule(businessId, request)
                         call.respond(HttpStatusCode.Created, rule.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to create custom compliance rule", e)
@@ -239,12 +480,28 @@ class ConstraintsController(
 
                 put("/{name}") {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val name = call.parameters["name"]
                             ?: return@put call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid name"))
 
                         val request = call.receive<CustomComplianceRuleRequest>()
 
-                        val rule = constraintsService.updateCustomComplianceRule(name, request)
+                        val rule = constraintsService.updateCustomComplianceRule(businessId, name, request)
                         if (rule != null) {
                             call.respond(HttpStatusCode.OK, rule.toResponse())
                         } else {
@@ -258,10 +515,26 @@ class ConstraintsController(
 
                 delete("/{name}") {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@delete
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@delete
+                        }
+
                         val name = call.parameters["name"]
                             ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid name"))
 
-                        val deleted = constraintsService.deleteCustomComplianceRule(name)
+                        val deleted = constraintsService.deleteCustomComplianceRule(businessId, name)
                         if (deleted) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
@@ -279,7 +552,23 @@ class ConstraintsController(
             route("/priorities") {
                 get {
                     try {
-                        val priorities = constraintsService.getSchedulingPriorities()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val priorities = constraintsService.getSchedulingPriorities(businessId)
                         call.respond(HttpStatusCode.OK, priorities.map { it.toResponse() })
                     } catch (e: Exception) {
                         call.application.log.error("Failed to get scheduling priorities", e)
@@ -289,8 +578,24 @@ class ConstraintsController(
 
                 put("/reorder") {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val request = call.receive<PriorityReorderRequest>()
-                        val priorities = constraintsService.reorderPriorities(request)
+                        val priorities = constraintsService.reorderPriorities(businessId, request)
                         call.respond(HttpStatusCode.OK, priorities.map { it.toResponse() })
                     } catch (e: Exception) {
                         call.application.log.error("Failed to reorder priorities", e)
@@ -304,7 +609,23 @@ class ConstraintsController(
             route("/fairness") {
                 get {
                     try {
-                        val settings = constraintsService.getFairnessSettings()
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        val settings = constraintsService.getFairnessSettings(businessId)
                         if (settings != null) {
                             call.respond(HttpStatusCode.OK, settings.toResponse())
                         } else {
@@ -318,8 +639,24 @@ class ConstraintsController(
 
                 put {
                     try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
                         val request = call.receive<FairnessSettingsRequest>()
-                        val settings = constraintsService.updateFairnessSettings(request)
+                        val settings = constraintsService.updateFairnessSettings(businessId, request)
                         call.respond(HttpStatusCode.OK, settings.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to update fairness settings", e)
@@ -332,7 +669,23 @@ class ConstraintsController(
 
             get {
                 try {
-                    val allConstraints = constraintsService.getAllConstraints()
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                        return@get
+                    }
+
+                    val allConstraints = constraintsService.getAllConstraints(businessId)
                     call.respond(HttpStatusCode.OK, allConstraints)
                 } catch (e: Exception) {
                     call.application.log.error("Failed to get all constraints", e)
@@ -344,6 +697,22 @@ class ConstraintsController(
 
             post("/validate") {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                        return@post
+                    }
+
                     val request = call.receive<ConstraintValidationRequest>()
                     val validation = constraintsService.validateConstraints(request)
                     call.respond(HttpStatusCode.OK, validation)

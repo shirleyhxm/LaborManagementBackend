@@ -7,17 +7,35 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 import org.labormanagement.model.EmployeeGroup
 import org.labormanagement.repository.EmployeeGroupRepository
+import org.labormanagement.service.TenantContextHolder
+import java.util.UUID
 
 class EmployeeGroupController(
     private val employeeGroupRepository: EmployeeGroupRepository
 ) {
 
     fun Route.employeeGroupRoutes() {
-        route("/api/employee-groups") {
+        route("/api/businesses/{businessId}/employee-groups") {
 
             // Create/add a new group tag
             post {
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employee groups from different business"))
+                        return@post
+                    }
+
                     val request = call.receive<CreateEmployeeGroupRequest>()
                     val name = request.name.trim()
 
@@ -26,7 +44,7 @@ class EmployeeGroupController(
                         return@post
                     }
 
-                    val created = employeeGroupRepository.add(name)
+                    val created = employeeGroupRepository.addForBusiness(businessId, name)
                     if (created == null) {
                         call.respond(
                             HttpStatusCode.Conflict,
@@ -45,36 +63,90 @@ class EmployeeGroupController(
 
             // Get all employee group tags
             get {
-                val groups = employeeGroupRepository.findAll()
-                call.respond(HttpStatusCode.OK, groups.map { it.toResponse() })
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employee groups from different business"))
+                        return@get
+                    }
+
+                    val groups = employeeGroupRepository.findAllForBusiness(businessId)
+                    call.respond(HttpStatusCode.OK, groups.map { it.toResponse() })
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                }
             }
 
             // Get employee group by name
             get("/{name}") {
-                val name = call.parameters["name"]?.trim()
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
 
-                if (name.isNullOrEmpty()) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
-                    return@get
-                }
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employee groups from different business"))
+                        return@get
+                    }
 
-                if (employeeGroupRepository.exists(name)) {
-                    call.respond(HttpStatusCode.OK, EmployeeGroup(name).toResponse())
-                } else {
-                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee group not found"))
+                    val name = call.parameters["name"]?.trim()
+                    if (name.isNullOrEmpty()) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
+                        return@get
+                    }
+
+                    if (employeeGroupRepository.existsForBusiness(businessId, name)) {
+                        call.respond(HttpStatusCode.OK, EmployeeGroup(businessId, name).toResponse())
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee group not found"))
+                    }
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
             }
 
             // Rename a group tag
             put("/{name}") {
-                val oldName = call.parameters["name"]?.trim()
-
-                if (oldName.isNullOrEmpty()) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
-                    return@put
-                }
-
                 try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@put
+                    }
+
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employee groups from different business"))
+                        return@put
+                    }
+
+                    val oldName = call.parameters["name"]?.trim()
+                    if (oldName.isNullOrEmpty()) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
+                        return@put
+                    }
+
                     val request = call.receive<RenameEmployeeGroupRequest>()
                     val newName = request.newName.trim()
 
@@ -83,9 +155,9 @@ class EmployeeGroupController(
                         return@put
                     }
 
-                    val renamed = employeeGroupRepository.rename(oldName, newName)
+                    val renamed = employeeGroupRepository.renameForBusiness(businessId, oldName, newName)
                     if (renamed) {
-                        call.respond(HttpStatusCode.OK, EmployeeGroup(newName).toResponse())
+                        call.respond(HttpStatusCode.OK, EmployeeGroup(businessId, newName).toResponse())
                     } else {
                         call.respond(
                             HttpStatusCode.NotFound,
@@ -99,18 +171,37 @@ class EmployeeGroupController(
 
             // Delete a group tag
             delete("/{name}") {
-                val name = call.parameters["name"]?.trim()
+                try {
+                    // Extract and validate businessId from path
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@delete
+                    }
 
-                if (name.isNullOrEmpty()) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
-                    return@delete
-                }
+                    // Validate businessId matches tenant context
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employee groups from different business"))
+                        return@delete
+                    }
 
-                val deleted = employeeGroupRepository.delete(name)
-                if (deleted) {
-                    call.respond(HttpStatusCode.NoContent)
-                } else {
-                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee group not found"))
+                    val name = call.parameters["name"]?.trim()
+                    if (name.isNullOrEmpty()) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid group name"))
+                        return@delete
+                    }
+
+                    val deleted = employeeGroupRepository.deleteForBusiness(businessId, name)
+                    if (deleted) {
+                        call.respond(HttpStatusCode.NoContent)
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee group not found"))
+                    }
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
             }
         }

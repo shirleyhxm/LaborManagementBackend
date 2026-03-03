@@ -23,6 +23,7 @@ class SalesService(
      * Record a sale
      */
     fun recordSale(
+        businessId: UUID,
         employeeId: UUID,
         amount: Double,
         category: String = "GENERAL",
@@ -32,7 +33,7 @@ class SalesService(
         recordedBy: String
     ): Result<SalesRecord> {
         // Verify employee exists
-        val employee = employeeRepository.findById(employeeId)
+        val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         // Validate amount
@@ -42,7 +43,7 @@ class SalesService(
 
         // Verify schedule and shift if provided
         if (scheduleId != null) {
-            val schedule = scheduleRepository.findById(scheduleId)
+            val schedule = scheduleRepository.findById(businessId, scheduleId)
                 ?: return Result.failure(Exception("Schedule not found"))
 
             if (shiftId != null) {
@@ -57,6 +58,7 @@ class SalesService(
         }
 
         val salesRecord = SalesRecord(
+            businessId = businessId,
             employeeId = employeeId,
             scheduleId = scheduleId,
             shiftId = shiftId,
@@ -69,7 +71,7 @@ class SalesService(
         val created = salesRepository.create(salesRecord)
 
         // Update employee productivity metric
-        updateEmployeeProductivity(employeeId)
+        updateEmployeeProductivity(businessId, employeeId)
 
         return Result.success(created)
     }
@@ -99,12 +101,13 @@ class SalesService(
      * Get sales performance for an employee in a period
      */
     fun getSalesPerformance(
+        businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate
     ): Result<SalesPerformance> {
         // Verify employee exists
-        val employee = employeeRepository.findById(employeeId)
+        val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
@@ -146,8 +149,8 @@ class SalesService(
     /**
      * Update employee productivity based on actual sales performance
      */
-    private fun updateEmployeeProductivity(employeeId: UUID) {
-        val employee = employeeRepository.findById(employeeId) ?: return
+    private fun updateEmployeeProductivity(businessId: UUID, employeeId: UUID) {
+        val employee = employeeRepository.findById(businessId, employeeId) ?: return
 
         // Calculate productivity over last 30 days
         val endDate = LocalDate.now()
@@ -165,14 +168,14 @@ class SalesService(
             val updatedProductivity = (employee.productivity * 0.7) + (actualProductivity * 0.3)
 
             val updatedEmployee = employee.copy(productivity = updatedProductivity)
-            employeeRepository.update(employeeId, updatedEmployee)
+            employeeRepository.update(businessId, employeeId, updatedEmployee)
         }
     }
 
     /**
      * Get daily sales summary
      */
-    fun getDailySalesSummary(date: LocalDate): DailySalesSummary {
+    fun getDailySalesSummary(businessId: UUID, date: LocalDate): DailySalesSummary {
         val startInstant = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = date.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
@@ -184,7 +187,7 @@ class SalesService(
         // Group by employee and calculate top performers
         val employeeSales = salesRecords.groupBy { it.employeeId }
             .map { (employeeId, records) ->
-                val employee = employeeRepository.findById(employeeId)
+                val employee = employeeRepository.findById(businessId, employeeId)
                 EmployeeSalesSnapshot(
                     employeeId = employeeId,
                     employeeName = employee?.let { "${it.firstName} ${it.lastName}" } ?: "Unknown",

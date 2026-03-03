@@ -22,7 +22,7 @@ class JwtService {
             .withAudience(audience)
             .withIssuer(issuer)
             .withClaim("userId", user.id)
-            .withClaim("username", user.username)
+            .withClaim("email", user.email)
             .withClaim("role", user.role.name)
             .withIssuedAt(Date())
             .withExpiresAt(Date(System.currentTimeMillis() + validityInMs))
@@ -53,10 +53,10 @@ class JwtService {
     }
 
     /**
-     * Extract username from token
+     * Extract email from token
      */
-    fun getUsernameFromToken(token: String): String? {
-        return verifyToken(token)?.getClaim("username")?.asString()
+    fun getEmailFromToken(token: String): String? {
+        return verifyToken(token)?.getClaim("email")?.asString()
     }
 
     /**

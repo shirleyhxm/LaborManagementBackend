@@ -9,6 +9,7 @@ import java.util.*
  */
 data class SalesRecord(
     val id: UUID = UUID.randomUUID(),
+    val businessId: UUID,            // Multi-tenancy: Business this sale belongs to
     val employeeId: UUID,
     val scheduleId: UUID?,          // Optional: Link to schedule
     val shiftId: UUID?,             // Optional: Link to shift

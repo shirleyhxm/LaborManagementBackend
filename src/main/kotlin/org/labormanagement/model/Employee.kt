@@ -7,6 +7,7 @@ import java.util.UUID
 
 data class Employee(
     val id: UUID = UUID.randomUUID(),
+    val businessId: UUID,  // Multi-tenancy: Business this employee belongs to
     val firstName: String,
     val lastName: String,
     val middleName: String = "",

@@ -16,25 +16,64 @@ class AuthController(
     private val authService: AuthService,
     private val rateLimiter: RateLimiter = RateLimiter()
 ) {
-    fun Routing.authRoutes() {
+    fun Route.authRoutes() {
         route("/api/auth") {
+            // POST /api/auth/register - Register new user and create default business
+            post("/register") {
+                try {
+                    val registerRequest = call.receive<RegisterRequest>()
+
+                    // Validate input
+                    if (registerRequest.email.isBlank() ||
+                        registerRequest.firstName.isBlank() ||
+                        registerRequest.lastName.isBlank() ||
+                        registerRequest.password.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("All fields are required")
+                        )
+                        return@post
+                    }
+
+                    // Register user
+                    val authResponse = authService.register(registerRequest)
+                    call.respond(HttpStatusCode.Created, authResponse)
+                } catch (e: org.labormanagement.service.ConflictException) {
+                    call.respond(
+                        HttpStatusCode.Conflict,
+                        ErrorResponse(e.message ?: "Registration conflict")
+                    )
+                } catch (e: org.labormanagement.service.BadRequestException) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse(e.message ?: "Invalid registration request")
+                    )
+                } catch (e: Exception) {
+                    call.application.log.error("Registration error", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        ErrorResponse("Registration failed: ${e.message}")
+                    )
+                }
+            }
+
             // POST /api/auth/login - Authenticate user and return JWT token
             post("/login") {
                 try {
                     val loginRequest = call.receive<LoginRequest>()
 
                     // Validate input
-                    if (loginRequest.username.isBlank() || loginRequest.password.isBlank()) {
+                    if (loginRequest.email.isBlank() || loginRequest.password.isBlank()) {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            ErrorResponse("Username and password are required")
+                            ErrorResponse("Email and password are required")
                         )
                         return@post
                     }
 
-                    // Get identifier for rate limiting (use IP + username combination)
+                    // Get identifier for rate limiting (use IP + email combination)
                     val ipAddress = call.request.local.remoteHost
-                    val identifier = "${ipAddress}:${loginRequest.username}"
+                    val identifier = "${ipAddress}:${loginRequest.email}"
 
                     // Check if locked out due to too many failed attempts
                     if (rateLimiter.isLockedOut(identifier)) {
@@ -75,7 +114,7 @@ class AuthController(
                                 call.respond(
                                     HttpStatusCode.Unauthorized,
                                     ErrorResponse(
-                                        "Invalid username or password. " +
+                                        "Invalid email or password. " +
                                         "$remaining attempts remaining before lockout."
                                     )
                                 )
@@ -105,17 +144,17 @@ class AuthController(
                     val request = call.receive<Verify2FARequest>()
 
                     // Validate input
-                    if (request.username.isBlank() || request.code.isBlank()) {
+                    if (request.email.isBlank() || request.code.isBlank()) {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            ErrorResponse("Username and verification code are required")
+                            ErrorResponse("Email and verification code are required")
                         )
                         return@post
                     }
 
                     // Get identifier for rate limiting
                     val ipAddress = call.request.local.remoteHost
-                    val identifier = "${ipAddress}:${request.username}"
+                    val identifier = "${ipAddress}:${request.email}"
 
                     // Verify 2FA and complete login
                     val authResponse = authService.verify2FAAndLogin(request)

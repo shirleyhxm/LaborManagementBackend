@@ -6,6 +6,7 @@ import java.time.Period
 import java.util.UUID
 
 data class ScheduleInput(
+    val businessId: UUID,
     val employeeIds: List<UUID>,
     val laborCostBudget: Double,
     val schedulePeriod: SchedulePeriod,

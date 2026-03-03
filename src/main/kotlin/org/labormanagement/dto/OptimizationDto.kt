@@ -11,6 +11,7 @@ import java.util.UUID
  * Simplified optimization request for v2 API.
  * Only requires demand matrix - fetches employees, constraints, and sales forecasts from repositories.
  * Optionally can filter to specific employees or use all available employees.
+ * Note: businessId is now extracted from the route path parameter.
  */
 data class OptimizationRequestV2(
     val demandMatrix: DemandMatrixDto,

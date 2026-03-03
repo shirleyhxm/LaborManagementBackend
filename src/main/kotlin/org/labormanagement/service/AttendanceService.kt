@@ -24,13 +24,14 @@ class AttendanceService(
      * Clock in an employee
      */
     fun clockIn(
+        businessId: UUID,
         employeeId: UUID,
         scheduleId: UUID? = null,
         shiftId: UUID? = null,
         notes: String = ""
     ): Result<ClockRecord> {
         // Verify employee exists
-        val employee = employeeRepository.findById(employeeId)
+        val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         // Check if already clocked in
@@ -41,7 +42,7 @@ class AttendanceService(
 
         // Verify schedule and shift if provided
         if (scheduleId != null) {
-            val schedule = scheduleRepository.findById(scheduleId)
+            val schedule = scheduleRepository.findById(businessId, scheduleId)
                 ?: return Result.failure(Exception("Schedule not found"))
 
             if (shiftId != null) {
@@ -56,6 +57,7 @@ class AttendanceService(
         }
 
         val clockRecord = ClockRecord(
+            businessId = businessId,
             employeeId = employeeId,
             scheduleId = scheduleId,
             shiftId = shiftId,
@@ -128,12 +130,13 @@ class AttendanceService(
      * Get attendance statistics for an employee in a period
      */
     fun getAttendanceStats(
+        businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate
     ): Result<AttendanceStats> {
         // Verify employee exists
-        val employee = employeeRepository.findById(employeeId)
+        val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
@@ -145,7 +148,7 @@ class AttendanceService(
         val totalHoursWorked = completedRecords.mapNotNull { it.durationHours }.sum()
 
         // Calculate scheduled hours from schedules
-        val scheduledHours = calculateScheduledHours(employeeId, startDate, endDate)
+        val scheduledHours = calculateScheduledHours(businessId, employeeId, startDate, endDate)
 
         val attendanceRate = if (scheduledHours > 0) {
             (totalHoursWorked / scheduledHours) * 100
@@ -175,12 +178,15 @@ class AttendanceService(
      * so we estimate based on all published schedules for this employee
      */
     private fun calculateScheduledHours(
+        businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate
     ): Double {
-        val schedules = scheduleRepository.findAll()
-            .filter { it.status == org.labormanagement.model.ScheduleStatus.PUBLISHED }
+        val schedules = scheduleRepository.findByBusinessAndStatus(
+            businessId,
+            org.labormanagement.model.ScheduleStatus.PUBLISHED
+        )
 
         var totalScheduledHours = 0.0
 

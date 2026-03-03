@@ -5,58 +5,74 @@ import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
 /**
- * Repository for managing sales forecast data.
- * Maintains a single forecast entry that can be read and updated.
+ * Repository for managing sales forecast data with multi-tenant support.
+ * Each business has its own sales forecast.
  */
 class SalesForecastRepository {
     private val lock = ReentrantReadWriteLock()
 
-    // Single forecast entry with default data
-    private var forecast: SalesForecast = createDefaultForecast()
+    // Map of businessId -> SalesForecast
+    private val forecasts = ConcurrentHashMap<UUID, SalesForecast>()
+
+    // ===== Business-Scoped Methods (Multi-Tenant) =====
 
     /**
-     * Get the current sales forecast.
+     * Get the sales forecast for a specific business.
+     * Returns default forecast if none exists.
      */
-    fun get(): SalesForecast = lock.read {
-        forecast
+    fun getByBusiness(businessId: UUID): SalesForecast = lock.read {
+        forecasts.computeIfAbsent(businessId) { createDefaultForecast(businessId) }
     }
 
     /**
-     * Update the sales forecast with date-specific and/or weekly pattern data.
+     * Update the sales forecast for a specific business.
      */
-    fun update(
+    fun updateForBusiness(
+        businessId: UUID,
         dateSpecificForecast: Map<LocalDate, Map<LocalTime, Double>>? = null,
         weeklyPattern: Map<DayOfWeek, Map<LocalTime, Double>>? = null,
         updatedBy: String = "system"
     ): SalesForecast = lock.write {
-        forecast = SalesForecast(
-            id = "default",
+        val forecast = SalesForecast(
+            businessId = businessId,
+            id = "forecast-$businessId",
             dateSpecificForecast = dateSpecificForecast,
             weeklyPattern = weeklyPattern,
             lastUpdatedAt = Instant.now(),
             lastUpdatedBy = updatedBy
         )
+        forecasts[businessId] = forecast
         forecast
     }
 
     /**
-     * Reset to default forecast.
+     * Reset forecast to default for a specific business.
      */
-    fun reset(): SalesForecast = lock.write {
-        forecast = createDefaultForecast()
+    fun resetForBusiness(businessId: UUID): SalesForecast = lock.write {
+        val forecast = createDefaultForecast(businessId)
+        forecasts[businessId] = forecast
         forecast
+    }
+
+    /**
+     * Delete forecast for a specific business.
+     */
+    fun deleteForBusiness(businessId: UUID): Boolean = lock.write {
+        forecasts.remove(businessId) != null
     }
 
     companion object {
         /**
          * Create a default sales forecast with moderate sales throughout the week.
          */
-        fun createDefaultForecast(): SalesForecast {
+        fun createDefaultForecast(businessId: UUID): SalesForecast {
             // Default forecast: moderate sales Monday-Friday, higher on weekends
             val weekdayForecast = (8..20).associate { hour ->
                 LocalTime.of(hour, 0) to when (hour) {
@@ -79,7 +95,8 @@ class SalesForecastRepository {
             }
 
             return SalesForecast(
-                id = "default",
+                businessId = businessId,
+                id = "forecast-$businessId",
                 weeklyPattern = mapOf(
                     DayOfWeek.MONDAY to weekdayForecast,
                     DayOfWeek.TUESDAY to weekdayForecast,
