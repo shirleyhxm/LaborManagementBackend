@@ -37,6 +37,17 @@ dependencies {
     // OR-Tools for optimization
     implementation("com.google.ortools:ortools-java:9.10.4067")
 
+    // PostgreSQL database dependencies
+    implementation("org.postgresql:postgresql:42.7.2")
+    implementation("org.jetbrains.exposed:exposed-core:0.48.0")
+    implementation("org.jetbrains.exposed:exposed-dao:0.48.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.48.0")
+    implementation("org.jetbrains.exposed:exposed-java-time:0.48.0")
+    implementation("com.zaxxer:HikariCP:5.1.0")
+
+    // Environment configuration
+    implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
+
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host:2.3.12")
 }

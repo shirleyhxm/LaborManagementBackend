@@ -36,10 +36,12 @@ import org.labormanagement.controller.TestDataController
 import org.labormanagement.controller.attendanceRoutes
 import org.labormanagement.controller.timeoffRoutes
 import org.labormanagement.controller.salesRoutes
+import org.labormanagement.database.DatabaseFactory
 import org.labormanagement.repository.AttendanceRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.EmployeeGroupRepository
+import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.SalesRepository
 import org.labormanagement.repository.ScheduleRepository
@@ -64,15 +66,9 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.hours
-import com.google.gson.JsonDeserializer
-import com.google.gson.JsonSerializer
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
-import java.time.DayOfWeek
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import org.labormanagement.config.GsonConfig
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
@@ -80,7 +76,17 @@ fun main() {
 }
 
 fun Application.module() {
-    // Initialize repositories and services
+    // Initialize PostgreSQL database
+    log.info("Initializing PostgreSQL database connection...")
+    try {
+        DatabaseFactory.init()
+        log.info("Database initialized successfully")
+    } catch (e: Exception) {
+        log.error("Failed to initialize database", e)
+        throw e
+    }
+
+    // Initialize PostgreSQL repositories
     val businessRepository = BusinessRepository()
     val employeeRepository = EmployeeRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
@@ -90,6 +96,9 @@ fun Application.module() {
     val attendanceRepository = AttendanceRepository()
     val timeoffRepository = TimeoffRepository()
     val salesRepository = SalesRepository()
+    val passwordResetRepository = PasswordResetRepository()
+
+    // Initialize services
     val constraintValidator = ConstraintValidator()
     val constraintsService = ConstraintsService()
     val schedulingApproach = SchedulingApproach.OPTIMIZER
@@ -121,7 +130,8 @@ fun Application.module() {
     val authService = AuthService(
         userRepository = userRepository,
         jwtService = jwtService,
-        businessService = businessService
+        businessService = businessService,
+        passwordResetRepository = passwordResetRepository
     )
 
     // Initialize new services
@@ -181,42 +191,8 @@ fun Application.module() {
 
     // Configure plugins
     install(ContentNegotiation) {
-        gson {
-            // Pretty printing disabled for performance - adds 3-5x serialization overhead
-            // Use browser extensions (JSONView) for formatting instead
-            serializeNulls()
-
-            // Register type adapters for Java 8 time types
-            // Use HH:mm format for times (e.g., "09:00" instead of "09:00:00")
-            val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-            registerTypeAdapter(LocalTime::class.java, JsonSerializer<LocalTime> { src, _, _ ->
-                com.google.gson.JsonPrimitive(src.format(timeFormatter))
-            })
-            registerTypeAdapter(LocalTime::class.java, JsonDeserializer { json, _, _ ->
-                LocalTime.parse(json.asString, timeFormatter)
-            })
-
-            registerTypeAdapter(LocalDate::class.java, JsonSerializer<LocalDate> { src, _, _ ->
-                com.google.gson.JsonPrimitive(src.format(DateTimeFormatter.ISO_LOCAL_DATE))
-            })
-            registerTypeAdapter(LocalDate::class.java, JsonDeserializer { json, _, _ ->
-                LocalDate.parse(json.asString, DateTimeFormatter.ISO_LOCAL_DATE)
-            })
-
-            registerTypeAdapter(Instant::class.java, JsonSerializer<Instant> { src, _, _ ->
-                com.google.gson.JsonPrimitive(src.toString())
-            })
-            registerTypeAdapter(Instant::class.java, JsonDeserializer { json, _, _ ->
-                Instant.parse(json.asString)
-            })
-
-            registerTypeAdapter(DayOfWeek::class.java, JsonSerializer<DayOfWeek> { src, _, _ ->
-                com.google.gson.JsonPrimitive(src.name)
-            })
-            registerTypeAdapter(DayOfWeek::class.java, JsonDeserializer { json, _, _ ->
-                DayOfWeek.valueOf(json.asString)
-            })
-        }
+        // Use shared Gson configuration for consistent serialization
+        register(io.ktor.http.ContentType.Application.Json, io.ktor.serialization.gson.GsonConverter(GsonConfig.createGson()))
     }
 
     install(CORS) {

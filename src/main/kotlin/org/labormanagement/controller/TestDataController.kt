@@ -4,6 +4,7 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.labormanagement.database.DatabaseFactory
 import org.labormanagement.dto.toResponse
 import org.labormanagement.model.Availability
 import org.labormanagement.model.AvailabilityType
@@ -330,6 +331,22 @@ class TestDataController(
                         "employeeIds" to employees.map { it.id.toString() }
                     )
                 )
+            }
+
+            // Reset database - drops all tables and recreates them
+            post("/reset-database") {
+                try {
+                    DatabaseFactory.resetDatabase()
+                    call.respond(
+                        HttpStatusCode.OK,
+                        mapOf("message" to "Database reset successfully. All data has been deleted.")
+                    )
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to (e.message ?: "Failed to reset database"))
+                    )
+                }
             }
         }
     }

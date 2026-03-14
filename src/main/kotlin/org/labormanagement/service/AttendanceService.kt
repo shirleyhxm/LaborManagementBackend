@@ -35,7 +35,7 @@ class AttendanceService(
             ?: return Result.failure(Exception("Employee not found"))
 
         // Check if already clocked in
-        val activeRecord = attendanceRepository.findActiveByEmployeeId(employeeId)
+        val activeRecord = attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
         if (activeRecord != null) {
             return Result.failure(Exception("Employee is already clocked in"))
         }
@@ -75,11 +75,12 @@ class AttendanceService(
      * Clock out an employee
      */
     fun clockOut(
+        businessId: UUID,
         employeeId: UUID,
         notes: String = ""
     ): Result<ClockRecord> {
         // Find active clock record
-        val activeRecord = attendanceRepository.findActiveByEmployeeId(employeeId)
+        val activeRecord = attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
             ?: return Result.failure(Exception("Employee is not clocked in"))
 
         val clockOutTime = Instant.now()
@@ -94,36 +95,37 @@ class AttendanceService(
             notes = if (notes.isNotEmpty()) "${activeRecord.notes}\n$notes".trim() else activeRecord.notes
         )
 
-        val updated = attendanceRepository.update(updatedRecord)
+        val updated = attendanceRepository.update(businessId, updatedRecord)
+            ?: return Result.failure(Exception("Failed to update clock record"))
         return Result.success(updated)
     }
 
     /**
      * Get active clock record for an employee
      */
-    fun getActiveClockRecord(employeeId: UUID): ClockRecord? {
-        return attendanceRepository.findActiveByEmployeeId(employeeId)
+    fun getActiveClockRecord(businessId: UUID, employeeId: UUID): ClockRecord? {
+        return attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
     }
 
     /**
      * Get all clock records for an employee
      */
-    fun getClockRecordsByEmployee(employeeId: UUID): List<ClockRecord> {
-        return attendanceRepository.findByEmployeeId(employeeId)
+    fun getClockRecordsByEmployee(businessId: UUID, employeeId: UUID): List<ClockRecord> {
+        return attendanceRepository.findByEmployeeId(businessId, employeeId)
     }
 
     /**
      * Get clock records for a shift
      */
-    fun getClockRecordsByShift(shiftId: UUID): List<ClockRecord> {
-        return attendanceRepository.findByShiftId(shiftId)
+    fun getClockRecordsByShift(businessId: UUID, shiftId: UUID): List<ClockRecord> {
+        return attendanceRepository.findByShiftId(businessId, shiftId)
     }
 
     /**
      * Get clock records for a schedule
      */
-    fun getClockRecordsBySchedule(scheduleId: UUID): List<ClockRecord> {
-        return attendanceRepository.findByScheduleId(scheduleId)
+    fun getClockRecordsBySchedule(businessId: UUID, scheduleId: UUID): List<ClockRecord> {
+        return attendanceRepository.findByScheduleId(businessId, scheduleId)
     }
 
     /**
@@ -142,7 +144,7 @@ class AttendanceService(
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = endDate.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
-        val clockRecords = attendanceRepository.findByDateRange(employeeId, startInstant, endInstant)
+        val clockRecords = attendanceRepository.findByDateRange(businessId, employeeId, startInstant, endInstant)
         val completedRecords = clockRecords.filter { it.clockOutTime != null }
 
         val totalHoursWorked = completedRecords.mapNotNull { it.durationHours }.sum()
@@ -204,15 +206,15 @@ class AttendanceService(
     /**
      * Get clock record by ID
      */
-    fun getClockRecordById(id: UUID): ClockRecord? {
-        return attendanceRepository.findById(id)
+    fun getClockRecordById(businessId: UUID, id: UUID): ClockRecord? {
+        return attendanceRepository.findById(businessId, id)
     }
 
     /**
      * Delete a clock record (admin only)
      */
-    fun deleteClockRecord(id: UUID): Result<Unit> {
-        val deleted = attendanceRepository.delete(id)
+    fun deleteClockRecord(businessId: UUID, id: UUID): Result<Unit> {
+        val deleted = attendanceRepository.delete(businessId, id)
         return if (deleted) {
             Result.success(Unit)
         } else {

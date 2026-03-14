@@ -79,22 +79,22 @@ class SalesService(
     /**
      * Get sales records for an employee
      */
-    fun getSalesByEmployee(employeeId: UUID): List<SalesRecord> {
-        return salesRepository.findByEmployeeId(employeeId)
+    fun getSalesByEmployee(businessId: UUID, employeeId: UUID): List<SalesRecord> {
+        return salesRepository.findByEmployeeId(businessId, employeeId)
     }
 
     /**
      * Get sales records for a shift
      */
-    fun getSalesByShift(shiftId: UUID): List<SalesRecord> {
-        return salesRepository.findByShiftId(shiftId)
+    fun getSalesByShift(businessId: UUID, shiftId: UUID): List<SalesRecord> {
+        return salesRepository.findByShiftId(businessId, shiftId)
     }
 
     /**
      * Get sales records for a schedule
      */
-    fun getSalesBySchedule(scheduleId: UUID): List<SalesRecord> {
-        return salesRepository.findByScheduleId(scheduleId)
+    fun getSalesBySchedule(businessId: UUID, scheduleId: UUID): List<SalesRecord> {
+        return salesRepository.findByScheduleId(businessId, scheduleId)
     }
 
     /**
@@ -113,14 +113,14 @@ class SalesService(
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = endDate.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
-        val salesRecords = salesRepository.findByEmployeeIdAndDateRange(employeeId, startInstant, endInstant)
+        val salesRecords = salesRepository.findByEmployeeIdAndDateRange(businessId, employeeId, startInstant, endInstant)
 
         val totalSales = salesRecords.sumOf { it.amount }
         val totalTransactions = salesRecords.size
         val averageSaleAmount = if (totalTransactions > 0) totalSales / totalTransactions else 0.0
 
         // Get hours worked from attendance
-        val hoursWorked = attendanceRepository.getTotalHoursWorked(employeeId, startInstant, endInstant)
+        val hoursWorked = attendanceRepository.getTotalHoursWorked(businessId, employeeId, startInstant, endInstant)
 
         val salesPerHour = if (hoursWorked > 0) totalSales / hoursWorked else 0.0
 
@@ -158,8 +158,8 @@ class SalesService(
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = endDate.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
-        val totalSales = salesRepository.getTotalSales(employeeId, startInstant, endInstant)
-        val hoursWorked = attendanceRepository.getTotalHoursWorked(employeeId, startInstant, endInstant)
+        val totalSales = salesRepository.getTotalSales(businessId, employeeId, startInstant, endInstant)
+        val hoursWorked = attendanceRepository.getTotalHoursWorked(businessId, employeeId, startInstant, endInstant)
 
         if (hoursWorked > 0) {
             val actualProductivity = totalSales / hoursWorked
@@ -179,7 +179,7 @@ class SalesService(
         val startInstant = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = date.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
-        val salesRecords = salesRepository.findByDateRange(startInstant, endInstant)
+        val salesRecords = salesRepository.findByDateRange(businessId, startInstant, endInstant)
 
         val totalSales = salesRecords.sumOf { it.amount }
         val totalTransactions = salesRecords.size
@@ -209,15 +209,15 @@ class SalesService(
     /**
      * Get sales record by ID
      */
-    fun getSalesRecordById(id: UUID): SalesRecord? {
-        return salesRepository.findById(id)
+    fun getSalesRecordById(businessId: UUID, id: UUID): SalesRecord? {
+        return salesRepository.findById(businessId, id)
     }
 
     /**
      * Delete a sales record (admin only)
      */
-    fun deleteSalesRecord(id: UUID): Result<Unit> {
-        val deleted = salesRepository.delete(id)
+    fun deleteSalesRecord(businessId: UUID, id: UUID): Result<Unit> {
+        val deleted = salesRepository.delete(businessId, id)
         return if (deleted) {
             Result.success(Unit)
         } else {

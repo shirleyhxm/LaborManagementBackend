@@ -125,7 +125,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val records = salesService.getSalesByEmployee(employeeId)
+            val records = salesService.getSalesByEmployee(businessId, employeeId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -157,7 +157,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val records = salesService.getSalesByShift(shiftId)
+            val records = salesService.getSalesByShift(businessId, shiftId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -189,7 +189,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val records = salesService.getSalesBySchedule(scheduleId)
+            val records = salesService.getSalesBySchedule(businessId, scheduleId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -321,7 +321,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@get
             }
 
-            val record = salesService.getSalesRecordById(id)
+            val record = salesService.getSalesRecordById(businessId, id)
             if (record != null) {
                 call.respond(HttpStatusCode.OK, record.toResponse())
             } else {
@@ -357,7 +357,7 @@ fun Route.salesRoutes(salesService: SalesService) {
                 return@delete
             }
 
-            val result = salesService.deleteSalesRecord(id)
+            val result = salesService.deleteSalesRecord(businessId, id)
             result.fold(
                 onSuccess = {
                     call.respond(HttpStatusCode.NoContent)

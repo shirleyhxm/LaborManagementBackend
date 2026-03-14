@@ -23,9 +23,10 @@ class SalesForecastController(
         route("/api/businesses/{businessId}/sales-forecast") {
             // GET - Get current sales forecast for business
             get {
+                val businessIdParam = call.parameters["businessId"]
                 try {
                     // Extract and validate businessId from path
-                    val businessId = call.parameters["businessId"]?.let {
+                    val businessId = businessIdParam?.let {
                         try { UUID.fromString(it) } catch (e: Exception) { null }
                     }
                     if (businessId == null) {
@@ -43,7 +44,13 @@ class SalesForecastController(
                     val forecast = salesForecastRepository.getByBusiness(businessId)
                     call.respond(HttpStatusCode.OK, forecast)
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    // Log full error details
+                    call.application.environment.log.error("Error getting sales forecast for business $businessIdParam", e)
+                    call.respond(HttpStatusCode.BadRequest, mapOf(
+                        "error" to (e.message ?: "Invalid request"),
+                        "errorType" to e.javaClass.simpleName,
+                        "stackTrace" to e.stackTraceToString()
+                    ))
                 }
             }
 

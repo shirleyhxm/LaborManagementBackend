@@ -1,108 +1,199 @@
 package org.labormanagement.repository
 
+import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.transactions.transaction
+import org.labormanagement.database.Attendances
 import org.labormanagement.model.ClockRecord
+import org.slf4j.LoggerFactory
 import java.time.Instant
-import java.time.LocalDate
-import java.util.*
-import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 /**
- * Repository for managing clock in/out records
+ * PostgreSQL-backed attendance repository using Exposed ORM.
+ * Manages clock in/out records with multi-tenant support.
  */
 class AttendanceRepository {
-    private val clockRecords = ConcurrentHashMap<UUID, ClockRecord>()
+    private val logger = LoggerFactory.getLogger(AttendanceRepository::class.java)
 
     /**
      * Create a new clock record
      */
-    fun create(record: ClockRecord): ClockRecord {
-        clockRecords[record.id] = record
-        return record
-    }
-
-    /**
-     * Find a clock record by ID
-     */
-    fun findById(id: UUID): ClockRecord? {
-        return clockRecords[id]
-    }
-
-    /**
-     * Find all clock records
-     */
-    fun findAll(): List<ClockRecord> {
-        return clockRecords.values.toList()
-    }
-
-    /**
-     * Find clock records by employee ID
-     */
-    fun findByEmployeeId(employeeId: UUID): List<ClockRecord> {
-        return clockRecords.values.filter { it.employeeId == employeeId }
-    }
-
-    /**
-     * Find active clock record (clocked in, not clocked out) for an employee
-     */
-    fun findActiveByEmployeeId(employeeId: UUID): ClockRecord? {
-        return clockRecords.values.firstOrNull {
-            it.employeeId == employeeId && it.isActive()
+    fun create(record: ClockRecord): ClockRecord = transaction {
+        Attendances.insert {
+            it[id] = record.id
+            it[businessId] = record.businessId
+            it[employeeId] = record.employeeId
+            it[scheduleId] = record.scheduleId
+            it[shiftId] = record.shiftId
+            it[clockInTime] = record.clockInTime
+            it[clockOutTime] = record.clockOutTime
+            it[durationHours] = record.durationHours
+            it[notes] = record.notes
+            it[createdAt] = record.createdAt
+            it[updatedAt] = record.updatedAt
         }
+
+        record
     }
 
     /**
-     * Find clock records by shift ID
+     * Find a clock record by ID with business verification
      */
-    fun findByShiftId(shiftId: UUID): List<ClockRecord> {
-        return clockRecords.values.filter { it.shiftId == shiftId }
+    fun findById(businessId: UUID, id: UUID): ClockRecord? = transaction {
+        Attendances.selectAll().where { (Attendances.id eq id) and (Attendances.businessId eq businessId) }
+            .singleOrNull()
+            ?.toClockRecord()
     }
 
     /**
-     * Find clock records by schedule ID
+     * Find all clock records for a specific business
      */
-    fun findByScheduleId(scheduleId: UUID): List<ClockRecord> {
-        return clockRecords.values.filter { it.scheduleId == scheduleId }
+    fun findAllByBusiness(businessId: UUID): List<ClockRecord> = transaction {
+        Attendances.selectAll().where { Attendances.businessId eq businessId }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
     }
 
     /**
-     * Find clock records within a date range
+     * Find clock records by employee ID within a specific business
      */
-    fun findByDateRange(employeeId: UUID, startDate: Instant, endDate: Instant): List<ClockRecord> {
-        return clockRecords.values.filter { record ->
-            record.employeeId == employeeId &&
-            !record.clockInTime.isBefore(startDate) &&
-            !record.clockInTime.isAfter(endDate)
+    fun findByEmployeeId(businessId: UUID, employeeId: UUID): List<ClockRecord> = transaction {
+        Attendances.selectAll().where {
+            (Attendances.businessId eq businessId) and (Attendances.employeeId eq employeeId)
         }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
     }
 
     /**
-     * Update a clock record
+     * Find active clock record (clocked in, not clocked out) for an employee within a specific business
      */
-    fun update(record: ClockRecord): ClockRecord {
-        clockRecords[record.id] = record.copy(updatedAt = Instant.now())
-        return clockRecords[record.id]!!
+    fun findActiveByEmployeeId(businessId: UUID, employeeId: UUID): ClockRecord? = transaction {
+        Attendances.selectAll().where {
+            (Attendances.businessId eq businessId) and
+            (Attendances.employeeId eq employeeId) and
+            (Attendances.clockOutTime.isNull())
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .limit(1)
+            .singleOrNull()
+            ?.toClockRecord()
     }
 
     /**
-     * Delete a clock record
+     * Find clock records by shift ID within a specific business
      */
-    fun delete(id: UUID): Boolean {
-        return clockRecords.remove(id) != null
+    fun findByShiftId(businessId: UUID, shiftId: UUID): List<ClockRecord> = transaction {
+        Attendances.selectAll().where {
+            (Attendances.businessId eq businessId) and (Attendances.shiftId eq shiftId)
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
     }
 
     /**
-     * Delete all clock records (for testing)
+     * Find clock records by schedule ID within a specific business
      */
-    fun deleteAll() {
-        clockRecords.clear()
+    fun findByScheduleId(businessId: UUID, scheduleId: UUID): List<ClockRecord> = transaction {
+        Attendances.selectAll().where {
+            (Attendances.businessId eq businessId) and (Attendances.scheduleId eq scheduleId)
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
     }
 
     /**
-     * Get total hours worked by an employee in a date range
+     * Find clock records within a date range for an employee within a specific business
      */
-    fun getTotalHoursWorked(employeeId: UUID, startDate: Instant, endDate: Instant): Double {
-        return findByDateRange(employeeId, startDate, endDate)
+    fun findByDateRange(
+        businessId: UUID,
+        employeeId: UUID,
+        startDate: Instant,
+        endDate: Instant
+    ): List<ClockRecord> = transaction {
+        Attendances.selectAll().where {
+            (Attendances.businessId eq businessId) and
+            (Attendances.employeeId eq employeeId) and
+            (Attendances.clockInTime greaterEq startDate) and
+            (Attendances.clockInTime lessEq endDate)
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
+    }
+
+    /**
+     * Update a clock record with business verification
+     */
+    fun update(businessId: UUID, record: ClockRecord): ClockRecord? = transaction {
+        val existing = Attendances.selectAll().where {
+            (Attendances.id eq record.id) and (Attendances.businessId eq businessId)
+        }.singleOrNull() ?: return@transaction null
+
+        val updatedRecord = record.copy(updatedAt = Instant.now())
+
+        Attendances.update({ Attendances.id eq record.id }) {
+            it[Attendances.businessId] = updatedRecord.businessId
+            it[employeeId] = updatedRecord.employeeId
+            it[scheduleId] = updatedRecord.scheduleId
+            it[shiftId] = updatedRecord.shiftId
+            it[clockInTime] = updatedRecord.clockInTime
+            it[clockOutTime] = updatedRecord.clockOutTime
+            it[durationHours] = updatedRecord.durationHours
+            it[notes] = updatedRecord.notes
+            it[updatedAt] = updatedRecord.updatedAt
+        }
+
+        updatedRecord
+    }
+
+    /**
+     * Delete a clock record with business verification
+     */
+    fun delete(businessId: UUID, id: UUID): Boolean = transaction {
+        val deletedCount = Attendances.deleteWhere {
+            (Attendances.id eq id) and (Attendances.businessId eq businessId)
+        }
+        deletedCount > 0
+    }
+
+    /**
+     * Delete all clock records for a business (for testing)
+     */
+    fun deleteAllForBusiness(businessId: UUID) = transaction {
+        Attendances.deleteWhere { Attendances.businessId eq businessId }
+    }
+
+    /**
+     * Get total hours worked by an employee in a date range within a specific business
+     */
+    fun getTotalHoursWorked(
+        businessId: UUID,
+        employeeId: UUID,
+        startDate: Instant,
+        endDate: Instant
+    ): Double = transaction {
+        findByDateRange(businessId, employeeId, startDate, endDate)
             .mapNotNull { it.durationHours }
             .sum()
+    }
+
+    /**
+     * Extension function to convert ResultRow to ClockRecord domain model
+     */
+    private fun ResultRow.toClockRecord(): ClockRecord {
+        return ClockRecord(
+            id = this[Attendances.id],
+            businessId = this[Attendances.businessId],
+            employeeId = this[Attendances.employeeId],
+            scheduleId = this[Attendances.scheduleId],
+            shiftId = this[Attendances.shiftId],
+            clockInTime = this[Attendances.clockInTime],
+            clockOutTime = this[Attendances.clockOutTime],
+            durationHours = this[Attendances.durationHours],
+            notes = this[Attendances.notes],
+            createdAt = this[Attendances.createdAt],
+            updatedAt = this[Attendances.updatedAt]
+        )
     }
 }

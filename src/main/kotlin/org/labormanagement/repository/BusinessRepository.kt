@@ -1,47 +1,72 @@
 package org.labormanagement.repository
 
+import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.transactions.transaction
+import org.labormanagement.database.Businesses
 import org.labormanagement.model.Business
+import org.labormanagement.model.BusinessSettings
 import org.labormanagement.model.BusinessStatus
+import org.labormanagement.model.SubscriptionPlan
+import org.slf4j.LoggerFactory
+import java.time.DayOfWeek
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Repository for managing Business entities with multi-tenancy support.
- * Provides CRUD operations and business lookup by owner.
+ * PostgreSQL-backed business repository using Exposed ORM.
+ * Handles multi-tenancy business management.
  */
 class BusinessRepository {
-    private val businesses = ConcurrentHashMap<UUID, Business>()
-    private val ownerIndex = ConcurrentHashMap<String, MutableSet<UUID>>()  // ownerId -> Set<businessId>
+    private val logger = LoggerFactory.getLogger(BusinessRepository::class.java)
 
     /**
      * Create a new business.
-     * Adds the business to the owner index for quick lookup.
      */
-    fun create(business: Business): Business {
-        businesses[business.id] = business
-        ownerIndex.computeIfAbsent(business.ownerId) { ConcurrentHashMap.newKeySet() }.add(business.id)
-        return business
+    fun create(business: Business): Business = transaction {
+        Businesses.insert {
+            it[id] = business.id
+            it[name] = business.name
+            it[ownerId] = business.ownerId
+            it[subdomain] = business.subdomain
+            it[plan] = business.plan.name
+            it[status] = business.status.name
+            it[createdAt] = business.createdAt
+            it[subscriptionId] = business.subscriptionId
+            it[billingEmail] = business.billingEmail
+            it[subscriptionExpiresAt] = business.subscriptionExpiresAt
+            it[maxEmployees] = business.maxEmployees
+            it[maxLocations] = business.maxLocations
+
+            // Business settings
+            it[timezone] = business.settings.timezone
+            it[currency] = business.settings.currency
+            it[weekStartsOn] = business.settings.weekStartsOn.name
+            it[dateFormat] = business.settings.dateFormat
+        }
+
+        business
     }
 
     /**
      * Find a business by ID.
      */
-    fun findById(id: UUID): Business? {
-        return businesses[id]
+    fun findById(id: UUID): Business? = transaction {
+        Businesses.selectAll().where { Businesses.id eq id }
+            .singleOrNull()
+            ?.toBusiness()
     }
 
     /**
      * Find all businesses owned by a specific user.
      */
-    fun findByOwnerId(ownerId: String): List<Business> {
-        val businessIds = ownerIndex[ownerId] ?: return emptyList()
-        return businessIds.mapNotNull { businesses[it] }
+    fun findByOwnerId(ownerId: String): List<Business> = transaction {
+        Businesses.selectAll().where { Businesses.ownerId eq ownerId }
+            .map { it.toBusiness() }
     }
 
     /**
      * Find all active businesses for a user (owned or member).
      * Note: For now, we only return owned businesses.
-     * In the future, this could include businesses where the user is a member.
      */
     fun findByUserId(userId: String): List<Business> {
         return findByOwnerId(userId)
@@ -50,67 +75,83 @@ class BusinessRepository {
     /**
      * Find all businesses (admin function).
      */
-    fun findAll(): List<Business> {
-        return businesses.values.toList()
+    fun findAll(): List<Business> = transaction {
+        Businesses.selectAll().map { it.toBusiness() }
     }
 
     /**
      * Update a business.
-     * Security note: Caller should verify ownership before calling this method.
      */
-    fun update(id: UUID, business: Business): Business? {
-        return if (businesses.containsKey(id)) {
-            businesses[id] = business
-            business
-        } else {
-            null
+    fun update(id: UUID, business: Business): Business? = transaction {
+        val existing = Businesses.selectAll().where { Businesses.id eq id }.singleOrNull()
+            ?: return@transaction null
+
+        Businesses.update({ Businesses.id eq id }) {
+            it[name] = business.name
+            it[ownerId] = business.ownerId
+            it[subdomain] = business.subdomain
+            it[plan] = business.plan.name
+            it[status] = business.status.name
+            it[subscriptionId] = business.subscriptionId
+            it[billingEmail] = business.billingEmail
+            it[subscriptionExpiresAt] = business.subscriptionExpiresAt
+            it[maxEmployees] = business.maxEmployees
+            it[maxLocations] = business.maxLocations
+
+            // Business settings
+            it[timezone] = business.settings.timezone
+            it[currency] = business.settings.currency
+            it[weekStartsOn] = business.settings.weekStartsOn.name
+            it[dateFormat] = business.settings.dateFormat
         }
+
+        business
     }
 
     /**
      * Delete a business (soft delete by changing status).
-     * Security note: Caller should verify ownership before calling this method.
      */
-    fun delete(id: UUID): Boolean {
-        val business = businesses[id] ?: return false
+    fun delete(id: UUID): Boolean = transaction {
+        val existing = Businesses.selectAll().where { Businesses.id eq id }.singleOrNull()
+            ?: return@transaction false
 
-        // Soft delete by changing status
-        val updatedBusiness = business.copy(status = BusinessStatus.CANCELLED)
-        businesses[id] = updatedBusiness
+        Businesses.update({ Businesses.id eq id }) {
+            it[status] = BusinessStatus.CANCELLED.name
+        }
 
-        return true
+        true
     }
 
     /**
      * Hard delete a business (permanently remove from storage).
      * Should only be used for testing or admin operations.
      */
-    fun hardDelete(id: UUID): Boolean {
-        val business = businesses.remove(id) ?: return false
-        ownerIndex[business.ownerId]?.remove(id)
-        return true
+    fun hardDelete(id: UUID): Boolean = transaction {
+        Businesses.deleteWhere { Businesses.id eq id } > 0
     }
 
     /**
      * Check if a business with the given ID exists.
      */
-    fun exists(id: UUID): Boolean {
-        return businesses.containsKey(id)
+    fun exists(id: UUID): Boolean = transaction {
+        !Businesses.selectAll().where { Businesses.id eq id }.empty()
     }
 
     /**
      * Check if a user owns a specific business.
      */
-    fun isOwner(userId: String, businessId: UUID): Boolean {
-        println("isOwner check: userId=$userId, businessId=$businessId")
-        println("businesses: ${businesses.keys}")
-        val business = businesses[businessId] ?: return false
-        return business.ownerId == userId
+    fun isOwner(userId: String, businessId: UUID): Boolean = transaction {
+        val business = Businesses.selectAll().where { Businesses.id eq businessId }
+            .singleOrNull()
+            ?.toBusiness()
+            ?: return@transaction false
+
+        business.ownerId == userId
     }
 
     /**
      * Check if a user has access to a specific business (owner or member).
-     * For now, only owners have access. Future: check BusinessMembership.
+     * For now, only owners have access.
      */
     fun hasAccess(userId: String, businessId: UUID): Boolean {
         return isOwner(userId, businessId)
@@ -119,8 +160,33 @@ class BusinessRepository {
     /**
      * Clear all data (for testing).
      */
-    fun clear() {
-        businesses.clear()
-        ownerIndex.clear()
+    fun clear() = transaction {
+        Businesses.deleteAll()
+    }
+
+    /**
+     * Extension function to convert ResultRow to Business domain model
+     */
+    private fun ResultRow.toBusiness(): Business {
+        return Business(
+            id = this[Businesses.id],
+            name = this[Businesses.name],
+            ownerId = this[Businesses.ownerId],
+            subdomain = this[Businesses.subdomain],
+            plan = SubscriptionPlan.valueOf(this[Businesses.plan]),
+            status = BusinessStatus.valueOf(this[Businesses.status]),
+            createdAt = this[Businesses.createdAt],
+            subscriptionId = this[Businesses.subscriptionId],
+            billingEmail = this[Businesses.billingEmail],
+            subscriptionExpiresAt = this[Businesses.subscriptionExpiresAt],
+            maxEmployees = this[Businesses.maxEmployees],
+            maxLocations = this[Businesses.maxLocations],
+            settings = BusinessSettings(
+                timezone = this[Businesses.timezone],
+                currency = this[Businesses.currency],
+                weekStartsOn = DayOfWeek.valueOf(this[Businesses.weekStartsOn]),
+                dateFormat = this[Businesses.dateFormat]
+            )
+        )
     }
 }

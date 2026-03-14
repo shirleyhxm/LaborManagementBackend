@@ -121,6 +121,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 }
 
                 val result = attendanceService.clockOut(
+                    businessId = businessId,
                     employeeId = employeeId,
                     notes = request.notes
                 )
@@ -166,7 +167,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val activeRecord = attendanceService.getActiveClockRecord(employeeId)
+            val activeRecord = attendanceService.getActiveClockRecord(businessId, employeeId)
             if (activeRecord != null) {
                 call.respond(HttpStatusCode.OK, activeRecord.toResponse())
             } else {
@@ -202,7 +203,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val records = attendanceService.getClockRecordsByEmployee(employeeId)
+            val records = attendanceService.getClockRecordsByEmployee(businessId, employeeId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -234,7 +235,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val records = attendanceService.getClockRecordsByShift(shiftId)
+            val records = attendanceService.getClockRecordsByShift(businessId, shiftId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -266,7 +267,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val records = attendanceService.getClockRecordsBySchedule(scheduleId)
+            val records = attendanceService.getClockRecordsBySchedule(businessId, scheduleId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
 
@@ -359,7 +360,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
-            val record = attendanceService.getClockRecordById(id)
+            val record = attendanceService.getClockRecordById(businessId, id)
             if (record != null) {
                 call.respond(HttpStatusCode.OK, record.toResponse())
             } else {
@@ -395,7 +396,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@delete
             }
 
-            val result = attendanceService.deleteClockRecord(id)
+            val result = attendanceService.deleteClockRecord(businessId, id)
             result.fold(
                 onSuccess = {
                     call.respond(HttpStatusCode.NoContent)

@@ -35,7 +35,7 @@ class TimeoffService(
 
         // Check for overlapping timeoff requests
         val overlapping = timeoffRepository.findApprovedByEmployeeIdAndDateRange(
-            employeeId, startDate, endDate
+            businessId, employeeId, startDate, endDate
         )
         if (overlapping.isNotEmpty()) {
             return Result.failure(Exception("Overlapping approved timeoff request already exists"))
@@ -58,10 +58,11 @@ class TimeoffService(
      * Cancel a pending timeoff request
      */
     fun cancelTimeoffRequest(
+        businessId: UUID,
         requestId: UUID,
         employeeId: UUID
     ): Result<TimeoffRequest> {
-        val request = timeoffRepository.findById(requestId)
+        val request = timeoffRepository.findById(businessId, requestId)
             ?: return Result.failure(Exception("Timeoff request not found"))
 
         // Verify request belongs to employee
@@ -79,7 +80,8 @@ class TimeoffService(
             reviewedAt = Instant.now()
         )
 
-        val updated = timeoffRepository.update(cancelled)
+        val updated = timeoffRepository.update(businessId, cancelled)
+            ?: return Result.failure(Exception("Failed to update timeoff request"))
         return Result.success(updated)
     }
 
@@ -92,7 +94,7 @@ class TimeoffService(
         reviewerId: String,
         reviewNotes: String = ""
     ): Result<TimeoffRequest> {
-        val request = timeoffRepository.findById(requestId)
+        val request = timeoffRepository.findById(businessId, requestId)
             ?: return Result.failure(Exception("Timeoff request not found"))
 
         if (request.status != TimeoffStatus.PENDING) {
@@ -111,7 +113,8 @@ class TimeoffService(
             reviewNotes = reviewNotes
         )
 
-        val updated = timeoffRepository.update(approved)
+        val updated = timeoffRepository.update(businessId, approved)
+            ?: return Result.failure(Exception("Failed to update timeoff request"))
 
         // Update employee availability
         updateEmployeeAvailability(employee, request)
@@ -123,11 +126,12 @@ class TimeoffService(
      * Deny a timeoff request (manager/admin only)
      */
     fun denyTimeoffRequest(
+        businessId: UUID,
         requestId: UUID,
         reviewerId: String,
         reviewNotes: String = ""
     ): Result<TimeoffRequest> {
-        val request = timeoffRepository.findById(requestId)
+        val request = timeoffRepository.findById(businessId, requestId)
             ?: return Result.failure(Exception("Timeoff request not found"))
 
         if (request.status != TimeoffStatus.PENDING) {
@@ -141,7 +145,8 @@ class TimeoffService(
             reviewNotes = reviewNotes
         )
 
-        val updated = timeoffRepository.update(denied)
+        val updated = timeoffRepository.update(businessId, denied)
+            ?: return Result.failure(Exception("Failed to update timeoff request"))
         return Result.success(updated)
     }
 
@@ -167,46 +172,47 @@ class TimeoffService(
     /**
      * Get timeoff requests for an employee
      */
-    fun getTimeoffRequestsByEmployee(employeeId: UUID): List<TimeoffRequest> {
-        return timeoffRepository.findByEmployeeId(employeeId)
+    fun getTimeoffRequestsByEmployee(businessId: UUID, employeeId: UUID): List<TimeoffRequest> {
+        return timeoffRepository.findByEmployeeId(businessId, employeeId)
     }
 
     /**
      * Get pending timeoff requests (for managers)
      */
-    fun getPendingTimeoffRequests(): List<TimeoffRequest> {
-        return timeoffRepository.findByStatus(TimeoffStatus.PENDING)
+    fun getPendingTimeoffRequests(businessId: UUID): List<TimeoffRequest> {
+        return timeoffRepository.findByStatus(businessId, TimeoffStatus.PENDING)
     }
 
     /**
      * Get all timeoff requests (for admins)
      */
-    fun getAllTimeoffRequests(): List<TimeoffRequest> {
-        return timeoffRepository.findAll()
+    fun getAllTimeoffRequests(businessId: UUID): List<TimeoffRequest> {
+        return timeoffRepository.findAllByBusiness(businessId)
     }
 
     /**
      * Get timeoff request by ID
      */
-    fun getTimeoffRequestById(id: UUID): TimeoffRequest? {
-        return timeoffRepository.findById(id)
+    fun getTimeoffRequestById(businessId: UUID, id: UUID): TimeoffRequest? {
+        return timeoffRepository.findById(businessId, id)
     }
 
     /**
      * Check if employee has approved timeoff on a date
      */
-    fun hasApprovedTimeoffOnDate(employeeId: UUID, date: LocalDate): Boolean {
-        return timeoffRepository.hasApprovedTimeoffOnDate(employeeId, date)
+    fun hasApprovedTimeoffOnDate(businessId: UUID, employeeId: UUID, date: LocalDate): Boolean {
+        return timeoffRepository.hasApprovedTimeoffOnDate(businessId, employeeId, date)
     }
 
     /**
      * Get approved timeoff requests for an employee in a date range
      */
     fun getApprovedTimeoffInRange(
+        businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate
     ): List<TimeoffRequest> {
-        return timeoffRepository.findApprovedByEmployeeIdAndDateRange(employeeId, startDate, endDate)
+        return timeoffRepository.findApprovedByEmployeeIdAndDateRange(businessId, employeeId, startDate, endDate)
     }
 }

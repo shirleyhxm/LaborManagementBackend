@@ -126,7 +126,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                     return@delete
                 }
 
-                val result = timeoffService.cancelTimeoffRequest(requestId, employeeId)
+                val result = timeoffService.cancelTimeoffRequest(businessId, requestId, employeeId)
                 result.fold(
                     onSuccess = { timeoffRequest ->
                         call.respond(HttpStatusCode.OK, timeoffRequest.toResponse())
@@ -229,6 +229,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 val reviewerId = call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: "system"
 
                 val result = timeoffService.denyTimeoffRequest(
+                    businessId = businessId,
                     requestId = requestId,
                     reviewerId = reviewerId,
                     reviewNotes = request.reviewNotes
@@ -275,7 +276,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
-            val requests = timeoffService.getTimeoffRequestsByEmployee(employeeId)
+            val requests = timeoffService.getTimeoffRequestsByEmployee(businessId, employeeId)
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
 
@@ -300,7 +301,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
-            val requests = timeoffService.getPendingTimeoffRequests()
+            val requests = timeoffService.getPendingTimeoffRequests(businessId)
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
 
@@ -325,7 +326,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
-            val requests = timeoffService.getAllTimeoffRequests()
+            val requests = timeoffService.getAllTimeoffRequests(businessId)
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
 
@@ -357,7 +358,7 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
-            val timeoffRequest = timeoffService.getTimeoffRequestById(id)
+            val timeoffRequest = timeoffService.getTimeoffRequestById(businessId, id)
             if (timeoffRequest != null) {
                 call.respond(HttpStatusCode.OK, timeoffRequest.toResponse())
             } else {

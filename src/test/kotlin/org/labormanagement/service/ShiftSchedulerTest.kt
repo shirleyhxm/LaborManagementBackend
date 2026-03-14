@@ -3,9 +3,13 @@ package org.labormanagement.service
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.BeforeAll
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
+import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.database.DatabaseFactory
+import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -16,10 +20,36 @@ class ShiftSchedulerTest {
     private val testBusinessId = UUID.fromString("00000000-0000-0000-0000-000000000001")
     private lateinit var employeeRepository: EmployeeRepository
     private lateinit var salesForecastRepository: SalesForecastRepository
+    private lateinit var businessRepository: BusinessRepository
     private lateinit var scheduler: ShiftScheduler
+
+    companion object {
+        @JvmStatic
+        @BeforeAll
+        fun initDatabase() {
+            // Initialize PostgreSQL database for tests
+            DatabaseFactory.init(
+                jdbcUrl = "jdbc:postgresql://localhost:5432/labormanagement_test",
+                user = "shirleyhe",
+                password = ""
+            )
+        }
+    }
 
     @BeforeEach
     fun setup() {
+        // Reset database before each test to ensure isolation
+        DatabaseFactory.resetDatabase()
+
+        // Create test business for multi-tenant support
+        businessRepository = BusinessRepository()
+        val testBusiness = Business(
+            id = testBusinessId,
+            name = "Test Business",
+            ownerId = "test-owner"
+        )
+        businessRepository.create(testBusiness)
+
         employeeRepository = EmployeeRepository()
         salesForecastRepository = SalesForecastRepository()
         scheduler = ShiftScheduler(
