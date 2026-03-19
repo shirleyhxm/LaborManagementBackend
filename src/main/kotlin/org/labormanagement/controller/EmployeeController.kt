@@ -101,7 +101,14 @@ class EmployeeController(
 
                     call.respond(HttpStatusCode.OK, employees.map { it.toResponse() })
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    call.application.log.error("Failed to get employees", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf(
+                            "error" to (e.message ?: "Invalid request"),
+                            "type" to e::class.simpleName
+                        )
+                    )
                 }
             }
 
@@ -139,7 +146,14 @@ class EmployeeController(
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
                     }
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    call.application.log.error("Failed to get employee by ID", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf(
+                            "error" to (e.message ?: "Invalid request"),
+                            "type" to e::class.simpleName
+                        )
+                    )
                 }
             }
 
@@ -193,7 +207,14 @@ class EmployeeController(
                     employeeRepository.update(businessId, id, updated)
                     call.respond(HttpStatusCode.OK, updated.toResponse())
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    call.application.log.error("Failed to update employee", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf(
+                            "error" to (e.message ?: "Invalid request"),
+                            "type" to e::class.simpleName
+                        )
+                    )
                 }
             }
 
@@ -231,7 +252,14 @@ class EmployeeController(
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
                     }
                 } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    call.application.log.error("Failed to delete employee", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf(
+                            "error" to (e.message ?: "Invalid request"),
+                            "type" to e::class.simpleName
+                        )
+                    )
                 }
             }
 
