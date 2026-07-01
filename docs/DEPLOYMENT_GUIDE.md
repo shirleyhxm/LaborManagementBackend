@@ -48,8 +48,16 @@ java -version
 **Option A: Using Git (Recommended)**
 ```bash
 # On EC2 instance
-git clone https://github.com/yourusername/LaborManagement.git
-cd LaborManagement
+git clone git@github.com:shirleyhxm/LaborManagementBackend.git
+cd LaborManagementBackend
+```
+
+**Note:** If you already cloned with HTTPS and encounter "Password authentication is not supported" errors, change the remote URL to SSH:
+
+```bash
+cd LaborManagementBackend
+git remote set-url origin git@github.com:shirleyhxm/LaborManagementBackend.git
+git pull
 ```
 
 **Option B: Using SCP**
@@ -63,7 +71,7 @@ scp -i your-key.pem -r /path/to/LaborManagement ec2-user@your-ec2-instance.com:~
 On the EC2 instance, create `.env.production`:
 
 ```bash
-cd LaborManagement
+cd LaborManagementBackend
 
 # Create .env.production file
 cat > .env.production << 'EOF'
@@ -83,7 +91,7 @@ chmod 600 .env.production
 
 ```bash
 # Build the application
-./gradlew build
+./gradlew build --no-daemon -Dorg.gradle.jvmargs="-Xmx512m -XX:MaxMetaspaceSize=256m" -x test
 
 # Run in production mode
 APP_ENV=production ./gradlew run
@@ -108,9 +116,9 @@ After=network.target
 [Service]
 Type=simple
 User=ec2-user
-WorkingDirectory=/home/ec2-user/LaborManagement
+WorkingDirectory=/home/ec2-user/LaborManagementBackend
 Environment="APP_ENV=production"
-ExecStart=/home/ec2-user/LaborManagement/gradlew run
+ExecStart=/home/ec2-user/LaborManagementBackend/gradlew run
 Restart=always
 RestartSec=10
 
@@ -311,7 +319,7 @@ htop
 
 ```bash
 # On EC2 instance
-cd LaborManagement
+cd LaborManagementBackend
 git pull origin main
 ./gradlew build
 sudo systemctl restart labormanagement
