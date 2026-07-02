@@ -28,10 +28,11 @@ class ShiftSchedulerTest {
         @BeforeAll
         fun initDatabase() {
             // Initialize PostgreSQL database for tests
+            // Use environment variables if available, otherwise fall back to local defaults
             DatabaseFactory.init(
-                jdbcUrl = "jdbc:postgresql://localhost:5432/labormanagement_test",
-                user = "shirleyhe",
-                password = ""
+                jdbcUrl = System.getenv("TEST_DATABASE_URL") ?: "jdbc:postgresql://localhost:5432/labormanagement_test",
+                user = System.getenv("TEST_DATABASE_USER") ?: "shirleyhe",
+                password = System.getenv("TEST_DATABASE_PASSWORD") ?: ""
             )
         }
     }
