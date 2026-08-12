@@ -16,6 +16,17 @@ object DatabaseFactory {
     private val logger = LoggerFactory.getLogger(DatabaseFactory::class.java)
 
     /**
+     * Detect the appropriate JDBC driver based on the JDBC URL.
+     */
+    private fun detectDriver(jdbcUrl: String): String {
+        return when {
+            jdbcUrl.startsWith("jdbc:h2:") -> "org.h2.Driver"
+            jdbcUrl.startsWith("jdbc:postgresql:") -> "org.postgresql.Driver"
+            else -> throw IllegalArgumentException("Unsupported database type in URL: $jdbcUrl")
+        }
+    }
+
+    /**
      * Initialize the database connection pool and create tables.
      *
      * @param jdbcUrl Database JDBC URL (e.g., jdbc:postgresql://localhost:5432/labormanagement)
@@ -25,10 +36,10 @@ object DatabaseFactory {
      * @param maxPoolSize Maximum connection pool size
      */
     fun init(
-        jdbcUrl: String = EnvironmentConfig.get("DATABASE_URL", "jdbc:postgresql://localhost:5432/labormanagement"),
-        user: String = EnvironmentConfig.get("DATABASE_USER", "shirleyhe"),
+        jdbcUrl: String = EnvironmentConfig.get("DATABASE_URL", "jdbc:h2:mem:labormanagement;DB_CLOSE_DELAY=-1;MODE=PostgreSQL"),
+        user: String = EnvironmentConfig.get("DATABASE_USER", "sa"),
         password: String = EnvironmentConfig.get("DATABASE_PASSWORD", ""),
-        driver: String = "org.postgresql.Driver",
+        driver: String = detectDriver(jdbcUrl),
         maxPoolSize: Int = 10
     ) {
         logger.info("Initializing database connection for environment: ${EnvironmentConfig.getEnvironment()}")
