@@ -27,6 +27,11 @@ object GsonConfig {
         return GsonBuilder()
             .serializeNulls()
             .enableComplexMapKeySerialization()
+            // Makes Gson honor Kotlin default parameter values for fields
+            // omitted from JSON, instead of passing null and crashing on
+            // non-nullable properties. See KotlinDefaultsTypeAdapterFactory
+            // for why this is necessary.
+            .registerTypeAdapterFactory(KotlinDefaultsTypeAdapterFactory())
             // LocalTime adapter
             .registerTypeAdapter(LocalTime::class.java, JsonSerializer<LocalTime> { src, _, _ ->
                 com.google.gson.JsonPrimitive(src.format(timeFormatter))

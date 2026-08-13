@@ -33,6 +33,10 @@ dependencies {
 
     // JSON
     implementation("com.google.code.gson:gson:2.10.1")
+    // Kotlin reflection, used by a custom Gson TypeAdapterFactory so Kotlin
+    // data class default parameter values are honored when Gson deserializes
+    // JSON that omits those fields (plain Gson reflection ignores them).
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.2.20")
 
     // OR-Tools for optimization
     implementation("com.google.ortools:ortools-java:9.10.4067")
