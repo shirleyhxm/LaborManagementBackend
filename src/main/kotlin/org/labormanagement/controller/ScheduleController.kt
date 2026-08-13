@@ -12,6 +12,7 @@ import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
 import org.labormanagement.service.TenantContextHolder
+import org.labormanagement.util.parseFlexibleTime
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.util.UUID
@@ -455,8 +456,8 @@ class ScheduleController(
                         shiftId = shiftId,
                         newEmployeeId = request.employeeId?.let { UUID.fromString(it) },
                         newDayOfWeek = request.dayOfWeek?.let { DayOfWeek.valueOf(it.uppercase()) },
-                        newStartTime = request.startTime?.let { LocalTime.parse(it) },
-                        newEndTime = request.endTime?.let { LocalTime.parse(it) },
+                        newStartTime = request.startTime?.let { parseFlexibleTime(it) },
+                        newEndTime = request.endTime?.let { parseFlexibleTime(it) },
                         modifiedBy = request.modifiedBy
                     )
 

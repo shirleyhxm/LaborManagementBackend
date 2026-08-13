@@ -3,6 +3,7 @@ package org.labormanagement.config
 import com.google.gson.*
 import org.labormanagement.model.ConstraintViolation
 import org.labormanagement.model.ViolationType
+import org.labormanagement.util.parseFlexibleTime
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -31,7 +32,7 @@ object GsonConfig {
                 com.google.gson.JsonPrimitive(src.format(timeFormatter))
             })
             .registerTypeAdapter(LocalTime::class.java, JsonDeserializer { json, _, _ ->
-                LocalTime.parse(json.asString, timeFormatter)
+                parseFlexibleTime(json.asString, timeFormatter)
             })
             // LocalDate adapter
             .registerTypeAdapter(LocalDate::class.java, JsonSerializer<LocalDate> { src, _, _ ->
@@ -123,8 +124,8 @@ object GsonConfig {
                             description = description,
                             employeeId = UUID.fromString(obj.get("employeeId").asString),
                             date = LocalDate.parse(obj.get("date").asString, dateFormatter),
-                            startTime = LocalTime.parse(obj.get("startTime").asString, timeFormatter),
-                            endTime = LocalTime.parse(obj.get("endTime").asString, timeFormatter)
+                            startTime = parseFlexibleTime(obj.get("startTime").asString, timeFormatter),
+                            endTime = parseFlexibleTime(obj.get("endTime").asString, timeFormatter)
                         )
                     }
                     obj.has("employeeId") && obj.has("date") && !obj.has("startTime") -> {
@@ -150,8 +151,8 @@ object GsonConfig {
                             type = type,
                             description = description,
                             date = LocalDate.parse(obj.get("date").asString, dateFormatter),
-                            startTime = LocalTime.parse(obj.get("startTime").asString, timeFormatter),
-                            endTime = LocalTime.parse(obj.get("endTime").asString, timeFormatter)
+                            startTime = parseFlexibleTime(obj.get("startTime").asString, timeFormatter),
+                            endTime = parseFlexibleTime(obj.get("endTime").asString, timeFormatter)
                         )
                     }
                     else -> {
@@ -172,8 +173,8 @@ object GsonConfig {
                     type = type,
                     description = description,
                     date = LocalDate.parse(obj.get("date").asString, dateFormatter),
-                    startTime = LocalTime.parse(obj.get("startTime").asString, timeFormatter),
-                    endTime = LocalTime.parse(obj.get("endTime").asString, timeFormatter)
+                    startTime = parseFlexibleTime(obj.get("startTime").asString, timeFormatter),
+                    endTime = parseFlexibleTime(obj.get("endTime").asString, timeFormatter)
                 )
 
                 "Employee" -> ConstraintViolation.Employee(
@@ -194,8 +195,8 @@ object GsonConfig {
                     description = description,
                     employeeId = UUID.fromString(obj.get("employeeId").asString),
                     date = LocalDate.parse(obj.get("date").asString, dateFormatter),
-                    startTime = LocalTime.parse(obj.get("startTime").asString, timeFormatter),
-                    endTime = LocalTime.parse(obj.get("endTime").asString, timeFormatter)
+                    startTime = parseFlexibleTime(obj.get("startTime").asString, timeFormatter),
+                    endTime = parseFlexibleTime(obj.get("endTime").asString, timeFormatter)
                 )
 
                 else -> throw JsonParseException("Unknown ConstraintViolation subclass: $violationClass")

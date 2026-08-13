@@ -4,6 +4,7 @@ import org.labormanagement.model.Availability
 import org.labormanagement.model.AvailabilityType
 import org.labormanagement.model.Contract
 import org.labormanagement.model.Employee
+import org.labormanagement.util.parseFlexibleTime
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -127,8 +128,8 @@ fun AvailabilityDto.toModel(): Availability {
     return Availability(
         availabilityType = AvailabilityType.WEEKLY_RECURRING,
         dayOfWeek = DayOfWeek.valueOf(this.dayOfWeek.uppercase()),
-        startTime = LocalTime.parse(this.startTime),
-        endTime = LocalTime.parse(this.endTime)
+        startTime = parseFlexibleTime(this.startTime),
+        endTime = parseFlexibleTime(this.endTime)
     )
 }
 

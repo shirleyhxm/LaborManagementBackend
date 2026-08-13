@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import org.labormanagement.dto.*
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.util.parseFlexibleTime
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -169,13 +170,23 @@ class OptimizationJobService(
             null
         }.forEach { (date, slots) ->
             if (date != null) {
-                val earliestStart = slots.minByOrNull { LocalTime.parse(it.startTime) }?.startTime
-                val latestEnd = slots.maxByOrNull { LocalTime.parse(it.endTime) }?.endTime
+                // "24:00" (end of day) parses to midnight, which would otherwise look
+                // like the earliest possible time rather than the latest, so it's
+                // compared as its own greatest-value case here before falling back
+                // to normal LocalTime ordering.
+                val earliestStart = slots.minByOrNull { parseFlexibleTime(it.startTime) }?.startTime
+                val latestEnd = slots.maxByOrNull { slot ->
+                    if (slot.endTime.trim() == "24:00" || slot.endTime.trim() == "24:00:00") {
+                        LocalTime.MAX
+                    } else {
+                        parseFlexibleTime(slot.endTime)
+                    }
+                }?.endTime
 
                 if (earliestStart != null && latestEnd != null) {
                     operatingHoursMap[date] = OperatingHours(
-                        openTime = LocalTime.parse(earliestStart),
-                        closeTime = LocalTime.parse(latestEnd)
+                        openTime = parseFlexibleTime(earliestStart),
+                        closeTime = parseFlexibleTime(latestEnd)
                     )
                 }
             }
