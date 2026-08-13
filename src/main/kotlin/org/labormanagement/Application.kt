@@ -73,7 +73,12 @@ import org.labormanagement.config.GsonConfig
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
-    embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
+    // watchPaths defaults to a non-empty list, which makes Ktor set up a
+    // class-reloading filesystem watcher (inotify on Linux). That watcher
+    // has no purpose in a packaged production deployment and can crash on
+    // shutdown if the container's inotify instance limit is low, as on
+    // Render. Passing an empty list disables it.
+    embeddedServer(Netty, port = port, host = "0.0.0.0", watchPaths = emptyList(), module = Application::module)
         .start(wait = true)
 }
 
