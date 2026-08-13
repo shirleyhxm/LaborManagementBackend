@@ -10,7 +10,7 @@ class JwtService {
     private val secret = System.getenv("JWT_SECRET") ?: "labor-management-secret-key-change-this-in-production-minimum-256-bits"
     private val issuer = "labor-management-app"
     private val audience = "labor-management-users"
-    private val validityInMs = 86400000L // 24 hours
+    private val validityInMs = 3600000L // 1 hour
 
     private val algorithm = Algorithm.HMAC256(secret)
 

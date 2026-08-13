@@ -113,7 +113,8 @@ object DatabaseFactory {
             org.labormanagement.database.Timeoffs,
             org.labormanagement.database.Attendances,
             org.labormanagement.database.Sales,
-            org.labormanagement.database.PasswordResets
+            org.labormanagement.database.PasswordResets,
+            org.labormanagement.database.RefreshTokens
         )
 
         logger.info("Database tables created successfully")
@@ -129,6 +130,7 @@ object DatabaseFactory {
         transaction {
             // Drop tables in reverse order to handle foreign key constraints
             SchemaUtils.drop(
+                org.labormanagement.database.RefreshTokens,
                 org.labormanagement.database.PasswordResets,
                 org.labormanagement.database.Sales,
                 org.labormanagement.database.Attendances,

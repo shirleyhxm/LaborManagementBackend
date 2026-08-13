@@ -2,6 +2,7 @@ package org.labormanagement.service
 
 import org.labormanagement.model.*
 import org.labormanagement.repository.PasswordResetRepository
+import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.UserRepository
 import org.labormanagement.dto.CreateBusinessRequest
 
@@ -10,6 +11,7 @@ class AuthService(
     private val jwtService: JwtService,
     private val businessService: BusinessService? = null, // Optional for registration with auto-business creation
     private val passwordResetRepository: PasswordResetRepository = PasswordResetRepository(),
+    private val refreshTokenRepository: RefreshTokenRepository = RefreshTokenRepository(),
     private val totpService: TotpService = TotpService()
 ) {
     // Temporary storage for pending 2FA verifications during login
@@ -42,13 +44,15 @@ class AuthService(
             throw Requires2FAException("Two-factor authentication required")
         }
 
-        // Generate JWT token
+        // Generate JWT access token and a rotating refresh token
         val token = jwtService.generateToken(user)
+        val refreshToken = refreshTokenRepository.createRefreshToken(user.id)
 
         // Return auth response with user DTO (never expose password hash)
         return AuthResponse(
             user = user.toDTO(),
-            token = token
+            token = token,
+            refreshToken = refreshToken.token
         )
     }
 
@@ -102,13 +106,15 @@ class AuthService(
             null
         }
 
-        // Generate JWT token
+        // Generate JWT access token and a rotating refresh token
         val token = jwtService.generateToken(user)
+        val refreshToken = refreshTokenRepository.createRefreshToken(user.id)
 
         // Return auth response with user DTO and businessId
         return AuthResponse(
             user = user.toDTO(),
             token = token,
+            refreshToken = refreshToken.token,
             businessId = businessId?.toString()
         )
     }
@@ -128,13 +134,32 @@ class AuthService(
         // Remove from pending logins
         pending2FALogins.remove(request.email)
 
-        // Generate JWT token
+        // Generate JWT access token and a rotating refresh token
         val token = jwtService.generateToken(user)
+        val refreshToken = refreshTokenRepository.createRefreshToken(user.id)
 
         // Return auth response
         return AuthResponse(
             user = user.toDTO(),
-            token = token
+            token = token,
+            refreshToken = refreshToken.token
+        )
+    }
+
+    /**
+     * Exchange a valid refresh token for a new access token and rotated refresh token.
+     * Returns null if the refresh token is missing, expired, or already used/revoked.
+     */
+    fun refreshAccessToken(refreshToken: String): AuthResponse? {
+        val rotated = refreshTokenRepository.rotateToken(refreshToken) ?: return null
+        val user = userRepository.findById(rotated.userId) ?: return null
+
+        val token = jwtService.generateToken(user)
+
+        return AuthResponse(
+            user = user.toDTO(),
+            token = token,
+            refreshToken = rotated.token
         )
     }
 
@@ -148,13 +173,16 @@ class AuthService(
     }
 
     /**
-     * Logout - in a stateless JWT system, this is primarily handled client-side
-     * Server-side implementation for potential token blacklisting in the future
+     * Logout - revokes the user's refresh token so it can no longer be used
+     * to mint new access tokens. The access token itself remains valid
+     * until it naturally expires, since JWTs are stateless.
      */
-    fun logout(token: String): Boolean {
-        // For now, just verify the token is valid
-        // In production, you might want to add the token to a blacklist
-        return jwtService.verifyToken(token) != null
+    fun logout(token: String, refreshToken: String? = null): Boolean {
+        val valid = jwtService.verifyToken(token) != null
+        if (refreshToken != null) {
+            refreshTokenRepository.revokeToken(refreshToken)
+        }
+        return valid
     }
 
     /**
@@ -211,6 +239,10 @@ class AuthService(
 
         // Mark token as used
         passwordResetRepository.markTokenAsUsed(request.token)
+
+        // Revoke all existing refresh tokens so other sessions can't silently
+        // keep minting new access tokens after a password reset
+        refreshTokenRepository.revokeAllForUser(resetToken.userId)
 
         return ResetPasswordResponse("Password has been reset successfully")
     }

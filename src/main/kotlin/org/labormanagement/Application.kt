@@ -42,6 +42,7 @@ import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.PasswordResetRepository
+import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.SalesRepository
 import org.labormanagement.repository.ScheduleRepository
@@ -98,6 +99,7 @@ fun Application.module() {
     val timeoffRepository = TimeoffRepository()
     val salesRepository = SalesRepository()
     val passwordResetRepository = PasswordResetRepository()
+    val refreshTokenRepository = RefreshTokenRepository()
 
     // Initialize services
     val constraintValidator = ConstraintValidator()
@@ -132,7 +134,8 @@ fun Application.module() {
         userRepository = userRepository,
         jwtService = jwtService,
         businessService = businessService,
-        passwordResetRepository = passwordResetRepository
+        passwordResetRepository = passwordResetRepository,
+        refreshTokenRepository = refreshTokenRepository
     )
 
     // Initialize new services

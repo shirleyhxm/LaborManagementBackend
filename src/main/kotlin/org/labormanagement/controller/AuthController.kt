@@ -195,6 +195,37 @@ class AuthController(
                 }
             }
 
+            // POST /api/auth/refresh - Exchange a refresh token for a new access token
+            post("/refresh") {
+                try {
+                    val request = call.receive<org.labormanagement.model.RefreshTokenRequest>()
+
+                    if (request.refreshToken.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("Refresh token is required")
+                        )
+                        return@post
+                    }
+
+                    val authResponse = authService.refreshAccessToken(request.refreshToken)
+
+                    if (authResponse != null) {
+                        call.respond(HttpStatusCode.OK, authResponse)
+                    } else {
+                        call.respond(
+                            HttpStatusCode.Unauthorized,
+                            ErrorResponse("Invalid or expired refresh token")
+                        )
+                    }
+                } catch (e: Exception) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse("Invalid request format")
+                    )
+                }
+            }
+
             // POST /api/auth/forgot-password - Request password reset
             post("/forgot-password") {
                 try {
@@ -255,7 +286,20 @@ class AuthController(
                     try {
                         val principal = call.principal<JWTPrincipal>()
                         if (principal != null) {
-                            // Token is valid, logout successful
+                            // Revoke the refresh token if the client sent one, so it
+                            // can no longer be used to mint new access tokens
+                            val refreshToken = try {
+                                call.receive<org.labormanagement.model.RefreshTokenRequest>().refreshToken
+                            } catch (e: Exception) {
+                                null
+                            }
+                            if (!refreshToken.isNullOrBlank()) {
+                                authService.logout(
+                                    token = call.request.header("Authorization")?.removePrefix("Bearer ")?.trim() ?: "",
+                                    refreshToken = refreshToken
+                                )
+                            }
+
                             call.respond(
                                 HttpStatusCode.OK,
                                 LogoutResponse("Logged out successfully")

@@ -1,5 +1,7 @@
 package org.labormanagement.model
 
+import java.time.LocalDateTime
+
 data class LoginRequest(
     val email: String,
     val password: String
@@ -16,7 +18,24 @@ data class RegisterRequest(
 data class AuthResponse(
     val user: UserDTO,
     val token: String,
+    val refreshToken: String,
     val businessId: String? = null // Include businessId for initial business created during registration
+)
+
+/**
+ * Refresh token record backing the /api/auth/refresh flow.
+ * Tokens are single-use: refreshing rotates in a new token and revokes this one.
+ */
+data class RefreshTokenRecord(
+    val token: String,
+    val userId: String,
+    val expiresAt: LocalDateTime,
+    val createdAt: LocalDateTime = LocalDateTime.now(),
+    val revoked: Boolean = false
+)
+
+data class RefreshTokenRequest(
+    val refreshToken: String
 )
 
 data class UserDTO(

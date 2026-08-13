@@ -37,6 +37,16 @@ object PasswordResets : Table("password_resets") {
     override val primaryKey = PrimaryKey(token)
 }
 
+object RefreshTokens : Table("refresh_tokens") {
+    val token = varchar("token", 255)
+    val userId = varchar("user_id", 50)
+    val expiresAt = timestamp("expires_at")
+    val createdAt = timestamp("created_at")
+    val revoked = bool("revoked").default(false)
+
+    override val primaryKey = PrimaryKey(token)
+}
+
 // ===== Business & Multi-Tenancy Tables =====
 
 object Businesses : Table("businesses") {
