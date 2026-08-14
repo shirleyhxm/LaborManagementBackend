@@ -77,6 +77,7 @@ class ScheduleOptimizer {
         // Add constraints
         addAvailabilityConstraints(model, x, input)
         addMinimumShiftLengthConstraints(model, x, input)
+        addMaxHoursPerDayConstraints(model, x, input)
         addHoursConstraints(model, x, totalHours, regular, overtime, input)
         addSalesCoverageConstraints(model, x, coverage, input, slack)
         addLaborCostConstraints(model, regular, overtime, laborCost, input)
@@ -516,6 +517,36 @@ class ScheduleOptimizer {
                 LinearExpr.affine(totalWeeklyHours, 1, -overtimeThreshold)
             )
             model.addLessOrEqual(overtimeHours, rules.maxOvertimeHours.toLong())
+        }
+    }
+
+    /**
+     * Enforces each employee's per-day hour cap (Contract.maxHoursPerDay).
+     * Unlike the weekly rules above, this comes directly from the employee's
+     * own contract rather than the business-level WorkingHoursRules, so it
+     * applies unconditionally regardless of whether working hours rules are
+     * configured for the business.
+     */
+    private fun addMaxHoursPerDayConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput
+    ) {
+        val slotDurations = input.timeSlots.map { it.durationHours.toLong() }.toLongArray()
+        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].date }
+
+        for (e in input.employees.indices) {
+            val maxHoursPerDay = input.employees[e].contract.maxHoursPerDay.toLong()
+
+            for ((_, slotIndices) in slotsByDate) {
+                val dayVars = slotIndices.map { x[e][it] }.toTypedArray()
+                val dayDurations = slotIndices.map { slotDurations[it] }.toLongArray()
+
+                model.addLessOrEqual(
+                    LinearExpr.weightedSum(dayVars, dayDurations),
+                    maxHoursPerDay
+                )
+            }
         }
     }
 
