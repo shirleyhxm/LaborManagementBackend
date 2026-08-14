@@ -1,7 +1,9 @@
 package org.labormanagement.config
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.labormanagement.controller.GenerateScheduleRequest
 import org.labormanagement.dto.CreateEmployeeRequest
 
 class GsonConfigTest {
@@ -71,5 +73,35 @@ class GsonConfigTest {
         val request = gson.fromJson(json, CreateEmployeeRequest::class.java)
 
         assertEquals("", request.middleName)
+    }
+
+    @Test
+    fun `deserializes GenerateScheduleRequest without businessId in the body`() {
+        // The exact payload shape the frontend sends to POST
+        // /api/businesses/{businessId}/schedules/generate - businessId only ever
+        // appears in the URL path, never in the body. This crashed with
+        // "No argument provided for a required parameter: businessId" before
+        // ScheduleInput.businessId was given a default value.
+        val json = """
+            {
+                "input": {
+                    "employeeIds": [],
+                    "laborCostBudget": 5000.0,
+                    "schedulePeriod": {
+                        "startDate": "2026-08-10",
+                        "endDate": "2026-08-16",
+                        "operatingHours": {}
+                    }
+                },
+                "name": "Test Week",
+                "generatedBy": "test"
+            }
+        """.trimIndent()
+
+        val request = gson.fromJson(json, GenerateScheduleRequest::class.java)
+
+        assertEquals("Test Week", request.name)
+        assertNull(request.input.businessId)
+        assertEquals(0, request.input.employeeIds.size)
     }
 }

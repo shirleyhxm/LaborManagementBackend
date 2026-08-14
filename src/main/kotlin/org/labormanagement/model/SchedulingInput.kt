@@ -6,11 +6,16 @@ import java.time.Period
 import java.util.UUID
 
 data class ScheduleInput(
-    val businessId: UUID,
     val employeeIds: List<UUID>,
     val laborCostBudget: Double,
     val schedulePeriod: SchedulePeriod,
-    val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
+    val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED, // Optional
+    // Unused downstream: ShiftScheduler.generateSchedule() takes businessId as its own
+    // parameter, sourced from the URL path by ScheduleController. Kept here only for
+    // backward compatibility with existing callers that still set it explicitly, and
+    // defaulted so the REST /generate endpoint (which never sends it in the body) can
+    // deserialize successfully.
+    val businessId: UUID? = null
 )
 
 data class SchedulePeriod(
