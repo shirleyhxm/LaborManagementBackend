@@ -2,7 +2,9 @@ package org.labormanagement.config
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.labormanagement.controller.GenerateScheduleRequest
 import org.labormanagement.dto.CreateEmployeeRequest
+import java.util.UUID
 
 class GsonConfigTest {
 
@@ -71,5 +73,42 @@ class GsonConfigTest {
         val request = gson.fromJson(json, CreateEmployeeRequest::class.java)
 
         assertEquals("", request.middleName)
+    }
+
+    @Test
+    fun `deserializes GenerateScheduleRequest without businessId in the body`() {
+        // The exact payload shape the frontend sends to POST
+        // /api/businesses/{businessId}/schedules/generate - businessId only ever
+        // appears in the URL path, never in the body. GenerateScheduleRequest.input
+        // is a ScheduleInputPayload (no businessId field) for exactly this reason;
+        // this crashed with "No argument provided for a required parameter:
+        // businessId" back when it deserialized straight into ScheduleInput, which
+        // requires one.
+        val json = """
+            {
+                "input": {
+                    "employeeIds": [],
+                    "laborCostBudget": 5000.0,
+                    "schedulePeriod": {
+                        "startDate": "2026-08-10",
+                        "endDate": "2026-08-16",
+                        "operatingHours": {}
+                    }
+                },
+                "name": "Test Week",
+                "generatedBy": "test"
+            }
+        """.trimIndent()
+
+        val request = gson.fromJson(json, GenerateScheduleRequest::class.java)
+
+        assertEquals("Test Week", request.name)
+        assertEquals(0, request.input.employeeIds.size)
+
+        // ScheduleController combines this payload with the path's businessId to
+        // build the real ScheduleInput, which still requires businessId.
+        val businessId = UUID.randomUUID()
+        val scheduleInput = request.input.toScheduleInput(businessId)
+        assertEquals(businessId, scheduleInput.businessId)
     }
 }

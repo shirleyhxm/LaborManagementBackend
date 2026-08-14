@@ -13,6 +13,27 @@ data class ScheduleInput(
     val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
 )
 
+/**
+ * Wire shape for the POST /schedules/generate request body. Deliberately omits
+ * businessId: the client never sends it in the body, only as the {businessId}
+ * path segment, so ScheduleController combines this with the path value to
+ * build the real (always-populated) ScheduleInput passed to ShiftScheduler.
+ */
+data class ScheduleInputPayload(
+    val employeeIds: List<UUID>,
+    val laborCostBudget: Double,
+    val schedulePeriod: SchedulePeriod,
+    val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
+) {
+    fun toScheduleInput(businessId: UUID): ScheduleInput = ScheduleInput(
+        businessId = businessId,
+        employeeIds = employeeIds,
+        laborCostBudget = laborCostBudget,
+        schedulePeriod = schedulePeriod,
+        optimizationObjective = optimizationObjective
+    )
+}
+
 data class SchedulePeriod(
     val startDate: LocalDate,
     val endDate: LocalDate,
