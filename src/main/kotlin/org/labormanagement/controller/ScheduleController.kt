@@ -7,7 +7,7 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 import org.labormanagement.dto.createValidationErrorResponse
-import org.labormanagement.model.ScheduleInput
+import org.labormanagement.model.ScheduleInputPayload
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
@@ -54,7 +54,7 @@ class ScheduleController(
                     val request = call.receive<GenerateScheduleRequest>()
 
                     val schedule = shiftScheduler.generateSchedule(
-                        input = request.input,
+                        input = request.input.toScheduleInput(businessId),
                         name = request.name ?: "Generated Schedule",
                         generatedBy = request.generatedBy ?: "system",
                         businessId = businessId
@@ -659,7 +659,7 @@ class ScheduleController(
 
 // DTOs
 data class GenerateScheduleRequest(
-    val input: ScheduleInput,
+    val input: ScheduleInputPayload,
     val name: String? = null,
     val generatedBy: String? = null
 )
