@@ -16,6 +16,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.get
 import io.ktor.server.routing.put
 import io.ktor.server.routing.delete
+import org.labormanagement.config.EnvironmentConfig
 import org.labormanagement.dto.CreateEmployeeRequest
 import org.labormanagement.dto.CreateInviteRequest
 import org.labormanagement.dto.CreateInviteResponse
@@ -28,6 +29,7 @@ import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.ImportService
 import org.labormanagement.service.TenantContextHolder
 import org.labormanagement.service.ForbiddenException
+import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.*
 
@@ -35,8 +37,19 @@ class EmployeeController(
     private val employeeRepository: EmployeeRepository,
     private val importService: ImportService,
     private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
-    private val frontendOrigin: String = System.getenv("FRONTEND_ORIGIN") ?: "http://localhost:3000"
+    private val frontendOrigin: String = EnvironmentConfig.get("FRONTEND_ORIGIN", "http://localhost:3000")
 ) {
+    private val logger = LoggerFactory.getLogger(EmployeeController::class.java)
+
+    init {
+        if (EnvironmentConfig.isProduction() && frontendOrigin == "http://localhost:3000") {
+            logger.warn(
+                "FRONTEND_ORIGIN is not set in production - invite links will point to " +
+                "localhost:3000 instead of the real frontend. Set FRONTEND_ORIGIN in the " +
+                "deployment environment."
+            )
+        }
+    }
 
     fun Route.employeeRoutes() {
         // Resolves the Employee record linked to the caller's own login account.
