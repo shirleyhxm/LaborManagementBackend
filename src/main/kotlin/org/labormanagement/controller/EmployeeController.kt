@@ -3,6 +3,9 @@ package org.labormanagement.controller
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.application.log
+import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.jwt.JWTPrincipal
+import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
@@ -14,21 +17,50 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.put
 import io.ktor.server.routing.delete
 import org.labormanagement.dto.CreateEmployeeRequest
+import org.labormanagement.dto.CreateInviteRequest
+import org.labormanagement.dto.CreateInviteResponse
 import org.labormanagement.dto.UpdateEmployeeRequest
 import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
+import org.labormanagement.model.EmployeeInvite
+import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.ImportService
 import org.labormanagement.service.TenantContextHolder
 import org.labormanagement.service.ForbiddenException
+import java.time.Instant
 import java.util.*
 
 class EmployeeController(
     private val employeeRepository: EmployeeRepository,
-    private val importService: ImportService
+    private val importService: ImportService,
+    private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
+    private val frontendOrigin: String = System.getenv("FRONTEND_ORIGIN") ?: "http://localhost:3000"
 ) {
 
     fun Route.employeeRoutes() {
+        // Resolves the Employee record linked to the caller's own login account.
+        // Not business-scoped in the URL, since the caller doesn't know their
+        // businessId yet - that's exactly what this endpoint derives.
+        route("/api/employees") {
+            authenticate("auth-jwt") {
+                get("/me") {
+                    val principal = call.principal<JWTPrincipal>()
+                    if (principal == null) {
+                        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                        return@get
+                    }
+                    val userId = principal.payload.getClaim("userId").asString()
+                    val employee = employeeRepository.findByUserId(userId)
+                    if (employee != null) {
+                        call.respond(HttpStatusCode.OK, employee.toResponse())
+                    } else {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "No employee record linked to this account"))
+                    }
+                }
+            }
+        }
+
         route("/api/businesses/{businessId}/employees") {
 
             // Create employee
@@ -153,6 +185,72 @@ class EmployeeController(
                             "error" to (e.message ?: "Invalid request"),
                             "type" to e::class.simpleName
                         )
+                    )
+                }
+            }
+
+            // Invite an employee to create a login account for this record
+            post("/{id}/invite") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@post
+                    }
+
+                    val id = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (id == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@post
+                    }
+
+                    val employee = employeeRepository.findById(businessId, id)
+                    if (employee == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                        return@post
+                    }
+                    if (employee.userId != null) {
+                        call.respond(HttpStatusCode.Conflict, mapOf("error" to "Employee is already linked to an account"))
+                        return@post
+                    }
+
+                    val request = call.receive<CreateInviteRequest>()
+                    if (request.email.isBlank()) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Email is required"))
+                        return@post
+                    }
+
+                    val invitedBy = TenantContextHolder.getContext()?.userId ?: "unknown"
+                    val invite = employeeInviteRepository.create(
+                        EmployeeInvite(
+                            employeeId = id,
+                            businessId = businessId,
+                            email = request.email,
+                            token = UUID.randomUUID().toString(),
+                            invitedBy = invitedBy,
+                            invitedAt = Instant.now()
+                        )
+                    )
+
+                    call.respond(
+                        HttpStatusCode.Created,
+                        CreateInviteResponse(inviteLink = "$frontendOrigin/join?token=${invite.token}")
+                    )
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to invite employee", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf("error" to (e.message ?: "Invalid request"))
                     )
                 }
             }

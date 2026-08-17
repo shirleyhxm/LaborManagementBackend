@@ -1,10 +1,14 @@
 package org.labormanagement.service
 
 import org.labormanagement.model.*
+import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.EmployeeInviteRepository
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.UserRepository
 import org.labormanagement.dto.CreateBusinessRequest
+import org.labormanagement.dto.InviteDetailsResponse
 
 class AuthService(
     private val userRepository: UserRepository,
@@ -12,7 +16,10 @@ class AuthService(
     private val businessService: BusinessService? = null, // Optional for registration with auto-business creation
     private val passwordResetRepository: PasswordResetRepository = PasswordResetRepository(),
     private val refreshTokenRepository: RefreshTokenRepository = RefreshTokenRepository(),
-    private val totpService: TotpService = TotpService()
+    private val totpService: TotpService = TotpService(),
+    private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
+    private val employeeRepository: EmployeeRepository = EmployeeRepository(),
+    private val businessRepository: BusinessRepository = BusinessRepository()
 ) {
     // Temporary storage for pending 2FA verifications during login
     // In production, use Redis or similar with expiration
@@ -316,6 +323,75 @@ class AuthService(
     }
 
     /**
+     * Look up an employee invite by token for display on the accept-invite page.
+     */
+    fun getInviteDetails(token: String): InviteDetailsResponse {
+        val invite = employeeInviteRepository.findByToken(token)
+            ?: throw NotFoundException("Invite not found")
+        if (invite.status == InviteStatus.ACCEPTED) {
+            throw InviteAlreadyAcceptedException("This invite has already been accepted")
+        }
+
+        val employee = employeeRepository.findById(invite.businessId, invite.employeeId)
+            ?: throw NotFoundException("Invite not found")
+        val business = businessRepository.findById(invite.businessId)
+            ?: throw NotFoundException("Invite not found")
+
+        return InviteDetailsResponse(
+            email = invite.email,
+            businessName = business.name,
+            employeeFirstName = employee.firstName,
+            employeeLastName = employee.lastName
+        )
+    }
+
+    /**
+     * Accept an employee invite: creates the login account, links it to the
+     * employee record, and marks the invite accepted, all atomically. Returns
+     * an AuthResponse so the frontend can log the new user in immediately.
+     */
+    fun acceptInvite(token: String, password: String): AuthResponse {
+        val invite = employeeInviteRepository.findByToken(token)
+            ?: throw NotFoundException("Invite not found")
+        if (invite.status == InviteStatus.ACCEPTED) {
+            throw InviteAlreadyAcceptedException("This invite has already been accepted")
+        }
+
+        val employee = employeeRepository.findById(invite.businessId, invite.employeeId)
+            ?: throw NotFoundException("Invite not found")
+
+        if (userRepository.findByEmail(invite.email) != null) {
+            throw ConflictException("An account with this email already exists")
+        }
+
+        val user = try {
+            userRepository.createUser(
+                email = invite.email,
+                firstName = employee.firstName,
+                lastName = employee.lastName,
+                password = password,
+                role = UserRole.EMPLOYEE,
+                accountType = AccountType.TEAM_MEMBER
+            )
+        } catch (e: IllegalArgumentException) {
+            throw BadRequestException(e.message ?: "Failed to accept invite")
+        }
+
+        employeeRepository.setUserId(employee.id, user.id)
+        employeeInviteRepository.markAccepted(invite.id)
+
+        val token2 = jwtService.generateToken(user)
+        val refreshToken = refreshTokenRepository.createRefreshToken(user.id)
+
+        return AuthResponse(
+            user = user.toDTO(),
+            token = token2,
+            refreshToken = refreshToken.token,
+            businessId = invite.businessId.toString()
+        )
+    }
+
+    /**
      * Simple email validation
      */
     private fun isValidEmail(email: String): Boolean {
@@ -328,3 +404,8 @@ class AuthService(
  * Exception thrown when 2FA is required during login
  */
 class Requires2FAException(message: String) : Exception(message)
+
+/**
+ * Exception thrown when an employee invite has already been accepted
+ */
+class InviteAlreadyAcceptedException(message: String) : Exception(message)

@@ -279,6 +279,55 @@ class AuthController(
                 }
             }
 
+            // GET /api/auth/invite/{token} - Look up invite details for the accept-invite page
+            get("/invite/{token}") {
+                val token = call.parameters["token"]
+                if (token.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Token is required"))
+                    return@get
+                }
+                try {
+                    val details = authService.getInviteDetails(token)
+                    call.respond(HttpStatusCode.OK, details)
+                } catch (e: org.labormanagement.service.InviteAlreadyAcceptedException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite already accepted"))
+                } catch (e: org.labormanagement.service.NotFoundException) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message ?: "Invite not found"))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to get invite details", e)
+                    call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Failed to look up invite"))
+                }
+            }
+
+            // POST /api/auth/invite/{token}/accept - Accept an employee invite and create a login account
+            post("/invite/{token}/accept") {
+                val token = call.parameters["token"]
+                if (token.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("Token is required"))
+                    return@post
+                }
+                try {
+                    val request = call.receive<org.labormanagement.dto.AcceptInviteRequest>()
+                    if (request.password.isBlank()) {
+                        call.respond(HttpStatusCode.BadRequest, ErrorResponse("Password is required"))
+                        return@post
+                    }
+                    val authResponse = authService.acceptInvite(token, request.password)
+                    call.respond(HttpStatusCode.OK, authResponse)
+                } catch (e: org.labormanagement.service.InviteAlreadyAcceptedException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite already accepted"))
+                } catch (e: org.labormanagement.service.NotFoundException) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message ?: "Invite not found"))
+                } catch (e: org.labormanagement.service.ConflictException) {
+                    call.respond(HttpStatusCode.Conflict, ErrorResponse(e.message ?: "Conflict"))
+                } catch (e: org.labormanagement.service.BadRequestException) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse(e.message ?: "Invalid request"))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to accept invite", e)
+                    call.respond(HttpStatusCode.InternalServerError, ErrorResponse("Failed to accept invite"))
+                }
+            }
+
             // Protected routes - require JWT authentication
             authenticate("auth-jwt") {
                 // POST /api/auth/logout - Logout user (server-side token cleanup)

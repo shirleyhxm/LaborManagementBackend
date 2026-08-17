@@ -43,6 +43,7 @@ class EmployeeRepository(
         Employees.insert {
             it[id] = employee.id
             it[businessId] = employee.businessId
+            it[userId] = employee.userId
             it[firstName] = employee.firstName
             it[lastName] = employee.lastName
             it[middleName] = employee.middleName
@@ -94,6 +95,26 @@ class EmployeeRepository(
     }
 
     /**
+     * Find the employee record linked to a login account.
+     * Intentionally not business-scoped, unlike every other finder here — its
+     * purpose is to derive businessId for a user who doesn't know it yet.
+     */
+    fun findByUserId(userId: String): Employee? = transaction {
+        Employees.selectAll().where { Employees.userId eq userId }
+            .singleOrNull()
+            ?.toEmployee()
+    }
+
+    /**
+     * Link an employee record to a login account (called on invite acceptance).
+     */
+    fun setUserId(employeeId: UUID, userId: String) = transaction {
+        Employees.update({ Employees.id eq employeeId }) {
+            it[Employees.userId] = userId
+        }
+    }
+
+    /**
      * Find all employees for a specific business.
      */
     fun findAllByBusiness(businessId: UUID): List<Employee> = transaction {
@@ -113,6 +134,7 @@ class EmployeeRepository(
         // Update employee
         Employees.update({ Employees.id eq id }) {
             it[Employees.businessId] = employee.businessId
+            it[Employees.userId] = employee.userId
             it[firstName] = employee.firstName
             it[lastName] = employee.lastName
             it[middleName] = employee.middleName
@@ -233,6 +255,7 @@ class EmployeeRepository(
         return Employee(
             id = employeeId,
             businessId = this[Employees.businessId],
+            userId = this[Employees.userId],
             firstName = this[Employees.firstName],
             lastName = this[Employees.lastName],
             middleName = this[Employees.middleName],

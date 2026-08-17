@@ -8,6 +8,7 @@ import java.util.UUID
 data class Employee(
     val id: UUID = UUID.randomUUID(),
     val businessId: UUID,  // Multi-tenancy: Business this employee belongs to
+    val userId: String? = null,  // Linked login account, set once an invite is accepted
     val firstName: String,
     val lastName: String,
     val middleName: String = "",

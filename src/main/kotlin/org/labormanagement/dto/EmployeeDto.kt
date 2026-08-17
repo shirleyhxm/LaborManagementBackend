@@ -44,6 +44,7 @@ data class UpdateEmployeeRequest(
 data class EmployeeResponse(
     val id: String,
     val businessId: String,  // Include businessId for frontend reference
+    val userId: String?,  // Linked login account, if any
     val firstName: String,
     val lastName: String,
     val middleName: String,
@@ -78,6 +79,7 @@ fun Employee.toResponse(): EmployeeResponse {
     return EmployeeResponse(
         id = this.id.toString(),
         businessId = this.businessId.toString(),
+        userId = this.userId,
         firstName = this.firstName,
         lastName = this.lastName,
         middleName = this.middleName,

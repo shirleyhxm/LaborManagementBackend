@@ -101,10 +101,11 @@ object DatabaseFactory {
     private fun createTables() {
         logger.info("Creating database tables...")
 
-        SchemaUtils.create(
+        val allTables = arrayOf(
             org.labormanagement.database.Users,
             org.labormanagement.database.Businesses,
             org.labormanagement.database.Employees,
+            org.labormanagement.database.EmployeeInvites,
             org.labormanagement.database.Availabilities,
             org.labormanagement.database.EmployeeGroups,
             org.labormanagement.database.Schedules,
@@ -117,7 +118,16 @@ object DatabaseFactory {
             org.labormanagement.database.RefreshTokens
         )
 
-        logger.info("Database tables created successfully")
+        SchemaUtils.create(*allTables)
+
+        // This repo has no migration tool (no Flyway/Liquibase); reconcile any
+        // columns/tables added to the Kotlin definitions but missing from an
+        // already-existing live database (e.g. a new nullable column on a
+        // table that already existed in production). No-op if nothing is missing.
+        val alterStatements = SchemaUtils.addMissingColumnsStatements(*allTables)
+        alterStatements.forEach { org.jetbrains.exposed.sql.transactions.TransactionManager.current().exec(it) }
+
+        logger.info("Database tables created/updated successfully")
     }
 
     /**
@@ -140,6 +150,7 @@ object DatabaseFactory {
                 org.labormanagement.database.Schedules,
                 org.labormanagement.database.EmployeeGroups,
                 org.labormanagement.database.Availabilities,
+                org.labormanagement.database.EmployeeInvites,
                 org.labormanagement.database.Employees,
                 org.labormanagement.database.Businesses,
                 org.labormanagement.database.Users

@@ -77,6 +77,7 @@ object Businesses : Table("businesses") {
 object Employees : Table("employees") {
     val id = uuid("id")
     val businessId = uuid("business_id").references(Businesses.id)
+    val userId = varchar("user_id", 50).nullable() // links to Users.id once an invite is accepted
     val firstName = varchar("first_name", 100)
     val lastName = varchar("last_name", 100)
     val middleName = varchar("middle_name", 100).default("")
@@ -111,6 +112,20 @@ object Availabilities : Table("availabilities") {
     val dateRangeEnd = date("date_range_end").nullable()
     val startTime = time("start_time")
     val endTime = time("end_time")
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+object EmployeeInvites : Table("employee_invites") {
+    val id = uuid("id")
+    val employeeId = uuid("employee_id").references(Employees.id)
+    val businessId = uuid("business_id").references(Businesses.id)
+    val email = varchar("email", 255)
+    val token = varchar("token", 255).uniqueIndex()
+    val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED
+    val invitedBy = varchar("invited_by", 50)
+    val invitedAt = timestamp("invited_at")
+    val acceptedAt = timestamp("accepted_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

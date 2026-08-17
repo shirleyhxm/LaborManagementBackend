@@ -39,6 +39,7 @@ import org.labormanagement.controller.salesRoutes
 import org.labormanagement.database.DatabaseFactory
 import org.labormanagement.repository.AttendanceRepository
 import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.PasswordResetRepository
@@ -70,6 +71,51 @@ import kotlin.time.Duration.Companion.hours
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import org.labormanagement.config.GsonConfig
+import org.jetbrains.exposed.sql.transactions.transaction
+import org.labormanagement.model.Business
+import org.labormanagement.model.Contract
+import org.labormanagement.model.Employee
+import java.time.LocalDate
+
+/**
+ * Seed a demo business + employee record linked to the seeded EMPLOYEE test
+ * account (id "3", employee@shiftoptimizer.com) so the /employee-portal demo
+ * works out of the box, without first walking through the invite flow.
+ * No-op if that account is already linked to an employee.
+ */
+private fun seedDemoEmployeeForTestAccount(
+    userRepository: UserRepository,
+    businessRepository: BusinessRepository,
+    employeeRepository: EmployeeRepository
+) = transaction {
+    val demoUserId = "3"
+    if (employeeRepository.findByUserId(demoUserId) != null) return@transaction
+    val demoUser = userRepository.findById(demoUserId) ?: return@transaction
+
+    val ownerBusinesses = businessRepository.findByOwnerId("1")
+    val demoBusiness = ownerBusinesses.firstOrNull()
+        ?: businessRepository.create(Business(name = "Demo Business", ownerId = "1"))
+
+    employeeRepository.create(
+        Employee(
+            businessId = demoBusiness.id,
+            userId = demoUserId,
+            firstName = demoUser.firstName,
+            lastName = demoUser.lastName,
+            dateOfBirth = LocalDate.of(1995, 1, 1),
+            normalPayRate = 18.0,
+            overtimePayRate = 27.0,
+            productivity = 150.0,
+            contract = Contract(
+                contractedHoursPerWeek = 30.0,
+                maxHoursPerWeek = 40.0,
+                maxHoursPerDay = 8.0,
+                overtimeThreshold = 30.0
+            ),
+            availability = emptyList()
+        )
+    )
+}
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -96,6 +142,7 @@ fun Application.module() {
     // Initialize PostgreSQL repositories
     val businessRepository = BusinessRepository()
     val employeeRepository = EmployeeRepository()
+    val employeeInviteRepository = EmployeeInviteRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
     val salesForecastRepository = SalesForecastRepository()
@@ -140,7 +187,10 @@ fun Application.module() {
         jwtService = jwtService,
         businessService = businessService,
         passwordResetRepository = passwordResetRepository,
-        refreshTokenRepository = refreshTokenRepository
+        refreshTokenRepository = refreshTokenRepository,
+        employeeInviteRepository = employeeInviteRepository,
+        employeeRepository = employeeRepository,
+        businessRepository = businessRepository
     )
 
     // Initialize new services
@@ -180,7 +230,7 @@ fun Application.module() {
 
     // Initialize controllers
     val businessController = BusinessController(businessService)
-    val employeeController = EmployeeController(employeeRepository, importService)
+    val employeeController = EmployeeController(employeeRepository, importService, employeeInviteRepository)
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
     val scheduleController = ScheduleController(
         scheduleRepository = scheduleRepository,
@@ -197,6 +247,11 @@ fun Application.module() {
     val scheduleTtlController = ScheduleTtlController(
         scheduleTtlService = scheduleTtlService
     )
+
+    // Seed a demo business + employee record for the EMPLOYEE test account
+    // (employee@shiftoptimizer.com, id "3"), so /employee-portal has real
+    // data to show out of the box, without first walking through the invite flow.
+    seedDemoEmployeeForTestAccount(userRepository, businessRepository, employeeRepository)
 
     // Configure plugins
     install(ContentNegotiation) {
