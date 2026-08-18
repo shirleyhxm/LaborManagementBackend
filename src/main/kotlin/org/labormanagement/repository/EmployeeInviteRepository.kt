@@ -28,6 +28,7 @@ class EmployeeInviteRepository {
             it[status] = invite.status.name
             it[invitedBy] = invite.invitedBy
             it[invitedAt] = invite.invitedAt
+            it[expiresAt] = invite.expiresAt
             it[acceptedAt] = invite.acceptedAt
         }
         invite
@@ -53,6 +54,12 @@ class EmployeeInviteRepository {
         }
     }
 
+    fun markRevoked(id: UUID) = transaction {
+        EmployeeInvites.update({ EmployeeInvites.id eq id }) {
+            it[status] = InviteStatus.REVOKED.name
+        }
+    }
+
     private fun ResultRow.toEmployeeInvite(): EmployeeInvite = EmployeeInvite(
         id = this[EmployeeInvites.id],
         employeeId = this[EmployeeInvites.employeeId],
@@ -62,6 +69,7 @@ class EmployeeInviteRepository {
         status = InviteStatus.valueOf(this[EmployeeInvites.status]),
         invitedBy = this[EmployeeInvites.invitedBy],
         invitedAt = this[EmployeeInvites.invitedAt],
+        expiresAt = this[EmployeeInvites.expiresAt],
         acceptedAt = this[EmployeeInvites.acceptedAt]
     )
 }

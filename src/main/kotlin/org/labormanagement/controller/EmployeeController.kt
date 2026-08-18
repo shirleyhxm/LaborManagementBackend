@@ -243,6 +243,13 @@ class EmployeeController(
                         return@post
                     }
 
+                    // Re-inviting supersedes any existing pending invite for this
+                    // employee, e.g. the admin fixing a typo'd email - the old
+                    // link stops working the moment a new one is generated.
+                    employeeInviteRepository.findPendingByEmployeeId(id)?.let {
+                        employeeInviteRepository.markRevoked(it.id)
+                    }
+
                     val invitedBy = TenantContextHolder.getContext()?.userId ?: "unknown"
                     val invite = employeeInviteRepository.create(
                         EmployeeInvite(
@@ -261,6 +268,54 @@ class EmployeeController(
                     )
                 } catch (e: Exception) {
                     call.application.log.error("Failed to invite employee", e)
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf("error" to (e.message ?: "Invalid request"))
+                    )
+                }
+            }
+
+            // Revoke a pending invite for an employee
+            delete("/{id}/invite") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@delete
+                    }
+
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                        return@delete
+                    }
+
+                    val id = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (id == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@delete
+                    }
+
+                    val employee = employeeRepository.findById(businessId, id)
+                    if (employee == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                        return@delete
+                    }
+
+                    val pendingInvite = employeeInviteRepository.findPendingByEmployeeId(id)
+                    if (pendingInvite == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "No pending invite for this employee"))
+                        return@delete
+                    }
+
+                    employeeInviteRepository.markRevoked(pendingInvite.id)
+                    call.respond(HttpStatusCode.NoContent)
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to revoke invite", e)
                     call.respond(
                         HttpStatusCode.BadRequest,
                         mapOf("error" to (e.message ?: "Invalid request"))

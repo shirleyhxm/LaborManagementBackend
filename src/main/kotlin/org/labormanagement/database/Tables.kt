@@ -122,9 +122,10 @@ object EmployeeInvites : Table("employee_invites") {
     val businessId = uuid("business_id").references(Businesses.id)
     val email = varchar("email", 255)
     val token = varchar("token", 255).uniqueIndex()
-    val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED
+    val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED | REVOKED
     val invitedBy = varchar("invited_by", 50)
     val invitedAt = timestamp("invited_at")
+    val expiresAt = timestamp("expires_at").nullable() // null = no expiry; only unset on rows created before this column existed
     val acceptedAt = timestamp("accepted_at").nullable()
 
     override val primaryKey = PrimaryKey(id)

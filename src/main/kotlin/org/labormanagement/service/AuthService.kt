@@ -331,6 +331,12 @@ class AuthService(
         if (invite.status == InviteStatus.ACCEPTED) {
             throw InviteAlreadyAcceptedException("This invite has already been accepted")
         }
+        if (invite.status == InviteStatus.REVOKED) {
+            throw InviteRevokedException("This invite has been revoked")
+        }
+        if (invite.status == InviteStatus.PENDING && invite.isExpired()) {
+            throw InviteExpiredException("This invite has expired")
+        }
 
         val employee = employeeRepository.findById(invite.businessId, invite.employeeId)
             ?: throw NotFoundException("Invite not found")
@@ -355,6 +361,12 @@ class AuthService(
             ?: throw NotFoundException("Invite not found")
         if (invite.status == InviteStatus.ACCEPTED) {
             throw InviteAlreadyAcceptedException("This invite has already been accepted")
+        }
+        if (invite.status == InviteStatus.REVOKED) {
+            throw InviteRevokedException("This invite has been revoked")
+        }
+        if (invite.status == InviteStatus.PENDING && invite.isExpired()) {
+            throw InviteExpiredException("This invite has expired")
         }
 
         val employee = employeeRepository.findById(invite.businessId, invite.employeeId)
@@ -409,3 +421,13 @@ class Requires2FAException(message: String) : Exception(message)
  * Exception thrown when an employee invite has already been accepted
  */
 class InviteAlreadyAcceptedException(message: String) : Exception(message)
+
+/**
+ * Exception thrown when an employee invite has been revoked by an admin
+ */
+class InviteRevokedException(message: String) : Exception(message)
+
+/**
+ * Exception thrown when an employee invite is past its expiry date
+ */
+class InviteExpiredException(message: String) : Exception(message)

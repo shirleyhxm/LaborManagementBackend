@@ -291,6 +291,10 @@ class AuthController(
                     call.respond(HttpStatusCode.OK, details)
                 } catch (e: org.labormanagement.service.InviteAlreadyAcceptedException) {
                     call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite already accepted"))
+                } catch (e: org.labormanagement.service.InviteRevokedException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite revoked"))
+                } catch (e: org.labormanagement.service.InviteExpiredException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite expired"))
                 } catch (e: org.labormanagement.service.NotFoundException) {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message ?: "Invite not found"))
                 } catch (e: Exception) {
@@ -316,6 +320,10 @@ class AuthController(
                     call.respond(HttpStatusCode.OK, authResponse)
                 } catch (e: org.labormanagement.service.InviteAlreadyAcceptedException) {
                     call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite already accepted"))
+                } catch (e: org.labormanagement.service.InviteRevokedException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite revoked"))
+                } catch (e: org.labormanagement.service.InviteExpiredException) {
+                    call.respond(HttpStatusCode.Gone, ErrorResponse(e.message ?: "Invite expired"))
                 } catch (e: org.labormanagement.service.NotFoundException) {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message ?: "Invite not found"))
                 } catch (e: org.labormanagement.service.ConflictException) {
