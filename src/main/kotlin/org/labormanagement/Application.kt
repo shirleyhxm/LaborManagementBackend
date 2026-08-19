@@ -32,6 +32,7 @@ import org.labormanagement.controller.OptimizationControllerV2
 import org.labormanagement.controller.SalesForecastController
 import org.labormanagement.controller.ScheduleController
 import org.labormanagement.controller.ScheduleTtlController
+import org.labormanagement.controller.SwapController
 import org.labormanagement.controller.TestDataController
 import org.labormanagement.controller.attendanceRoutes
 import org.labormanagement.controller.timeoffRoutes
@@ -47,6 +48,7 @@ import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.SalesRepository
 import org.labormanagement.repository.ScheduleRepository
+import org.labormanagement.repository.SwapRequestRepository
 import org.labormanagement.repository.TimeoffRepository
 import org.labormanagement.repository.UserRepository
 import org.labormanagement.service.AttendanceService
@@ -145,6 +147,7 @@ fun Application.module() {
     val employeeInviteRepository = EmployeeInviteRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
+    val swapRequestRepository = SwapRequestRepository()
     val salesForecastRepository = SalesForecastRepository()
     val userRepository = UserRepository()
     val attendanceRepository = AttendanceRepository()
@@ -235,7 +238,13 @@ fun Application.module() {
     val scheduleController = ScheduleController(
         scheduleRepository = scheduleRepository,
         shiftScheduler = shiftScheduler,
-        shiftModificationService = shiftModificationService
+        shiftModificationService = shiftModificationService,
+        employeeRepository = employeeRepository
+    )
+    val swapController = SwapController(
+        swapRequestRepository = swapRequestRepository,
+        scheduleRepository = scheduleRepository,
+        employeeRepository = employeeRepository
     )
     val salesForecastController = SalesForecastController(salesForecastRepository)
     val testDataController = TestDataController(employeeRepository)
@@ -442,6 +451,10 @@ fun Application.module() {
 
         with(scheduleController) {
             scheduleRoutes()
+        }
+
+        with(swapController) {
+            swapRoutes()
         }
 
         with(salesForecastController) {

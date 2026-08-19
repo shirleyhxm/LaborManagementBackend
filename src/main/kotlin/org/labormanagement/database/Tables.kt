@@ -189,6 +189,22 @@ object Shifts : Table("shifts") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object SwapRequests : Table("swap_requests") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val requestingEmployeeId = uuid("requesting_employee_id").references(Employees.id)
+    val targetShiftId = uuid("target_shift_id").references(Shifts.id)
+    val targetEmployeeId = uuid("target_employee_id").references(Employees.id)
+    val offeredShiftId = uuid("offered_shift_id").references(Shifts.id).nullable() // reserved for future mutual-trade support
+    val message = text("message").nullable()
+    val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED | DECLINED | CANCELLED
+    val requestedAt = timestamp("requested_at")
+    val respondedAt = timestamp("responded_at").nullable()
+    val respondedBy = varchar("responded_by", 50).nullable()
+
+    override val primaryKey = PrimaryKey(id)
+}
+
 // ===== Sales Forecast Tables =====
 
 object SalesForecasts : Table("sales_forecasts") {

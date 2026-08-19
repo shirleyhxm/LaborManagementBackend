@@ -24,11 +24,13 @@ import org.labormanagement.dto.UpdateEmployeeRequest
 import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
 import org.labormanagement.model.EmployeeInvite
+import org.labormanagement.model.UserRole
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.ImportService
 import org.labormanagement.service.TenantContextHolder
 import org.labormanagement.service.ForbiddenException
+import org.labormanagement.service.UnauthorizedException
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.*
@@ -75,6 +77,7 @@ class EmployeeController(
         }
 
         route("/api/businesses/{businessId}/employees") {
+        authenticate("auth-jwt") {
 
             // Create employee
             post {
@@ -129,10 +132,18 @@ class EmployeeController(
                         return@get
                     }
 
-                    // Validate businessId matches tenant context
-                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
-                    if (contextBusinessId != null && contextBusinessId != businessId) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                    // Listing every employee's full record (including both pay
+                    // rates) is an admin/manager operation, not something any
+                    // authenticated employee should be able to call.
+                    val principal = call.principal<JWTPrincipal>()
+                        ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                    val callerRole = try {
+                        UserRole.valueOf(principal.payload.getClaim("role").asString())
+                    } catch (e: Exception) {
+                        UserRole.EMPLOYEE
+                    }
+                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                         return@get
                     }
 
@@ -145,6 +156,10 @@ class EmployeeController(
                     }
 
                     call.respond(HttpStatusCode.OK, employees.map { it.toResponse() })
+                } catch (e: UnauthorizedException) {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to e.message))
+                } catch (e: ForbiddenException) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to e.message))
                 } catch (e: Exception) {
                     call.application.log.error("Failed to get employees", e)
                     call.respond(
@@ -169,10 +184,17 @@ class EmployeeController(
                         return@get
                     }
 
-                    // Validate businessId matches tenant context
-                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
-                    if (contextBusinessId != null && contextBusinessId != businessId) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access employees from different business"))
+                    // Same reasoning as the list route - a full employee record
+                    // (both pay rates included) is admin/manager-only.
+                    val principal = call.principal<JWTPrincipal>()
+                        ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                    val callerRole = try {
+                        UserRole.valueOf(principal.payload.getClaim("role").asString())
+                    } catch (e: Exception) {
+                        UserRole.EMPLOYEE
+                    }
+                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                         return@get
                     }
 
@@ -190,6 +212,10 @@ class EmployeeController(
                     } else {
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
                     }
+                } catch (e: UnauthorizedException) {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to e.message))
+                } catch (e: ForbiddenException) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to e.message))
                 } catch (e: Exception) {
                     call.application.log.error("Failed to get employee by ID", e)
                     call.respond(
@@ -488,6 +514,7 @@ class EmployeeController(
                     )
                 }
             }
+        }
         }
     }
 }

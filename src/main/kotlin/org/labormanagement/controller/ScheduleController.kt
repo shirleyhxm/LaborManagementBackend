@@ -3,11 +3,15 @@ package org.labormanagement.controller
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.application.log
+import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 import org.labormanagement.dto.createValidationErrorResponse
+import org.labormanagement.dto.toTeamShiftResponse
 import org.labormanagement.model.ScheduleInputPayload
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
 import org.labormanagement.service.ShiftScheduler
@@ -26,7 +30,8 @@ import java.util.UUID
 class ScheduleController(
     private val scheduleRepository: ScheduleRepository,
     private val shiftScheduler: ShiftScheduler,
-    private val shiftModificationService: ShiftModificationService
+    private val shiftModificationService: ShiftModificationService,
+    private val employeeRepository: EmployeeRepository
 ) {
 
     fun Route.scheduleRoutes() {
@@ -270,6 +275,78 @@ class ScheduleController(
                         mapOf("error" to "Failed to fetch employee shifts: ${e.message}")
                     )
                 }
+            }
+
+            // Get every employee's shifts within a date range - the team-wide
+            // view an employee needs to see who else is working, to make shift
+            // swaps possible. payRate is only included for the caller's own
+            // shifts; every other row has it redacted to null. Authenticated
+            // (unlike most sibling routes here) since it needs a real
+            // JWTPrincipal to know which employee is "the caller".
+            authenticate("auth-jwt") {
+            get("/team-shifts") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    val startDateParam = call.request.queryParameters["startDate"]
+                    val endDateParam = call.request.queryParameters["endDate"]
+                    if (startDateParam == null || endDateParam == null) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Both startDate and endDate query parameters are required (format: YYYY-MM-DD)")
+                        )
+                        return@get
+                    }
+
+                    val startDate = try {
+                        java.time.LocalDate.parse(startDateParam)
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid startDate format. Use YYYY-MM-DD"))
+                        return@get
+                    }
+
+                    val endDate = try {
+                        java.time.LocalDate.parse(endDateParam)
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid endDate format. Use YYYY-MM-DD"))
+                        return@get
+                    }
+
+                    val statusParam = call.request.queryParameters["status"]
+                    val status = if (statusParam != null) {
+                        try {
+                            org.labormanagement.model.ScheduleStatus.valueOf(statusParam.uppercase())
+                        } catch (e: IllegalArgumentException) {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "Invalid status: $statusParam. Valid values: DRAFT, PUBLISHED, ARCHIVED")
+                            )
+                            return@get
+                        }
+                    } else null
+
+                    val principal = call.principal<io.ktor.server.auth.jwt.JWTPrincipal>()
+                        ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                    val callerUserId = principal.payload.getClaim("userId").asString()
+                    val callerEmployee = employeeRepository.findByUserId(callerUserId)
+
+                    val teamShifts = scheduleRepository.findTeamShiftsInRange(businessId, startDate, endDate, status)
+                    val response = teamShifts.map { it.toTeamShiftResponse(callerEmployee?.id) }
+                    call.respond(HttpStatusCode.OK, response)
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to fetch team shifts", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to fetch team shifts: ${e.message}")
+                    )
+                }
+            }
             }
 
             // Get schedule by ID

@@ -247,3 +247,29 @@ data class Shift(
         return false
     }
 }
+
+/**
+ * A lean, team-wide shift row - deliberately not the full Shift model,
+ * since payRate here needs to be redactable (null for shifts that don't
+ * belong to the caller) and this always carries the owning employee's name.
+ */
+data class TeamShiftRow(
+    val id: UUID,
+    val employeeId: UUID,
+    val employeeName: String,
+    val date: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime,
+    val payRate: Double,
+    val isOvertime: Boolean
+) {
+    val durationHours: Double = run {
+        val minutes = if (endTime <= startTime) {
+            ChronoUnit.MINUTES.between(startTime, LocalTime.MAX) +
+            ChronoUnit.MINUTES.between(LocalTime.MIN, endTime) + 1
+        } else {
+            ChronoUnit.MINUTES.between(startTime, endTime)
+        }
+        minutes / 60.0
+    }
+}
