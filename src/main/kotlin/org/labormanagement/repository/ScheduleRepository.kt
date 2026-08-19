@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.config.GsonConfig.createGson
 import org.labormanagement.database.Schedules
@@ -127,6 +129,43 @@ class ScheduleRepository(
             (Schedules.startDate eq startDate) and
             (Schedules.endDate eq endDate)
         }.singleOrNull()?.toSchedule()
+    }
+
+    /**
+     * Find an employee's shifts within a date range (inclusive), across any schedule
+     * for the business, optionally restricted to a single status. Queries Shifts
+     * joined to Schedules directly rather than loading full Schedule objects, since
+     * callers here only need the shifts themselves (e.g. an employee browsing a
+     * calendar week) - full Schedule deserialization would pull in unrelated JSON
+     * columns (violations, staffing requirements, employee utilization) for no reason.
+     */
+    fun findShiftsForEmployeeInRange(
+        businessId: UUID,
+        employeeId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        status: ScheduleStatus? = null
+    ): List<Shift> = transaction {
+        val condition = (Schedules.businessId eq businessId) and
+            (ShiftsTable.employeeId eq employeeId) and
+            (ShiftsTable.date greaterEq startDate) and
+            (ShiftsTable.date lessEq endDate)
+
+        (ShiftsTable innerJoin Schedules)
+            .selectAll()
+            .where { if (status != null) condition and (Schedules.status eq status.name) else condition }
+            .orderBy(ShiftsTable.date, SortOrder.ASC)
+            .map { row ->
+                Shift(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
     }
 
     /**

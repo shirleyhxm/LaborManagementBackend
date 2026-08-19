@@ -191,6 +191,87 @@ class ScheduleController(
                 }
             }
 
+            // Get one employee's shifts within a date range, across any schedule for
+            // the business. Unlike /by-date-range (which requires an exact match on a
+            // single schedule's own start/end dates), this does a real overlap query
+            // and returns just the matching shifts - built for callers like the
+            // employee portal calendar that need "my shifts this week" regardless of
+            // how the underlying schedules were chunked.
+            get("/shifts") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@get
+                    }
+
+                    val employeeIdParam = call.request.queryParameters["employeeId"]
+                    val employeeId = employeeIdParam?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (employeeId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Valid employeeId query parameter is required"))
+                        return@get
+                    }
+
+                    val startDateParam = call.request.queryParameters["startDate"]
+                    val endDateParam = call.request.queryParameters["endDate"]
+                    if (startDateParam == null || endDateParam == null) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Both startDate and endDate query parameters are required (format: YYYY-MM-DD)")
+                        )
+                        return@get
+                    }
+
+                    val startDate = try {
+                        java.time.LocalDate.parse(startDateParam)
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid startDate format. Use YYYY-MM-DD"))
+                        return@get
+                    }
+
+                    val endDate = try {
+                        java.time.LocalDate.parse(endDateParam)
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid endDate format. Use YYYY-MM-DD"))
+                        return@get
+                    }
+
+                    val statusParam = call.request.queryParameters["status"]
+                    val status = if (statusParam != null) {
+                        try {
+                            org.labormanagement.model.ScheduleStatus.valueOf(statusParam.uppercase())
+                        } catch (e: IllegalArgumentException) {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "Invalid status: $statusParam. Valid values: DRAFT, PUBLISHED, ARCHIVED")
+                            )
+                            return@get
+                        }
+                    } else null
+
+                    val shifts = scheduleRepository.findShiftsForEmployeeInRange(
+                        businessId, employeeId, startDate, endDate, status
+                    )
+                    call.respond(HttpStatusCode.OK, shifts)
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to fetch employee shifts", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to fetch employee shifts: ${e.message}")
+                    )
+                }
+            }
+
             // Get schedule by ID
             get("/{id}") {
                 try {
