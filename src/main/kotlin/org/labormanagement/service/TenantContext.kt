@@ -63,6 +63,19 @@ object TenantContextHolder {
         return getContext()?.userId
             ?: throw UnauthorizedException("No tenant context - authentication required")
     }
+
+    /**
+     * Assert the current user's role is one of the allowed roles.
+     * Throws UnauthorizedException if no context exists, or ForbiddenException
+     * if the role isn't allowed.
+     */
+    fun requireRole(vararg allowed: UserRole) {
+        val role = getContext()?.userRole
+            ?: throw UnauthorizedException("No tenant context - authentication required")
+        if (role !in allowed) {
+            throw ForbiddenException("Requires one of: ${allowed.joinToString()}, but caller has $role")
+        }
+    }
 }
 
 /**

@@ -4,8 +4,11 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.config.GsonConfig.createGson
+import org.labormanagement.database.Employees
 import org.labormanagement.database.Schedules
 import org.labormanagement.database.Shifts as ShiftsTable
 import org.labormanagement.model.*
@@ -127,6 +130,113 @@ class ScheduleRepository(
             (Schedules.startDate eq startDate) and
             (Schedules.endDate eq endDate)
         }.singleOrNull()?.toSchedule()
+    }
+
+    /**
+     * Find an employee's shifts within a date range (inclusive), across any schedule
+     * for the business, optionally restricted to a single status. Queries Shifts
+     * joined to Schedules directly rather than loading full Schedule objects, since
+     * callers here only need the shifts themselves (e.g. an employee browsing a
+     * calendar week) - full Schedule deserialization would pull in unrelated JSON
+     * columns (violations, staffing requirements, employee utilization) for no reason.
+     */
+    fun findShiftsForEmployeeInRange(
+        businessId: UUID,
+        employeeId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        status: ScheduleStatus? = null
+    ): List<Shift> = transaction {
+        val condition = (Schedules.businessId eq businessId) and
+            (ShiftsTable.employeeId eq employeeId) and
+            (ShiftsTable.date greaterEq startDate) and
+            (ShiftsTable.date lessEq endDate)
+
+        (ShiftsTable innerJoin Schedules)
+            .selectAll()
+            .where { if (status != null) condition and (Schedules.status eq status.name) else condition }
+            .orderBy(ShiftsTable.date, SortOrder.ASC)
+            .map { row ->
+                Shift(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
+    }
+
+    /**
+     * Find every employee's shifts within a date range (inclusive) for a
+     * business, optionally restricted to a single status. One query via a
+     * two-way join, resolving each shift's owning employee's name alongside
+     * it - callers need this for a team-wide calendar view, so per-shift
+     * name lookups (N+1) would be wasteful.
+     */
+    fun findTeamShiftsInRange(
+        businessId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        status: ScheduleStatus? = null
+    ): List<TeamShiftRow> = transaction {
+        val condition = (Schedules.businessId eq businessId) and
+            (ShiftsTable.date greaterEq startDate) and
+            (ShiftsTable.date lessEq endDate)
+
+        (ShiftsTable innerJoin Schedules innerJoin Employees)
+            .selectAll()
+            .where { if (status != null) condition and (Schedules.status eq status.name) else condition }
+            .orderBy(ShiftsTable.date, SortOrder.ASC)
+            .map { row ->
+                TeamShiftRow(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    employeeName = "${row[Employees.firstName]} ${row[Employees.lastName]}".trim(),
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
+    }
+
+    /**
+     * Reassign a single shift to a different employee, in place. Used
+     * exclusively by shift-swap acceptance - a published shift changing
+     * hands between two employees is an ownership change on an
+     * already-approved slot, not a draft-schedule edit, so this
+     * deliberately bypasses ShiftModificationService (which only permits
+     * edits to DRAFT schedules).
+     */
+    fun reassignShift(shiftId: UUID, newEmployeeId: UUID): Boolean = transaction {
+        ShiftsTable.update({ ShiftsTable.id eq shiftId }) {
+            it[employeeId] = newEmployeeId
+        } > 0
+    }
+
+    /**
+     * Find a single shift by ID within a business (via its parent schedule).
+     */
+    fun findShiftById(businessId: UUID, shiftId: UUID): Shift? = transaction {
+        (ShiftsTable innerJoin Schedules)
+            .selectAll()
+            .where { (Schedules.businessId eq businessId) and (ShiftsTable.id eq shiftId) }
+            .singleOrNull()
+            ?.let { row ->
+                Shift(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
     }
 
     /**

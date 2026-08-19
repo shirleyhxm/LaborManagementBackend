@@ -4,6 +4,7 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.database.Businesses
+import org.labormanagement.database.Employees
 import org.labormanagement.model.Business
 import org.labormanagement.model.BusinessSettings
 import org.labormanagement.model.BusinessStatus
@@ -150,11 +151,17 @@ class BusinessRepository {
     }
 
     /**
-     * Check if a user has access to a specific business (owner or member).
-     * For now, only owners have access.
+     * Check if a user has access to a specific business - either as owner,
+     * or as an employee linked to that business (Employees.userId).
      */
     fun hasAccess(userId: String, businessId: UUID): Boolean {
-        return isOwner(userId, businessId)
+        if (isOwner(userId, businessId)) return true
+
+        return transaction {
+            Employees.selectAll()
+                .where { (Employees.userId eq userId) and (Employees.businessId eq businessId) }
+                .empty().not()
+        }
     }
 
     /**
