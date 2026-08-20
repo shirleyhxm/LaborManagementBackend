@@ -467,7 +467,7 @@ fun Application.module() {
 
         // Register new employee operation routes
         attendanceRoutes(attendanceService)
-        timeoffRoutes(timeoffService)
+        timeoffRoutes(timeoffService, employeeRepository)
         salesRoutes(salesService)
 
         // Register constraints routes

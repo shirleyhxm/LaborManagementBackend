@@ -10,6 +10,7 @@ import io.ktor.server.routing.*
 import org.labormanagement.dto.*
 import org.labormanagement.model.ErrorResponse
 import org.labormanagement.model.UserRole
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.TimeoffService
 import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
@@ -18,8 +19,32 @@ import java.util.*
 /**
  * Controller for timeoff request endpoints
  */
-fun Route.timeoffRoutes(timeoffService: TimeoffService) {
+fun Route.timeoffRoutes(timeoffService: TimeoffService, employeeRepository: EmployeeRepository) {
 
+    fun ApplicationCall.callerRole(): UserRole {
+        val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
+        return try {
+            UserRole.valueOf(principal.payload.getClaim("role").asString())
+        } catch (e: Exception) {
+            UserRole.EMPLOYEE
+        }
+    }
+
+    fun ApplicationCall.isManager(): Boolean {
+        val role = callerRole()
+        return role == UserRole.ADMIN || role == UserRole.MANAGER
+    }
+
+    // True if the caller's own employee record (resolved from their JWT userId)
+    // matches the given employeeId - lets an employee submit/cancel/view their
+    // own requests without needing manager privileges.
+    fun ApplicationCall.isSelf(businessId: UUID, employeeId: UUID): Boolean {
+        val callerUserId = principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: return false
+        val employee = employeeRepository.findByUserId(callerUserId) ?: return false
+        return employee.businessId == businessId && employee.id == employeeId
+    }
+
+    authenticate("auth-jwt") {
     route("/api/businesses/{businessId}/timeoff") {
 
         /**
@@ -50,6 +75,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                     UUID.fromString(request.employeeId)
                 } catch (e: IllegalArgumentException) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid employee ID format"))
+                    return@post
+                }
+
+                if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot submit timeoff for another employee"))
                     return@post
                 }
 
@@ -126,6 +156,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                     return@delete
                 }
 
+                if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot cancel timeoff for another employee"))
+                    return@delete
+                }
+
                 val result = timeoffService.cancelTimeoffRequest(businessId, requestId, employeeId)
                 result.fold(
                     onSuccess = { timeoffRequest ->
@@ -159,6 +194,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 val contextBusinessId = TenantContextHolder.getContext()?.businessId
                 if (contextBusinessId != null && contextBusinessId != businessId) {
                     call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@post
+                }
+
+                if (!call.isManager()) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
                     return@post
                 }
 
@@ -213,6 +253,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 val contextBusinessId = TenantContextHolder.getContext()?.businessId
                 if (contextBusinessId != null && contextBusinessId != businessId) {
                     call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                    return@post
+                }
+
+                if (!call.isManager()) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
                     return@post
                 }
 
@@ -276,6 +321,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
+            if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view timeoff for another employee"))
+                return@get
+            }
+
             val requests = timeoffService.getTimeoffRequestsByEmployee(businessId, employeeId)
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
@@ -301,6 +351,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
                 return@get
             }
 
+            if (!call.isManager()) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
+                return@get
+            }
+
             val requests = timeoffService.getPendingTimeoffRequests(businessId)
             call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
         }
@@ -323,6 +378,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
             val contextBusinessId = TenantContextHolder.getContext()?.businessId
             if (contextBusinessId != null && contextBusinessId != businessId) {
                 call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access timeoff from different business"))
+                return@get
+            }
+
+            if (!call.isManager()) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
                 return@get
             }
 
@@ -359,11 +419,18 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService) {
             }
 
             val timeoffRequest = timeoffService.getTimeoffRequestById(businessId, id)
-            if (timeoffRequest != null) {
-                call.respond(HttpStatusCode.OK, timeoffRequest.toResponse())
-            } else {
+            if (timeoffRequest == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("Timeoff request not found"))
+                return@get
             }
+
+            if (!call.isManager() && !call.isSelf(businessId, timeoffRequest.employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view timeoff for another employee"))
+                return@get
+            }
+
+            call.respond(HttpStatusCode.OK, timeoffRequest.toResponse())
         }
+    }
     }
 }
