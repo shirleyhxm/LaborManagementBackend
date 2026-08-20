@@ -197,10 +197,12 @@ object SwapRequests : Table("swap_requests") {
     val targetEmployeeId = uuid("target_employee_id").references(Employees.id)
     val offeredShiftId = uuid("offered_shift_id").references(Shifts.id).nullable() // reserved for future mutual-trade support
     val message = text("message").nullable()
-    val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED | DECLINED | CANCELLED
+    val status = varchar("status", 20).default("PENDING") // PENDING | PENDING_APPROVAL | APPROVED | DENIED | DECLINED | CANCELLED
     val requestedAt = timestamp("requested_at")
     val respondedAt = timestamp("responded_at").nullable()
     val respondedBy = varchar("responded_by", 50).nullable()
+    val reviewedAt = timestamp("reviewed_at").nullable()
+    val reviewedBy = varchar("reviewed_by", 50).nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

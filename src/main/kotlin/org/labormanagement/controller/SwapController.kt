@@ -154,6 +154,97 @@ class SwapController(
                 }
             }
 
+            post("/{id}/approve") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+                    val swapId = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (swapId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid swap request ID"))
+                        return@post
+                    }
+
+                    val callerRole = call.callerRole()
+                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                        return@post
+                    }
+                    val callerUserId = call.callerUserId()
+                        ?: return@post call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+
+                    val swapRequest = swapRequestRepository.findById(businessId, swapId)
+                    if (swapRequest == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Swap request not found"))
+                        return@post
+                    }
+                    if (swapRequest.status != SwapRequestStatus.PENDING_APPROVAL) {
+                        call.respond(HttpStatusCode.Conflict, mapOf("error" to "This request is not awaiting approval"))
+                        return@post
+                    }
+
+                    scheduleRepository.reassignShift(swapRequest.targetShiftId, swapRequest.requestingEmployeeId)
+                    swapRequestRepository.updateReview(swapId, SwapRequestStatus.APPROVED, callerUserId)
+
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "APPROVED"))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to approve swap request", e)
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to approve swap request: ${e.message}"))
+                }
+            }
+
+            post("/{id}/deny") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+                    val swapId = call.parameters["id"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (swapId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid swap request ID"))
+                        return@post
+                    }
+
+                    val callerRole = call.callerRole()
+                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                        return@post
+                    }
+                    val callerUserId = call.callerUserId()
+                        ?: return@post call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+
+                    val swapRequest = swapRequestRepository.findById(businessId, swapId)
+                    if (swapRequest == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Swap request not found"))
+                        return@post
+                    }
+                    if (swapRequest.status != SwapRequestStatus.PENDING_APPROVAL) {
+                        call.respond(HttpStatusCode.Conflict, mapOf("error" to "This request is not awaiting approval"))
+                        return@post
+                    }
+
+                    // Shift never moved on accept, so denying is just a status
+                    // change - nothing to reverse.
+                    swapRequestRepository.updateReview(swapId, SwapRequestStatus.DENIED, callerUserId)
+
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "DENIED"))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to deny swap request", e)
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to deny swap request: ${e.message}"))
+                }
+            }
+
             post("/{id}/accept") {
                 try {
                     val businessId = call.parameters["businessId"]?.let {
@@ -192,10 +283,12 @@ class SwapController(
                         return@post
                     }
 
-                    scheduleRepository.reassignShift(swapRequest.targetShiftId, swapRequest.requestingEmployeeId)
-                    swapRequestRepository.updateStatus(swapId, SwapRequestStatus.ACCEPTED, callerUserId)
+                    // Accepting hands the request off for admin/manager approval -
+                    // the shift itself doesn't move until that's granted, so
+                    // nothing changes on anyone's calendar while it's pending.
+                    swapRequestRepository.updateStatus(swapId, SwapRequestStatus.PENDING_APPROVAL, callerUserId)
 
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "ACCEPTED"))
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "PENDING_APPROVAL"))
                 } catch (e: Exception) {
                     call.application.log.error("Failed to accept swap request", e)
                     call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to accept swap request: ${e.message}"))
@@ -340,7 +433,9 @@ class SwapController(
             message = message,
             status = status.name,
             requestedAt = requestedAt.toString(),
-            respondedAt = respondedAt?.toString()
+            respondedAt = respondedAt?.toString(),
+            reviewedAt = reviewedAt?.toString(),
+            reviewedBy = reviewedBy
         )
     }
 }

@@ -18,7 +18,9 @@ data class SwapRequestResponse(
     val message: String?,
     val status: String,
     val requestedAt: String,
-    val respondedAt: String?
+    val respondedAt: String?,
+    val reviewedAt: String?,
+    val reviewedBy: String?
 )
 
 data class SwapRequestsListResponse(

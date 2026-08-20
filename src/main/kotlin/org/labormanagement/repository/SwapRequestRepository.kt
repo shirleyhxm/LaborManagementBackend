@@ -32,6 +32,8 @@ class SwapRequestRepository {
             it[requestedAt] = request.requestedAt
             it[respondedAt] = request.respondedAt
             it[respondedBy] = request.respondedBy
+            it[reviewedAt] = request.reviewedAt
+            it[reviewedBy] = request.reviewedBy
         }
         request
     }
@@ -71,12 +73,30 @@ class SwapRequestRepository {
             .map { it.toSwapRequest() }
     }
 
+    /** Employee-level decision (accept/decline/cancel) - stamps respondedAt/respondedBy. */
     fun updateStatus(id: UUID, status: SwapRequestStatus, respondedBy: String) = transaction {
         SwapRequests.update({ SwapRequests.id eq id }) {
             it[SwapRequests.status] = status.name
             it[respondedAt] = Instant.now()
             it[SwapRequests.respondedBy] = respondedBy
         }
+    }
+
+    /** Admin/manager-level decision (approve/deny) - stamps reviewedAt/reviewedBy. */
+    fun updateReview(id: UUID, status: SwapRequestStatus, reviewedBy: String) = transaction {
+        SwapRequests.update({ SwapRequests.id eq id }) {
+            it[SwapRequests.status] = status.name
+            it[reviewedAt] = Instant.now()
+            it[SwapRequests.reviewedBy] = reviewedBy
+        }
+    }
+
+    /** Employee-accepted requests awaiting admin/manager sign-off. */
+    fun findPendingApprovalByBusiness(businessId: UUID): List<SwapRequest> = transaction {
+        SwapRequests.selectAll()
+            .where { (SwapRequests.businessId eq businessId) and (SwapRequests.status eq SwapRequestStatus.PENDING_APPROVAL.name) }
+            .orderBy(SwapRequests.respondedAt, SortOrder.ASC)
+            .map { it.toSwapRequest() }
     }
 
     private fun ResultRow.toSwapRequest(): SwapRequest = SwapRequest(
@@ -90,6 +110,8 @@ class SwapRequestRepository {
         status = SwapRequestStatus.valueOf(this[SwapRequests.status]),
         requestedAt = this[SwapRequests.requestedAt],
         respondedAt = this[SwapRequests.respondedAt],
-        respondedBy = this[SwapRequests.respondedBy]
+        respondedBy = this[SwapRequests.respondedBy],
+        reviewedAt = this[SwapRequests.reviewedAt],
+        reviewedBy = this[SwapRequests.reviewedBy]
     )
 }

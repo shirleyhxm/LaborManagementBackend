@@ -13,13 +13,21 @@ data class SwapRequest(
     val message: String? = null,
     val status: SwapRequestStatus = SwapRequestStatus.PENDING,
     val requestedAt: Instant = Instant.now(),
+    // Set when the target employee accepts/declines.
     val respondedAt: Instant? = null,
-    val respondedBy: String? = null
+    val respondedBy: String? = null,
+    // Set when an admin/manager approves/denies an employee-accepted request.
+    val reviewedAt: Instant? = null,
+    val reviewedBy: String? = null
 )
 
 enum class SwapRequestStatus {
     PENDING,
-    ACCEPTED,
+    // Target employee accepted; shift has NOT moved yet - awaiting
+    // admin/manager sign-off before the reassignment takes effect.
+    PENDING_APPROVAL,
+    APPROVED,
+    DENIED,
     DECLINED,
     CANCELLED
 }
