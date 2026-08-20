@@ -185,24 +185,29 @@ class EmployeeController(
                     }
 
                     // Same reasoning as the list route - a full employee record
-                    // (both pay rates included) is admin/manager-only.
+                    // (both pay rates included) is admin/manager-only, except an
+                    // employee fetching their own record (e.g. to refresh state
+                    // after self-editing availability via PUT, which is allowed).
                     val principal = call.principal<JWTPrincipal>()
                         ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
-                    val callerRole = try {
-                        UserRole.valueOf(principal.payload.getClaim("role").asString())
-                    } catch (e: Exception) {
-                        UserRole.EMPLOYEE
-                    }
-                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
-                        return@get
-                    }
 
                     val id = call.parameters["id"]?.let {
                         try { UUID.fromString(it) } catch (e: Exception) { null }
                     }
                     if (id == null) {
                         call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
+                        return@get
+                    }
+
+                    val callerRole = try {
+                        UserRole.valueOf(principal.payload.getClaim("role").asString())
+                    } catch (e: Exception) {
+                        UserRole.EMPLOYEE
+                    }
+                    val callerUserId = principal.payload.getClaim("userId").asString()
+                    val isSelf = employeeRepository.findByUserId(callerUserId)?.id == id
+                    if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER && !isSelf) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                         return@get
                     }
 
