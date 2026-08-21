@@ -8,6 +8,7 @@ import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.TimeoffRepository
 import org.labormanagement.database.DatabaseFactory
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.DayOfWeek
@@ -21,6 +22,7 @@ class ShiftSchedulerTest {
     private lateinit var employeeRepository: EmployeeRepository
     private lateinit var salesForecastRepository: SalesForecastRepository
     private lateinit var businessRepository: BusinessRepository
+    private lateinit var timeoffRepository: TimeoffRepository
     private lateinit var scheduler: ShiftScheduler
 
     companion object {
@@ -53,9 +55,11 @@ class ShiftSchedulerTest {
 
         employeeRepository = EmployeeRepository()
         salesForecastRepository = SalesForecastRepository()
+        timeoffRepository = TimeoffRepository()
         scheduler = ShiftScheduler(
             employeeRepository = employeeRepository,
             salesForecastRepository = salesForecastRepository,
+            timeoffRepository = timeoffRepository,
             schedulingApproach = SchedulingApproach.GREEDY
         )
     }
@@ -1787,5 +1791,143 @@ class ShiftSchedulerTest {
             balancedOutput.metrics.totalLaborCost > 0 && balancedOutput.metrics.estimatedTotalSales > 0,
             "BALANCED should produce a feasible schedule"
         )
+    }
+
+    @Test
+    fun `GREEDY generateSchedule should never assign a shift on an employee's approved timeoff date`() {
+        val employeeOnLeave = createEmployee(
+            firstName = "Dana",
+            productivity = 200.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+        val employeeAvailable = createEmployee(
+            firstName = "Eli",
+            productivity = 200.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        // Monday 2024-01-01 is approved off for Dana; Tuesday 2024-01-02 is not.
+        timeoffRepository.create(
+            TimeoffRequest(
+                businessId = testBusinessId,
+                employeeId = employeeOnLeave.id,
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 1),
+                reason = "Test leave",
+                status = TimeoffStatus.APPROVED
+            )
+        )
+
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(9, 0) to 1000.0),
+                DayOfWeek.TUESDAY to mapOf(LocalTime.of(9, 0) to 1000.0)
+            )
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employeeOnLeave.id, employeeAvailable.id),
+            laborCostBudget = 1000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1), // Monday
+                endDate = LocalDate.of(2024, 1, 2),   // Tuesday
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        val onLeaveMondayShifts = output.shifts.filter {
+            it.employeeId == employeeOnLeave.id && it.date == LocalDate.of(2024, 1, 1)
+        }
+        val onLeaveTuesdayShifts = output.shifts.filter {
+            it.employeeId == employeeOnLeave.id && it.date == LocalDate.of(2024, 1, 2)
+        }
+
+        assertTrue(onLeaveMondayShifts.isEmpty(), "Employee with approved timeoff should not be scheduled on that date")
+        assertTrue(onLeaveTuesdayShifts.isNotEmpty(), "Employee should still be schedulable on dates without approved timeoff")
+    }
+
+    @Test
+    fun `OPTIMIZER generateSchedule should never assign a shift on an employee's approved timeoff date`() {
+        val optimizerScheduler = ShiftScheduler(
+            employeeRepository = employeeRepository,
+            salesForecastRepository = salesForecastRepository,
+            timeoffRepository = timeoffRepository,
+            schedulingApproach = SchedulingApproach.OPTIMIZER
+        )
+
+        val employeeOnLeave = createEmployee(
+            firstName = "Fiona",
+            productivity = 200.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+        val employeeAvailable = createEmployee(
+            firstName = "Gus",
+            productivity = 200.0,
+            payRate = 15.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            )
+        )
+
+        timeoffRepository.create(
+            TimeoffRequest(
+                businessId = testBusinessId,
+                employeeId = employeeOnLeave.id,
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 1),
+                reason = "Test leave",
+                status = TimeoffStatus.APPROVED
+            )
+        )
+
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(9, 0) to 1000.0),
+                DayOfWeek.TUESDAY to mapOf(LocalTime.of(9, 0) to 1000.0)
+            )
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employeeOnLeave.id, employeeAvailable.id),
+            laborCostBudget = 1000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1), // Monday
+                endDate = LocalDate.of(2024, 1, 2),   // Tuesday
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0)),
+                    LocalDate.of(2024, 1, 2) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))
+                )
+            )
+        )
+
+        val output = optimizerScheduler.generateSchedule(input, businessId = testBusinessId)
+
+        val onLeaveMondayShifts = output.shifts.filter {
+            it.employeeId == employeeOnLeave.id && it.date == LocalDate.of(2024, 1, 1)
+        }
+
+        assertTrue(onLeaveMondayShifts.isEmpty(), "Employee with approved timeoff should not be scheduled on that date")
     }
 }

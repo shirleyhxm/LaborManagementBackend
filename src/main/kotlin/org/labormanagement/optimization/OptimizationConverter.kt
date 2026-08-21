@@ -8,6 +8,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import java.util.UUID
 
 /**
  * Converts between domain models (Employee, SalesForecast, etc.) and optimization model inputs/outputs.
@@ -25,6 +26,8 @@ object OptimizationConverter {
      * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
      * @param constraintsService Optional ConstraintsService to fetch scheduling constraints
+     * @param timeoffExclusions Per-employee dates excluded due to an APPROVED timeoff
+     *   request - treated the same as having no availability that day
      * @return OptimizationInput ready for the solver
      */
     fun buildOptimizationInput(
@@ -37,7 +40,8 @@ object OptimizationConverter {
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         maxSolveTimeSeconds: Double = 5.0,
         constraintsService: org.labormanagement.service.ConstraintsService? = null,
-        businessId: java.util.UUID
+        businessId: java.util.UUID,
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
     ): OptimizationInput {
         // Fetch constraints from ConstraintsService if provided
         val budgetConstraints = constraintsService?.getBudgetConstraints(businessId)
@@ -51,7 +55,7 @@ object OptimizationConverter {
         val timeSlots = generateTimeSlots(scheduleDates, operatingHoursMap)
 
         // Build availability matrix [employee][timeSlot]
-        val availability = buildAvailabilityMatrix(employees, timeSlots)
+        val availability = buildAvailabilityMatrix(employees, timeSlots, timeoffExclusions)
 
         // Build productivity matrix [employee][timeSlot]
         val productivity = buildProductivityMatrix(employees, timeSlots)
@@ -208,14 +212,18 @@ object OptimizationConverter {
 
     /**
      * Builds availability matrix indicating which employees are available for which time slots.
+     * A slot is unavailable if the employee's recurring availability doesn't cover it, OR if
+     * they have an APPROVED timeoff request covering that date.
      */
     private fun buildAvailabilityMatrix(
         employees: List<Employee>,
-        timeSlots: List<TimeSlot>
+        timeSlots: List<TimeSlot>,
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
     ): List<List<Boolean>> {
         return employees.map { employee ->
+            val excludedDates = timeoffExclusions[employee.id] ?: emptySet()
             timeSlots.map { slot ->
-                employee.availability.any { avail ->
+                slot.date !in excludedDates && employee.availability.any { avail ->
                     avail.isAvailableOn(slot.date, slot.startTime, slot.endTime)
                 }
             }

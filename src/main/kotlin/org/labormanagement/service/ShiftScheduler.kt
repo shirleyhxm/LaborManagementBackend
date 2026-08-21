@@ -14,6 +14,7 @@ import org.labormanagement.optimization.ScheduleOptimizer
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
+import org.labormanagement.repository.TimeoffRepository
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -44,6 +45,7 @@ class ShiftScheduler(
     private val scheduleRepository: ScheduleRepository = ScheduleRepository(),
     private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository(),
     private val constraintsService: ConstraintsService = ConstraintsService(),
+    private val timeoffRepository: TimeoffRepository = TimeoffRepository(),
     private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
     private val log = LoggerFactory.getLogger(ShiftScheduler::class.java)
@@ -68,6 +70,28 @@ class ShiftScheduler(
         scheduleRepository.save(schedule)
 
         return@profile schedule
+    }
+
+    /**
+     * Builds a per-employee set of dates excluded from scheduling because of an
+     * APPROVED timeoff request overlapping that date. One query for the whole
+     * business/date-range rather than per-employee, since the scheduler always
+     * needs every employee's exclusions at once.
+     */
+    private fun buildTimeoffExclusions(
+        businessId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): Map<UUID, Set<LocalDate>> {
+        val approvedRequests = timeoffRepository.findApprovedByBusinessAndDateRange(businessId, startDate, endDate)
+        return approvedRequests
+            .groupBy { it.employeeId }
+            .mapValues { (_, requests) ->
+                requests.flatMap { request ->
+                    generateSequence(maxOf(request.startDate, startDate)) { it.plusDays(1) }
+                        .takeWhile { it <= minOf(request.endDate, endDate) }
+                }.toSet()
+            }
     }
 
     /**
@@ -96,6 +120,13 @@ class ShiftScheduler(
             employeeRepository.findById(businessId, id)
         }
 
+        val scheduleDates = input.schedulePeriod.getAllDates()
+        val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
+            buildTimeoffExclusions(businessId, scheduleDates.min(), scheduleDates.max())
+        } else {
+            emptyMap()
+        }
+
         // Generate candidate shifts for each day
         profile("generateSchedule.allDays") {
             input.schedulePeriod.getAllDates().forEach { date ->
@@ -109,7 +140,8 @@ class ShiftScheduler(
                         input.laborCostBudget,
                         weeklyHours,
                         minShiftDurationHours,
-                        optimizationObjective
+                        optimizationObjective,
+                        timeoffExclusions
                     )
                 }
                 shifts.addAll(dayShifts)
@@ -175,6 +207,12 @@ class ShiftScheduler(
             } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
         }
 
+        val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
+            buildTimeoffExclusions(businessId, scheduleDates.min(), scheduleDates.max())
+        } else {
+            emptyMap()
+        }
+
         // Convert to optimization input
         val optimizationInput = profile("generateSchedule.buildOptimizationInput") {
             OptimizationConverter.buildOptimizationInput(
@@ -187,7 +225,8 @@ class ShiftScheduler(
                 objective = input.optimizationObjective,
                 maxSolveTimeSeconds = 30.0,
                 constraintsService = constraintsService,
-                businessId = businessId
+                businessId = businessId,
+                timeoffExclusions = timeoffExclusions
             )
         }
 
@@ -216,7 +255,8 @@ class ShiftScheduler(
                 shifts,
                 employees,
                 input.schedulePeriod,
-                salesForecast
+                salesForecast,
+                timeoffExclusions
             )
         }
 
@@ -368,14 +408,23 @@ class ShiftScheduler(
         remainingBudget: Double,
         weeklyHours: MutableMap<UUID, Double>, // Shared across all days
         minShiftDurationHours: Double, // Minimum shift duration in hours
-        optimizationObjective: OptimizationObjective // Optimization strategy
+        optimizationObjective: OptimizationObjective, // Optimization strategy
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
     ): Pair<List<Shift>, List<StaffingRequirement>> {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
+        // Employees with an approved timeoff request covering this date are
+        // excluded up front, same as if they had no availability at all -
+        // every downstream check (assignment, staffing-requirement headcount)
+        // naturally respects it since it only ever sees this filtered list.
+        val schedulableEmployees = employees.filter { employee ->
+            date !in (timeoffExclusions[employee.id] ?: emptySet())
+        }
+
         // Sort employees according to the optimization objective
         val sortedEmployees = profile("generateShiftsForDay.sortEmployees") {
-            sortEmployeesByObjective(employees, optimizationObjective, weeklyHours)
+            sortEmployeesByObjective(schedulableEmployees, optimizationObjective, weeklyHours)
         }
 
         var currentBudget = remainingBudget
@@ -808,7 +857,8 @@ class ShiftScheduler(
         shifts: List<Shift>,
         employees: List<Employee>,
         schedulePeriod: org.labormanagement.model.SchedulePeriod,
-        salesForecast: SalesForecast
+        salesForecast: SalesForecast,
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
     ): List<StaffingRequirement> {
         val requirements = mutableListOf<StaffingRequirement>()
         val employeeMap = employees.associateBy { it.id }
@@ -816,6 +866,9 @@ class ShiftScheduler(
         schedulePeriod.getAllDates().forEach { date ->
             val operatingHours = schedulePeriod.operatingHours[date] ?: return@forEach
             val dayForecast = salesForecast.getForecastForDate(date)
+            val schedulableEmployees = employees.filter { employee ->
+                date !in (timeoffExclusions[employee.id] ?: emptySet())
+            }
 
             // Generate hourly intervals
             val intervals = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, 1.0)
@@ -832,7 +885,7 @@ class ShiftScheduler(
                 }
 
                 // Calculate employees needed based on productivity
-                val availableEmployees = employees.filter { employee ->
+                val availableEmployees = schedulableEmployees.filter { employee ->
                     employee.availability.any { avail ->
                         avail.dayOfWeek == date.dayOfWeek &&
                         avail.startTime <= startTime &&

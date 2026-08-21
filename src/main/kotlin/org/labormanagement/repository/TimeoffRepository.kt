@@ -114,6 +114,25 @@ class TimeoffRepository {
     }
 
     /**
+     * Find all approved timeoff requests for a business that overlap a date range,
+     * across all employees - used by the scheduler to exclude employees from
+     * shifts on days they're approved to be off, without an N+1 per-employee query.
+     */
+    fun findApprovedByBusinessAndDateRange(
+        businessId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<TimeoffRequest> = transaction {
+        Timeoffs.selectAll().where {
+            (Timeoffs.businessId eq businessId) and
+            (Timeoffs.status eq TimeoffStatus.APPROVED.name) and
+            (Timeoffs.startDate lessEq endDate) and
+            (Timeoffs.endDate greaterEq startDate)
+        }
+            .map { it.toTimeoffRequest() }
+    }
+
+    /**
      * Check if employee has approved timeoff on a specific date within a specific business
      */
     fun hasApprovedTimeoffOnDate(businessId: UUID, employeeId: UUID, date: LocalDate): Boolean = transaction {
