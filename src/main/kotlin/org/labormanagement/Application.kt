@@ -466,7 +466,7 @@ fun Application.module() {
         }
 
         // Register new employee operation routes
-        attendanceRoutes(attendanceService)
+        attendanceRoutes(attendanceService, employeeRepository)
         timeoffRoutes(timeoffService, employeeRepository)
         salesRoutes(salesService)
 

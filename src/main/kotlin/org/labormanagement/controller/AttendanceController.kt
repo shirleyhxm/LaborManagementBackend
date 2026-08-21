@@ -2,11 +2,15 @@ package org.labormanagement.controller
 
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.labormanagement.dto.*
 import org.labormanagement.model.ErrorResponse
+import org.labormanagement.model.UserRole
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.service.AttendanceService
 import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
@@ -15,8 +19,32 @@ import java.util.*
 /**
  * Controller for employee attendance (clock in/out) endpoints
  */
-fun Route.attendanceRoutes(attendanceService: AttendanceService) {
+fun Route.attendanceRoutes(attendanceService: AttendanceService, employeeRepository: EmployeeRepository) {
 
+    fun ApplicationCall.callerRole(): UserRole {
+        val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
+        return try {
+            UserRole.valueOf(principal.payload.getClaim("role").asString())
+        } catch (e: Exception) {
+            UserRole.EMPLOYEE
+        }
+    }
+
+    fun ApplicationCall.isManager(): Boolean {
+        val role = callerRole()
+        return role == UserRole.ADMIN || role == UserRole.MANAGER
+    }
+
+    // True if the caller's own employee record (resolved from their JWT userId)
+    // matches the given employeeId - lets an employee clock in/out and view their
+    // own attendance without needing manager privileges.
+    fun ApplicationCall.isSelf(businessId: UUID, employeeId: UUID): Boolean {
+        val callerUserId = principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: return false
+        val employee = employeeRepository.findByUserId(callerUserId) ?: return false
+        return employee.businessId == businessId && employee.id == employeeId
+    }
+
+    authenticate("auth-jwt") {
     route("/api/businesses/{businessId}/attendance") {
 
         /**
@@ -66,6 +94,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                         call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid shift ID format"))
                         return@post
                     }
+                }
+
+                if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot clock in another employee"))
+                    return@post
                 }
 
                 val result = attendanceService.clockIn(
@@ -120,6 +153,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                     return@post
                 }
 
+                if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                    call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot clock out another employee"))
+                    return@post
+                }
+
                 val result = attendanceService.clockOut(
                     businessId = businessId,
                     employeeId = employeeId,
@@ -167,6 +205,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
+            if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view another employee's attendance"))
+                return@get
+            }
+
             val activeRecord = attendanceService.getActiveClockRecord(businessId, employeeId)
             if (activeRecord != null) {
                 call.respond(HttpStatusCode.OK, activeRecord.toResponse())
@@ -203,6 +246,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@get
             }
 
+            if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view another employee's attendance"))
+                return@get
+            }
+
             val records = attendanceService.getClockRecordsByEmployee(businessId, employeeId)
             call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
         }
@@ -225,6 +273,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
             val contextBusinessId = TenantContextHolder.getContext()?.businessId
             if (contextBusinessId != null && contextBusinessId != businessId) {
                 call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
+            if (!call.isManager()) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
                 return@get
             }
 
@@ -257,6 +310,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
             val contextBusinessId = TenantContextHolder.getContext()?.businessId
             if (contextBusinessId != null && contextBusinessId != businessId) {
                 call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot access attendance from different business"))
+                return@get
+            }
+
+            if (!call.isManager()) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
                 return@get
             }
 
@@ -296,6 +354,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 UUID.fromString(call.parameters["employeeId"])
             } catch (e: IllegalArgumentException) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid employee ID format"))
+                return@get
+            }
+
+            if (!call.isManager() && !call.isSelf(businessId, employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view another employee's attendance"))
                 return@get
             }
 
@@ -361,11 +424,15 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
             }
 
             val record = attendanceService.getClockRecordById(businessId, id)
-            if (record != null) {
-                call.respond(HttpStatusCode.OK, record.toResponse())
-            } else {
+            if (record == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("Clock record not found"))
+                return@get
             }
+            if (!call.isManager() && !call.isSelf(businessId, record.employeeId)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Cannot view another employee's attendance"))
+                return@get
+            }
+            call.respond(HttpStatusCode.OK, record.toResponse())
         }
 
         /**
@@ -389,6 +456,11 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 return@delete
             }
 
+            if (!call.isManager()) {
+                call.respond(HttpStatusCode.Forbidden, ErrorResponse("Requires ADMIN or MANAGER role"))
+                return@delete
+            }
+
             val id = try {
                 UUID.fromString(call.parameters["id"])
             } catch (e: IllegalArgumentException) {
@@ -406,5 +478,6 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService) {
                 }
             )
         }
+    }
     }
 }
