@@ -62,6 +62,7 @@ class ScheduleRepository(
             it[estimatedTotalSales] = schedule.metrics.estimatedTotalSales
             it[laborCostPercentage] = schedule.metrics.laborCostPercentage
             it[employeeUtilization] = gson.toJson(schedule.metrics.employeeUtilization)
+            it[totalEmployerOnCost] = schedule.metrics.totalEmployerOnCost
             it[violations] = gson.toJson(schedule.violations)
             it[staffingRequirements] = gson.toJson(schedule.staffingRequirements)
             it[version] = schedule.version
@@ -260,6 +261,7 @@ class ScheduleRepository(
             it[estimatedTotalSales] = schedule.metrics.estimatedTotalSales
             it[laborCostPercentage] = schedule.metrics.laborCostPercentage
             it[employeeUtilization] = gson.toJson(schedule.metrics.employeeUtilization)
+            it[totalEmployerOnCost] = schedule.metrics.totalEmployerOnCost
             it[violations] = gson.toJson(schedule.violations)
             it[staffingRequirements] = gson.toJson(schedule.staffingRequirements)
             it[version] = schedule.version
@@ -357,7 +359,8 @@ class ScheduleRepository(
                 totalLaborCost = this[Schedules.totalLaborCost],
                 estimatedTotalSales = this[Schedules.estimatedTotalSales],
                 laborCostPercentage = this[Schedules.laborCostPercentage],
-                employeeUtilization = gson.fromJson(this[Schedules.employeeUtilization], stringDoubleMapType)
+                employeeUtilization = gson.fromJson(this[Schedules.employeeUtilization], stringDoubleMapType),
+                totalEmployerOnCost = this[Schedules.totalEmployerOnCost]
             ),
             violations = gson.fromJson(this[Schedules.violations], violationsType),
             staffingRequirements = gson.fromJson(this[Schedules.staffingRequirements], staffingType),

@@ -116,7 +116,16 @@ object DatabaseFactory {
             org.labormanagement.database.Attendances,
             org.labormanagement.database.Sales,
             org.labormanagement.database.PasswordResets,
-            org.labormanagement.database.RefreshTokens
+            org.labormanagement.database.RefreshTokens,
+            org.labormanagement.database.BudgetConstraintsTable,
+            org.labormanagement.database.WorkingHoursRulesTable,
+            org.labormanagement.database.ComplianceRulesTable,
+            org.labormanagement.database.FairnessSettingsTable,
+            org.labormanagement.database.PayrollCostRulesTable,
+            org.labormanagement.database.HourlyRateRules,
+            org.labormanagement.database.CustomComplianceRules,
+            org.labormanagement.database.SchedulingPriorities,
+            org.labormanagement.database.EmployeeContractedHoursTable
         )
 
         SchemaUtils.create(*allTables)
@@ -141,6 +150,15 @@ object DatabaseFactory {
         transaction {
             // Drop tables in reverse order to handle foreign key constraints
             SchemaUtils.drop(
+                org.labormanagement.database.EmployeeContractedHoursTable,
+                org.labormanagement.database.SchedulingPriorities,
+                org.labormanagement.database.CustomComplianceRules,
+                org.labormanagement.database.HourlyRateRules,
+                org.labormanagement.database.PayrollCostRulesTable,
+                org.labormanagement.database.FairnessSettingsTable,
+                org.labormanagement.database.ComplianceRulesTable,
+                org.labormanagement.database.WorkingHoursRulesTable,
+                org.labormanagement.database.BudgetConstraintsTable,
                 org.labormanagement.database.RefreshTokens,
                 org.labormanagement.database.PasswordResets,
                 org.labormanagement.database.Sales,

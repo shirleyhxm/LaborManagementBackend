@@ -158,6 +158,7 @@ object Schedules : Table("schedules") {
     val estimatedTotalSales = double("estimated_total_sales")
     val laborCostPercentage = double("labor_cost_percentage")
     val employeeUtilization = text("employee_utilization") // JSON object
+    val totalEmployerOnCost = double("total_employer_on_cost").default(0.0)
 
     // Violations and staffing (stored as JSON)
     val violations = text("violations").default("[]")
@@ -270,6 +271,131 @@ object Sales : Table("sales") {
     val description = text("description").default("")
     val recordedAt = timestamp("recorded_at")
     val createdBy = varchar("created_by", 100)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+// ===== Constraints Tables =====
+// One row per business for singleton settings; businessId is unique so
+// upserts can key off it directly.
+
+object BudgetConstraintsTable : Table("business_budget_constraints") {
+    val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+    val weeklyBudget = double("weekly_budget")
+    val monthlyBudget = double("monthly_budget")
+    val hardBudgetLimit = bool("hard_budget_limit")
+    val budgetWarningThreshold = double("budget_warning_threshold")
+    val updatedAt = timestamp("updated_at")
+
+    override val primaryKey = PrimaryKey(businessId)
+}
+
+object WorkingHoursRulesTable : Table("business_working_hours_rules") {
+    val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+    val maxHoursPerWeek = double("max_hours_per_week")
+    val maxOvertimeHours = double("max_overtime_hours")
+    val minRestBetweenShifts = double("min_rest_between_shifts")
+    val maxConsecutiveDays = integer("max_consecutive_days")
+    val maxShiftLength = double("max_shift_length")
+    val minShiftLength = double("min_shift_length")
+    val updatedAt = timestamp("updated_at")
+
+    override val primaryKey = PrimaryKey(businessId)
+}
+
+object ComplianceRulesTable : Table("business_compliance_rules") {
+    val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+    val flsaOvertimeEnabled = bool("flsa_overtime_enabled")
+    val mealBreakRequired = bool("meal_break_required")
+    val mealBreakMinShiftHours = double("meal_break_min_shift_hours")
+    val mealBreakDuration = integer("meal_break_duration")
+    val minorLaborLawsEnabled = bool("minor_labor_laws_enabled")
+    val advanceNoticePeriod = integer("advance_notice_period")
+    val updatedAt = timestamp("updated_at")
+
+    override val primaryKey = PrimaryKey(businessId)
+}
+
+object FairnessSettingsTable : Table("business_fairness_settings") {
+    val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+    val rotateWeekendShifts = bool("rotate_weekend_shifts")
+    val balanceDesirableShifts = bool("balance_desirable_shifts")
+    val seniorityPreference = bool("seniority_preference")
+    val updatedAt = timestamp("updated_at")
+
+    override val primaryKey = PrimaryKey(businessId)
+}
+
+object PayrollCostRulesTable : Table("business_payroll_cost_rules") {
+    val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+    val employerNiEnabled = bool("employer_ni_enabled")
+    val employerNiWeeklyThreshold = double("employer_ni_weekly_threshold")
+    val employerNiRate = double("employer_ni_rate")
+    val updatedAt = timestamp("updated_at")
+
+    override val primaryKey = PrimaryKey(businessId)
+}
+
+// Many rows per business - each has its own generated id as primary key.
+
+object HourlyRateRules : Table("business_hourly_rate_rules") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val roleId = varchar("role_id", 100).nullable()
+    val baseRate = double("base_rate")
+    val overtimeMultiplier = double("overtime_multiplier")
+    val weekendPremium = double("weekend_premium")
+
+    override val primaryKey = PrimaryKey(id)
+    init {
+        uniqueIndex(businessId, roleId)
+    }
+}
+
+object CustomComplianceRules : Table("business_custom_compliance_rules") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val name = varchar("name", 200)
+    val description = text("description").default("")
+    val isActive = bool("is_active").default(true)
+    val ruleType = varchar("rule_type", 50)
+    val configuration = text("configuration").default("{}") // JSON
+
+    override val primaryKey = PrimaryKey(id)
+    init {
+        uniqueIndex(businessId, name)
+    }
+}
+
+object SchedulingPriorities : Table("business_scheduling_priorities") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val priorityOrder = integer("priority_order")
+    val priorityType = varchar("priority_type", 50)
+    val name = varchar("name", 200)
+    val description = text("description").default("")
+    val isEnabled = bool("is_enabled").default(true)
+
+    override val primaryKey = PrimaryKey(id)
+    init {
+        uniqueIndex(businessId, priorityOrder)
+    }
+}
+
+// Employee contracted hours genuinely supports multiple effective-dated
+// rows per employee (effectiveFrom/effectiveTo windows), so this is a
+// real list keyed by a generated id, not one row per employee.
+
+object EmployeeContractedHoursTable : Table("employee_contracted_hours") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val employeeId = uuid("employee_id").references(Employees.id)
+    val minHours = double("min_hours")
+    val contractedHours = double("contracted_hours")
+    val maxHours = double("max_hours")
+    val effectiveFrom = date("effective_from")
+    val effectiveTo = date("effective_to").nullable()
+    val updatedAt = timestamp("updated_at")
 
     override val primaryKey = PrimaryKey(id)
 }

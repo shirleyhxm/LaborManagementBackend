@@ -156,6 +156,21 @@ data class FairnessSettingsResponse(
     val updatedAt: String
 )
 
+// ====== Payroll Cost Rules DTOs ======
+
+data class PayrollCostRulesRequest(
+    val employerNiEnabled: Boolean,
+    val employerNiWeeklyThreshold: Double,
+    val employerNiRate: Double
+)
+
+data class PayrollCostRulesResponse(
+    val employerNiEnabled: Boolean,
+    val employerNiWeeklyThreshold: Double,
+    val employerNiRate: Double,
+    val updatedAt: String
+)
+
 // ====== Bulk Operations DTOs ======
 
 data class AllConstraintsResponse(
@@ -166,7 +181,8 @@ data class AllConstraintsResponse(
     val compliance: ComplianceRulesResponse?,
     val customCompliance: List<CustomComplianceRuleResponse>,
     val priorities: List<SchedulingPriorityResponse>,
-    val fairness: FairnessSettingsResponse?
+    val fairness: FairnessSettingsResponse?,
+    val payrollCost: PayrollCostRulesResponse?
 )
 
 // ====== Validation DTOs ======
@@ -278,6 +294,15 @@ fun FairnessSettings.toResponse(): FairnessSettingsResponse {
     )
 }
 
+fun PayrollCostRules.toResponse(): PayrollCostRulesResponse {
+    return PayrollCostRulesResponse(
+        employerNiEnabled = this.employerNiEnabled,
+        employerNiWeeklyThreshold = this.employerNiWeeklyThreshold,
+        employerNiRate = this.employerNiRate,
+        updatedAt = this.updatedAt.toString()
+    )
+}
+
 // Conversion from request to model
 fun BudgetConstraintsRequest.toModel(businessId: UUID): BudgetConstraints {
     return BudgetConstraints(
@@ -366,6 +391,16 @@ fun FairnessSettingsRequest.toModel(businessId: UUID): FairnessSettings {
         rotateWeekendShifts = this.rotateWeekendShifts,
         balanceDesirableShifts = this.balanceDesirableShifts,
         seniorityPreference = this.seniorityPreference,
+        updatedAt = Instant.now()
+    )
+}
+
+fun PayrollCostRulesRequest.toModel(businessId: UUID): PayrollCostRules {
+    return PayrollCostRules(
+        businessId = businessId,
+        employerNiEnabled = this.employerNiEnabled,
+        employerNiWeeklyThreshold = this.employerNiWeeklyThreshold,
+        employerNiRate = this.employerNiRate,
         updatedAt = Instant.now()
     )
 }

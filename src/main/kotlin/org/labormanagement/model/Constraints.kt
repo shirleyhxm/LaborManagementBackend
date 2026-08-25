@@ -100,3 +100,19 @@ data class FairnessSettings(
     val seniorityPreference: Boolean,
     val updatedAt: Instant = Instant.now()
 )
+
+// ====== Payroll Cost Rules ======
+// Employer-side on-costs on top of wage pay (e.g. UK Employer National
+// Insurance: a flat rate above a per-employee weekly earnings threshold).
+// Simplified single threshold/rate model - no per-employee NI category
+// letter (under-21/apprentice discounted rates). Values are user-editable
+// since HMRC revises the threshold/rate periodically and businesses may
+// need to correct them for validation purposes.
+
+data class PayrollCostRules(
+    val businessId: UUID,  // Multi-tenancy: Business these rules belong to
+    val employerNiEnabled: Boolean,
+    val employerNiWeeklyThreshold: Double, // Secondary Threshold, currency/week
+    val employerNiRate: Double, // percentage applied above the threshold
+    val updatedAt: Instant = Instant.now()
+)

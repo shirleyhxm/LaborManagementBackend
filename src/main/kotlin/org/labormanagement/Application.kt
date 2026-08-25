@@ -172,7 +172,8 @@ fun Application.module() {
     val shiftModificationService = ShiftModificationService(
         scheduleRepository = scheduleRepository,
         employeeRepository = employeeRepository,
-        constraintValidator = constraintValidator
+        constraintValidator = constraintValidator,
+        constraintsService = constraintsService
     )
 
     // Initialize auth services (business service initialized after for dependency)

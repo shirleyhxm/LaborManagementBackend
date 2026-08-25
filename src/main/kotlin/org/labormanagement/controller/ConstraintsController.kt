@@ -1,8 +1,12 @@
 package org.labormanagement.controller
 
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.log
+import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.jwt.JWTPrincipal
+import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -12,15 +16,32 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.delete
 import org.labormanagement.dto.*
+import org.labormanagement.model.UserRole
 import org.labormanagement.service.ConstraintsService
 import org.labormanagement.service.TenantContextHolder
+import java.time.LocalDate
 import java.util.UUID
 
 class ConstraintsController(
     private val constraintsService: ConstraintsService
 ) {
 
+    private fun ApplicationCall.callerRole(): UserRole {
+        val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
+        return try {
+            UserRole.valueOf(principal.payload.getClaim("role").asString())
+        } catch (e: Exception) {
+            UserRole.EMPLOYEE
+        }
+    }
+
+    private fun ApplicationCall.isManager(): Boolean {
+        val role = callerRole()
+        return role == UserRole.ADMIN || role == UserRole.MANAGER
+    }
+
     fun Route.constraintsRoutes() {
+        authenticate("auth-jwt") {
         route("/api/businesses/{businessId}/constraints") {
 
             // ====== Budget Constraints ======
@@ -41,6 +62,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@get
                         }
 
@@ -71,6 +97,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@put
                         }
 
@@ -105,6 +136,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val roleId = call.request.queryParameters["roleId"]
                         val rates = constraintsService.getHourlyRateRules(businessId, roleId)
                         call.respond(HttpStatusCode.OK, rates.map { it.toResponse() })
@@ -132,6 +168,11 @@ class ConstraintsController(
                             return@post
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@post
+                        }
+
                         val request = call.receive<HourlyRateRuleRequest>()
                         val rate = constraintsService.createHourlyRateRule(businessId, request)
                         call.respond(HttpStatusCode.Created, rate.toResponse())
@@ -156,6 +197,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@delete
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@delete
                         }
 
@@ -194,6 +240,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val rules = constraintsService.getWorkingHoursRules(businessId)
                         if (rules != null) {
                             call.respond(HttpStatusCode.OK, rules.toResponse())
@@ -224,6 +275,11 @@ class ConstraintsController(
                             return@put
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@put
+                        }
+
                         val request = call.receive<WorkingHoursRulesRequest>()
                         val rules = constraintsService.updateWorkingHoursRules(businessId, request)
                         call.respond(HttpStatusCode.OK, rules.toResponse())
@@ -235,6 +291,9 @@ class ConstraintsController(
             }
 
             // ====== Employee Contracted Hours ======
+            // An employee can have multiple effective-dated rows, so PUT/DELETE
+            // on a single {employeeId} disambiguate which row via an
+            // effectiveFrom query param rather than assuming there's only one.
 
             route("/contracted-hours") {
                 get {
@@ -252,6 +311,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@get
                         }
 
@@ -284,6 +348,11 @@ class ConstraintsController(
                             return@post
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@post
+                        }
+
                         val request = call.receive<EmployeeContractedHoursRequest>()
                         val hours = constraintsService.createContractedHours(businessId, request)
                         call.respond(HttpStatusCode.Created, hours.toResponse())
@@ -311,14 +380,26 @@ class ConstraintsController(
                             return@put
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@put
+                        }
+
                         val employeeId = call.parameters["employeeId"]?.let { UUID.fromString(it) }
                             ?: return@put call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
 
                         val request = call.receive<EmployeeContractedHoursRequest>()
 
+                        // The request body's effectiveFrom identifies which of the
+                        // employee's (possibly several) contracted-hours rows to update.
                         if (constraintsService.updateContractedHours(businessId, employeeId, request)) {
-                            val updated = constraintsService.getContractedHours(businessId, employeeId).first()
-                            call.respond(HttpStatusCode.OK, updated.toResponse())
+                            val updated = constraintsService.getContractedHours(businessId, employeeId)
+                                .firstOrNull { it.effectiveFrom == LocalDate.parse(request.effectiveFrom) }
+                            if (updated != null) {
+                                call.respond(HttpStatusCode.OK, updated.toResponse())
+                            } else {
+                                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Contracted hours not found"))
+                            }
                         } else {
                             call.respond(HttpStatusCode.NotFound, mapOf("error" to "Contracted hours not found"))
                         }
@@ -346,10 +427,19 @@ class ConstraintsController(
                             return@delete
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@delete
+                        }
+
                         val employeeId = call.parameters["employeeId"]?.let { UUID.fromString(it) }
                             ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid employee ID"))
 
-                        if (constraintsService.deleteContractedHours(businessId, employeeId)) {
+                        // Optional: delete only one specific effective-dated row.
+                        // Omitted entirely: delete all rows for the employee (previous behavior).
+                        val effectiveFrom = call.request.queryParameters["effectiveFrom"]?.let { LocalDate.parse(it) }
+
+                        if (constraintsService.deleteContractedHours(businessId, employeeId, effectiveFrom)) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
                             call.respond(HttpStatusCode.NotFound, mapOf("error" to "Contracted hours not found"))
@@ -382,6 +472,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val rules = constraintsService.getComplianceRules(businessId)
                         if (rules != null) {
                             call.respond(HttpStatusCode.OK, rules.toResponse())
@@ -409,6 +504,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@put
                         }
 
@@ -443,6 +543,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val rules = constraintsService.getCustomComplianceRules(businessId)
                         call.respond(HttpStatusCode.OK, rules.map { it.toResponse() })
                     } catch (e: Exception) {
@@ -466,6 +571,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@post
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@post
                         }
 
@@ -493,6 +603,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@put
                         }
 
@@ -528,6 +643,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@delete
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@delete
                         }
 
@@ -568,6 +688,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val priorities = constraintsService.getSchedulingPriorities(businessId)
                         call.respond(HttpStatusCode.OK, priorities.map { it.toResponse() })
                     } catch (e: Exception) {
@@ -591,6 +716,11 @@ class ConstraintsController(
                         val contextBusinessId = TenantContextHolder.getContext()?.businessId
                         if (contextBusinessId != null && contextBusinessId != businessId) {
                             call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                             return@put
                         }
 
@@ -625,6 +755,11 @@ class ConstraintsController(
                             return@get
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
                         val settings = constraintsService.getFairnessSettings(businessId)
                         if (settings != null) {
                             call.respond(HttpStatusCode.OK, settings.toResponse())
@@ -655,11 +790,87 @@ class ConstraintsController(
                             return@put
                         }
 
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@put
+                        }
+
                         val request = call.receive<FairnessSettingsRequest>()
                         val settings = constraintsService.updateFairnessSettings(businessId, request)
                         call.respond(HttpStatusCode.OK, settings.toResponse())
                     } catch (e: Exception) {
                         call.application.log.error("Failed to update fairness settings", e)
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
+                    }
+                }
+            }
+
+            // ====== Payroll Cost Rules ======
+
+            route("/payroll-cost") {
+                get {
+                    try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@get
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@get
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@get
+                        }
+
+                        val rules = constraintsService.getPayrollCostRules(businessId)
+                        if (rules != null) {
+                            call.respond(HttpStatusCode.OK, rules.toResponse())
+                        } else {
+                            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Payroll cost rules not found"))
+                        }
+                    } catch (e: Exception) {
+                        call.application.log.error("Failed to get payroll cost rules", e)
+                        call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
+                    }
+                }
+
+                put {
+                    try {
+                        // Extract and validate businessId from path
+                        val businessId = call.parameters["businessId"]?.let {
+                            try { UUID.fromString(it) } catch (e: Exception) { null }
+                        }
+                        if (businessId == null) {
+                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                            return@put
+                        }
+
+                        // Validate businessId matches tenant context
+                        val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                        if (contextBusinessId != null && contextBusinessId != businessId) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                            return@put
+                        }
+
+                        if (!call.isManager()) {
+                            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                            return@put
+                        }
+
+                        val request = call.receive<PayrollCostRulesRequest>()
+                        val rules = constraintsService.updatePayrollCostRules(businessId, request)
+                        call.respond(HttpStatusCode.OK, rules.toResponse())
+                    } catch (e: Exception) {
+                        call.application.log.error("Failed to update payroll cost rules", e)
                         call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                     }
                 }
@@ -682,6 +893,11 @@ class ConstraintsController(
                     val contextBusinessId = TenantContextHolder.getContext()?.businessId
                     if (contextBusinessId != null && contextBusinessId != businessId) {
                         call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access constraints from different business"))
+                        return@get
+                    }
+
+                    if (!call.isManager()) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                         return@get
                     }
 
@@ -713,6 +929,11 @@ class ConstraintsController(
                         return@post
                     }
 
+                    if (!call.isManager()) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
+                        return@post
+                    }
+
                     val request = call.receive<ConstraintValidationRequest>()
                     val validation = constraintsService.validateConstraints(request)
                     call.respond(HttpStatusCode.OK, validation)
@@ -721,6 +942,7 @@ class ConstraintsController(
                     call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid request")))
                 }
             }
+        }
         }
     }
 }

@@ -5,7 +5,9 @@ import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
 /**
@@ -15,7 +17,8 @@ import java.util.UUID
 class ShiftModificationService(
     private val scheduleRepository: ScheduleRepository,
     private val employeeRepository: EmployeeRepository,
-    private val constraintValidator: ConstraintValidator
+    private val constraintValidator: ConstraintValidator,
+    private val constraintsService: ConstraintsService = ConstraintsService()
 ) {
 
     /**
@@ -66,7 +69,7 @@ class ShiftModificationService(
 
             // Recalculate metrics and staffing requirements with updated shifts
             val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
-            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees, businessId)
             val updatedStaffingRequirements = recalculateStaffingRequirements(
                 shifts = updatedShifts,
                 originalRequirements = schedule.staffingRequirements,
@@ -142,7 +145,7 @@ class ShiftModificationService(
 
             // Recalculate metrics and staffing requirements
             val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
-            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+            val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees, businessId)
             val updatedStaffingRequirements = recalculateStaffingRequirements(
                 shifts = updatedShifts,
                 originalRequirements = schedule.staffingRequirements,
@@ -197,7 +200,7 @@ class ShiftModificationService(
 
         // Recalculate metrics and staffing requirements
         val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
-        val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees)
+        val updatedMetrics = calculateScheduleMetrics(updatedShifts, employees, businessId)
         val updatedStaffingRequirements = recalculateStaffingRequirements(
             shifts = updatedShifts,
             originalRequirements = schedule.staffingRequirements,
@@ -398,7 +401,8 @@ class ShiftModificationService(
      */
     private fun calculateScheduleMetrics(
         shifts: List<Shift>,
-        employees: List<Employee>
+        employees: List<Employee>,
+        businessId: UUID
     ): SchedulingMetrics {
         val totalLaborCost = shifts.sumOf { it.laborCost }
 
@@ -428,8 +432,33 @@ class ShiftModificationService(
             totalLaborCost = totalLaborCost,
             estimatedTotalSales = estimatedSales,
             laborCostPercentage = laborCostPercentage,
-            employeeUtilization = utilization
+            employeeUtilization = utilization,
+            totalEmployerOnCost = calculateEmployerOnCost(shifts, businessId)
         )
+    }
+
+    /**
+     * Computes total employer on-cost (e.g. Employer National Insurance) for
+     * a set of shifts, grouped by employee and by the Monday-start week each
+     * shift's date falls in. Mirrors ShiftScheduler.calculateEmployerOnCost -
+     * kept separate since this class already duplicates
+     * calculateScheduleMetrics rather than sharing it with ShiftScheduler.
+     */
+    private fun calculateEmployerOnCost(shifts: List<Shift>, businessId: UUID): Double {
+        val rules = constraintsService.getPayrollCostRules(businessId)
+        if (rules == null || !rules.employerNiEnabled) return 0.0
+
+        val weeklyPayByEmployeeAndWeek = mutableMapOf<Pair<UUID, LocalDate>, Double>()
+        shifts.forEach { shift ->
+            val weekStart = shift.date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            val key = shift.employeeId to weekStart
+            weeklyPayByEmployeeAndWeek[key] = (weeklyPayByEmployeeAndWeek[key] ?: 0.0) + shift.laborCost
+        }
+
+        return weeklyPayByEmployeeAndWeek.values.sumOf { weeklyPay ->
+            val excess = weeklyPay - rules.employerNiWeeklyThreshold
+            if (excess > 0) excess * (rules.employerNiRate / 100.0) else 0.0
+        }
     }
 
     /**

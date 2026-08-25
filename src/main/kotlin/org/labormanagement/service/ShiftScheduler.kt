@@ -20,6 +20,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
 /**
@@ -164,7 +165,7 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(mergedShifts, employees, salesForecast)
+            calculateMetrics(mergedShifts, employees, salesForecast, businessId)
         }
 
         // Create and return Schedule with all data (starts as DRAFT)
@@ -267,7 +268,7 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(shifts, employees, salesForecast)
+            calculateMetrics(shifts, employees, salesForecast, businessId)
         }
 
         return Schedule(
@@ -815,7 +816,8 @@ class ShiftScheduler(
     private fun calculateMetrics(
         shifts: List<Shift>,
         employees: List<Employee>,
-        salesForecast: SalesForecast
+        salesForecast: SalesForecast,
+        businessId: UUID
     ): SchedulingMetrics {
         val totalLaborCost = shifts.sumOf { it.laborCost }
 
@@ -841,12 +843,42 @@ class ShiftScheduler(
             utilization[employee.fullName] = utilizationRate
         }
 
+        val totalEmployerOnCost = calculateEmployerOnCost(shifts, businessId)
+
         return SchedulingMetrics(
             totalLaborCost = totalLaborCost,
             estimatedTotalSales = estimatedSales,
             laborCostPercentage = laborCostPercentage,
-            employeeUtilization = utilization
+            employeeUtilization = utilization,
+            totalEmployerOnCost = totalEmployerOnCost
         )
+    }
+
+    /**
+     * Computes total employer on-cost (e.g. Employer National Insurance) for
+     * a set of shifts. NI applies per employee per week against total wage
+     * pay - not per shift - so shifts are grouped by employee and by the
+     * Monday-start week their date falls in before the threshold/rate are
+     * applied. Zero if the business has no payroll cost rules configured or
+     * has them disabled. This is a reporting figure only: the labor cost
+     * budget enforced during generation (both greedy and CP-SAT paths)
+     * covers wage cost alone and is unaffected by this calculation.
+     */
+    private fun calculateEmployerOnCost(shifts: List<Shift>, businessId: UUID): Double {
+        val rules = constraintsService.getPayrollCostRules(businessId)
+        if (rules == null || !rules.employerNiEnabled) return 0.0
+
+        val weeklyPayByEmployeeAndWeek = mutableMapOf<Pair<UUID, LocalDate>, Double>()
+        shifts.forEach { shift ->
+            val weekStart = shift.date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            val key = shift.employeeId to weekStart
+            weeklyPayByEmployeeAndWeek[key] = (weeklyPayByEmployeeAndWeek[key] ?: 0.0) + shift.laborCost
+        }
+
+        return weeklyPayByEmployeeAndWeek.values.sumOf { weeklyPay ->
+            val excess = weeklyPay - rules.employerNiWeeklyThreshold
+            if (excess > 0) excess * (rules.employerNiRate / 100.0) else 0.0
+        }
     }
 
     /**

@@ -39,6 +39,8 @@ class ShiftSchedulerTest {
         }
     }
 
+    private lateinit var constraintsService: ConstraintsService
+
     @BeforeEach
     fun setup() {
         // Reset database before each test to ensure isolation
@@ -56,10 +58,12 @@ class ShiftSchedulerTest {
         employeeRepository = EmployeeRepository()
         salesForecastRepository = SalesForecastRepository()
         timeoffRepository = TimeoffRepository()
+        constraintsService = ConstraintsService()
         scheduler = ShiftScheduler(
             employeeRepository = employeeRepository,
             salesForecastRepository = salesForecastRepository,
             timeoffRepository = timeoffRepository,
+            constraintsService = constraintsService,
             schedulingApproach = SchedulingApproach.GREEDY
         )
     }
@@ -134,6 +138,97 @@ class ShiftSchedulerTest {
 
         assertTrue(output.metrics.totalLaborCost <= 500.0, "Should not exceed budget")
         assertFalse(output.shifts.isEmpty(), "Should create at least one shift")
+    }
+
+    @Test
+    fun `generateSchedule should include employer on-cost when NI rules are enabled`() {
+        val employee = createEmployee(
+            firstName = "Charlie",
+            productivity = 200.0,
+            payRate = 20.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(9, 0) to 5000.0,
+                    LocalTime.of(12, 0) to 5000.0,
+                    LocalTime.of(15, 0) to 5000.0,
+                    LocalTime.of(18, 0) to 5000.0
+                )
+            )
+        )
+
+        constraintsService.updatePayrollCostRules(
+            testBusinessId,
+            org.labormanagement.dto.PayrollCostRulesRequest(
+                employerNiEnabled = true,
+                employerNiWeeklyThreshold = 1.0,
+                employerNiRate = 15.0
+            )
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 10000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                )
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        assertFalse(output.shifts.isEmpty(), "Should create at least one shift")
+        assertTrue(output.metrics.totalLaborCost > 1.0, "Test setup should generate more than a trivial amount of wage")
+        // NI = max(0, weeklyWage - threshold) * rate, weeklyWage = totalLaborCost
+        // since all shifts fall in the same Monday-start week for this employee.
+        val expectedOnCost = maxOf(0.0, output.metrics.totalLaborCost - 1.0) * 0.15
+        assertEquals(expectedOnCost, output.metrics.totalEmployerOnCost, 0.01, "Employer on-cost should match threshold/rate formula")
+        assertTrue(output.metrics.totalEmployerOnCost > 0.0, "On-cost should be nonzero given the wage exceeds the threshold")
+    }
+
+    @Test
+    fun `generateSchedule should have zero employer on-cost when NI rules are disabled`() {
+        val employee = createEmployee(
+            firstName = "Dana",
+            productivity = 200.0,
+            payRate = 20.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(LocalTime.of(9, 0) to 5000.0)
+            )
+        )
+        // No payroll cost rules configured for this business at all.
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 10000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 1),
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                )
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        assertEquals(0.0, output.metrics.totalEmployerOnCost, "On-cost should be zero with no payroll cost rules configured")
     }
 
     @Test

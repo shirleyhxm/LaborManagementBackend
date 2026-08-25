@@ -91,11 +91,20 @@ enum class ScheduleStatus {
     ARCHIVED
 }
 
+// True cost (totalLaborCost + totalEmployerOnCost) is intentionally not a
+// field here - callers add the two together where needed. The labor cost
+// budget constraint enforced during schedule generation is wage-cost-only
+// (totalLaborCost); totalEmployerOnCost is a reporting figure the optimizer
+// does not solve against.
 data class SchedulingMetrics(
     val totalLaborCost: Double,
     val estimatedTotalSales: Double,
     val laborCostPercentage: Double,
-    val employeeUtilization: Map<String, Double>
+    val employeeUtilization: Map<String, Double>,
+    // Employer-side on-costs on top of wage pay (e.g. Employer National
+    // Insurance), computed from PayrollCostRules. Zero when the business
+    // has no payroll cost rules configured or has them disabled.
+    val totalEmployerOnCost: Double = 0.0
 )
 
 /**
