@@ -18,17 +18,20 @@ data class ScheduleInput(
  * businessId: the client never sends it in the body, only as the {businessId}
  * path segment, so ScheduleController combines this with the path value to
  * build the real (always-populated) ScheduleInput passed to ShiftScheduler.
+ *
+ * Also deliberately omits a labor budget - ShiftScheduler.generateSchedule
+ * resolves the real cap itself from the business's saved Configurations
+ * budget, so there's nothing for a caller to usefully supply here.
  */
 data class ScheduleInputPayload(
     val employeeIds: List<UUID>,
-    val laborCostBudget: Double,
     val schedulePeriod: SchedulePeriod,
     val optimizationObjective: OptimizationObjective = OptimizationObjective.BALANCED // Optional
 ) {
     fun toScheduleInput(businessId: UUID): ScheduleInput = ScheduleInput(
         businessId = businessId,
         employeeIds = employeeIds,
-        laborCostBudget = laborCostBudget,
+        laborCostBudget = Double.MAX_VALUE, // Overwritten by ShiftScheduler.generateSchedule
         schedulePeriod = schedulePeriod,
         optimizationObjective = optimizationObjective
     )

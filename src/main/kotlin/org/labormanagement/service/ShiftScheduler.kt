@@ -6,6 +6,7 @@ import org.labormanagement.model.OptimizationObjective
 import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Schedule
 import org.labormanagement.model.ScheduleInput
+import org.labormanagement.model.SchedulePeriod
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
@@ -62,15 +63,29 @@ class ShiftScheduler(
         generatedBy: String = "system",
         businessId: UUID
     ): Schedule = profile {
+        // The labor cost cap is resolved from the business's saved weekly
+        // budget (pro-rated to this schedule's length), not caller-supplied -
+        // this is the single source of truth also surfaced in Configurations.
+        // Uncapped when hardBudgetLimit is off or no budget has been saved.
+        val resolvedInput = input.copy(laborCostBudget = resolveLaborCostBudget(businessId, input.schedulePeriod))
+
         // Choose scheduling approach
         val schedule = when (schedulingApproach) {
-            SchedulingApproach.GREEDY -> generateScheduleGreedy(input, name, generatedBy, businessId)
-            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(input, name, generatedBy, businessId)
+            SchedulingApproach.GREEDY -> generateScheduleGreedy(resolvedInput, name, generatedBy, businessId)
+            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(resolvedInput, name, generatedBy, businessId)
         }
 
         scheduleRepository.save(schedule)
 
         return@profile schedule
+    }
+
+    private fun resolveLaborCostBudget(businessId: UUID, schedulePeriod: SchedulePeriod): Double {
+        val budget = constraintsService.getBudgetConstraints(businessId) ?: return Double.MAX_VALUE
+        if (!budget.hardBudgetLimit) return Double.MAX_VALUE
+        val days = schedulePeriod.getAllDates().size
+        if (days == 0) return Double.MAX_VALUE
+        return budget.weeklyBudget / 7.0 * days
     }
 
     /**
@@ -222,7 +237,6 @@ class ShiftScheduler(
                 scheduleDates = scheduleDates,
                 operatingHoursMap = operatingHoursMap,
                 coverageFraction = 0.8,
-                laborBudget = input.laborCostBudget.toLong(),
                 objective = input.optimizationObjective,
                 maxSolveTimeSeconds = 30.0,
                 constraintsService = constraintsService,

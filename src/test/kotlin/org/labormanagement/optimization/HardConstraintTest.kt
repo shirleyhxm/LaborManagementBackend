@@ -480,6 +480,102 @@ class HardConstraintTest {
         )
     }
 
+    // ===== Minimum rest between shift days =====
+
+    @Test
+    fun `never starts a new shift within the minimum rest window of the previous one`() {
+        val minRestHours = 11.0
+        // Available 4pm-11:59pm on day 1 and 6am-11:59pm on day 2 - late finish
+        // on day 1 followed by an early slot on day 2 would violate an 11-hour
+        // rest requirement (e.g. finish 8pm day 1, next shift can't start
+        // before 7am day 2).
+        val day2 = scheduleDate.plusDays(1)
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(16, 0), LocalTime.of(23, 59)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(6, 0), LocalTime.of(23, 59))
+            )
+        )
+        val timeSlots = hourlySlots(16, 23, scheduleDate) + hourlySlots(6, 23, day2)
+        val rules = WorkingHoursRules(
+            businessId = testBusinessId,
+            maxHoursPerWeek = 80.0,
+            maxOvertimeHours = 40.0,
+            minRestBetweenShifts = minRestHours,
+            maxConsecutiveDays = 6,
+            maxShiftLength = 12.0,
+            minShiftLength = 0.0
+        )
+        // High demand everywhere: without a rest constraint, a coverage-hungry
+        // solver would happily work right up to day 1's close and resume at
+        // day 2's open, an effective gap far shorter than 11 hours.
+        val input = buildInput(listOf(emp), timeSlots, highDemand(timeSlots.size), workingHoursRules = rules)
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        val workedSlots = assignment!!.timeSlotIndices.map { timeSlots[it] }.sortedBy { it.date.atTime(it.startTime) }
+        for (i in 1 until workedSlots.size) {
+            val prevEnd = workedSlots[i - 1].date.atTime(workedSlots[i - 1].endTime)
+            val currStart = workedSlots[i].date.atTime(workedSlots[i].startTime)
+            val gapHours = java.time.Duration.between(prevEnd, currStart).toMinutes() / 60.0
+            assertTrue(
+                gapHours <= 0.0 || gapHours >= minRestHours,
+                "Gap of $gapHours hours between ${workedSlots[i - 1]} and ${workedSlots[i]} is shorter than the minimum rest of $minRestHours hours"
+            )
+        }
+    }
+
+    // ===== Maximum consecutive days =====
+
+    @Test
+    fun `never works more consecutive days than the maximum allowed`() {
+        val maxConsecutiveDays = 3
+        val dates = (0 until 6).map { scheduleDate.plusDays(it.toLong()) } // Mon-Sat
+        val availability = dates.map { date ->
+            Availability(AvailabilityType.WEEKLY_RECURRING, date.dayOfWeek, null, null, LocalTime.of(9, 0), LocalTime.of(12, 0))
+        }
+        val emp = employee(availability = availability)
+        val timeSlots = dates.flatMap { hourlySlots(9, 12, it) }
+        val rules = WorkingHoursRules(
+            businessId = testBusinessId,
+            maxHoursPerWeek = 80.0,
+            maxOvertimeHours = 40.0,
+            minRestBetweenShifts = 0.0,
+            maxConsecutiveDays = maxConsecutiveDays,
+            maxShiftLength = 12.0,
+            minShiftLength = 0.0
+        )
+        // High demand every day: without a consecutive-days constraint, a
+        // coverage-hungry solver would work all 6 available days straight.
+        val input = buildInput(listOf(emp), timeSlots, highDemand(timeSlots.size), workingHoursRules = rules)
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        val workedDates = assignment!!.timeSlotIndices.map { timeSlots[it].date }.toSortedSet().toList()
+        var run = 0
+        var maxRun = 0
+        for (i in dates.indices) {
+            if (dates[i] in workedDates) {
+                run += 1
+                maxRun = maxOf(maxRun, run)
+            } else {
+                run = 0
+            }
+        }
+        assertTrue(
+            maxRun <= maxConsecutiveDays,
+            "Employee worked $maxRun consecutive days, above the maximum of $maxConsecutiveDays"
+        )
+    }
+
     /** Groups a sorted or unsorted list of hourly slot indices into consecutive runs. */
     private fun groupConsecutive(indices: List<Int>): List<List<Int>> {
         if (indices.isEmpty()) return emptyList()

@@ -518,6 +518,147 @@ class ScheduleOptimizer {
             )
             model.addLessOrEqual(overtimeHours, rules.maxOvertimeHours.toLong())
         }
+
+        addMinRestBetweenShiftsConstraints(model, x, input, rules.minRestBetweenShifts)
+        addMaxConsecutiveDaysConstraints(model, x, input, rules.maxConsecutiveDays)
+    }
+
+    /**
+     * Enforces a maximum number of consecutive worked days: over any window of
+     * (maxConsecutiveDays + 1) consecutive calendar days in the schedule
+     * period, at least one day must be entirely unworked for that employee.
+     * Days outside the schedule period aren't modeled, so a run that's only
+     * cut short by the period's start/end (rather than an actual day off)
+     * isn't flagged - this mirrors how the rest-between-shifts constraint only
+     * reasons about slots that actually exist in this schedule.
+     */
+    private fun addMaxConsecutiveDaysConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput,
+        maxConsecutiveDays: Int
+    ) {
+        if (maxConsecutiveDays <= 0) return
+
+        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].date }
+        val sortedDates = slotsByDate.keys.sorted()
+        if (sortedDates.size <= maxConsecutiveDays) return
+
+        for (e in input.employees.indices) {
+            // workedOnDay[d] = 1 if employee e works any slot on sortedDates[d]
+            val workedOnDay = sortedDates.map { date ->
+                val dayVars = slotsByDate.getValue(date).map { x[e][it] }.toTypedArray()
+                val worked = model.newBoolVar("worked_${e}_$date")
+                // worked == OR(dayVars): worked >= each var, and worked <= sum(vars)
+                dayVars.forEach { model.addLessOrEqual(it, worked) }
+                model.addLessOrEqual(worked, LinearExpr.sum(dayVars))
+                worked
+            }
+
+            // Slide a window of (maxConsecutiveDays + 1) days; at least one
+            // day in every such window must be unworked.
+            val windowSize = maxConsecutiveDays + 1
+            for (start in 0..(sortedDates.size - windowSize)) {
+                val window = (start until start + windowSize).map { workedOnDay[it] }.toTypedArray()
+                model.addLessOrEqual(LinearExpr.sum(window), maxConsecutiveDays.toLong())
+            }
+        }
+    }
+
+    /**
+     * Enforces minimum rest between shifts: an employee cannot start a new
+     * shift within `minRestHours` of ending their previous one, regardless of
+     * whether the two fall on the same calendar day or different days (e.g.
+     * finishing at 8pm means the next shift cannot start before 7am the next
+     * day for an 11-hour minimum).
+     *
+     * Only applies at genuine shift boundaries - the end of one contiguous
+     * worked block to the start of the next - not to every pair of worked
+     * slots with a small gap. Naively forbidding any such pair would also
+     * forbid the solver from filling in the slots between them (turning a
+     * legitimate single longer shift into an impossible "split shift"),
+     * which can make otherwise-easy scenarios infeasible.
+     */
+    private fun addMinRestBetweenShiftsConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput,
+        minRestHours: Double
+    ) {
+        if (minRestHours <= 0.0) return
+
+        val slots = input.timeSlots
+
+        // For each slot, the index of the slot immediately preceding/following
+        // it in time (contiguous: end time of one == start time of the other,
+        // same date or the next calendar date), or null if none exists in this
+        // schedule's slot list.
+        val prevSlot = arrayOfNulls<Int>(slots.size)
+        val nextSlot = arrayOfNulls<Int>(slots.size)
+        for (t1 in slots.indices) {
+            for (t2 in slots.indices) {
+                if (t1 == t2) continue
+                val s1 = slots[t1]
+                val s2 = slots[t2]
+                val contiguous = s1.endTime == s2.startTime &&
+                    (s1.date == s2.date || s1.date.plusDays(1) == s2.date)
+                if (contiguous) {
+                    nextSlot[t1] = t2
+                    prevSlot[t2] = t1
+                }
+            }
+        }
+
+        val slotStarts = slots.map { it.date.atTime(it.startTime) }
+        val slotEnds = slots.map { it.date.atTime(it.endTime) }
+
+        for (e in input.employees.indices) {
+            // isBlockEnd[t] = worked(t) AND NOT worked(nextSlot(t)) (or no next
+            // slot at all) - i.e. t is worked but doesn't continue into another
+            // worked slot right after it. isBlockStart[t] is the mirror image.
+            val isBlockEnd = arrayOfNulls<BoolVar>(slots.size)
+            val isBlockStart = arrayOfNulls<BoolVar>(slots.size)
+
+            for (t in slots.indices) {
+                val next = nextSlot[t]
+                isBlockEnd[t] = if (next == null) {
+                    x[e][t]
+                } else {
+                    val blockEnd = model.newBoolVar("rest_blockend_${e}_$t")
+                    // blockEnd <= worked(t); blockEnd <= 1 - worked(next); blockEnd >= worked(t) - worked(next)
+                    model.addLessOrEqual(blockEnd, x[e][t])
+                    model.addLessOrEqual(blockEnd, LinearExpr.affine(x[e][next], -1, 1))
+                    model.addGreaterOrEqual(blockEnd, LinearExpr.weightedSum(arrayOf(x[e][t], x[e][next]), longArrayOf(1, -1)))
+                    blockEnd
+                }
+
+                val prev = prevSlot[t]
+                isBlockStart[t] = if (prev == null) {
+                    x[e][t]
+                } else {
+                    val blockStart = model.newBoolVar("rest_blockstart_${e}_$t")
+                    model.addLessOrEqual(blockStart, x[e][t])
+                    model.addLessOrEqual(blockStart, LinearExpr.affine(x[e][prev], -1, 1))
+                    model.addGreaterOrEqual(blockStart, LinearExpr.weightedSum(arrayOf(x[e][t], x[e][prev]), longArrayOf(1, -1)))
+                    blockStart
+                }
+            }
+
+            // Forbid a block-end -> block-start pair whose gap is positive but
+            // shorter than the minimum rest.
+            for (t1 in slots.indices) {
+                for (t2 in slots.indices) {
+                    if (t1 == t2) continue
+                    val gapHours = java.time.Duration.between(slotEnds[t1], slotStarts[t2]).toMinutes() / 60.0
+                    if (gapHours > 0.0 && gapHours < minRestHours) {
+                        model.addLessOrEqual(
+                            LinearExpr.sum(arrayOf(isBlockEnd[t1]!!, isBlockStart[t2]!!)),
+                            1
+                        )
+                    }
+                }
+            }
+        }
     }
 
     /**

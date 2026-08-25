@@ -23,7 +23,6 @@ object OptimizationConverter {
      * @param scheduleDates Dates to include in the schedule
      * @param operatingHoursMap Operating hours for each date
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
-     * @param laborBudget Maximum labor budget (default: Long.MAX_VALUE)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
      * @param constraintsService Optional ConstraintsService to fetch scheduling constraints
      * @param timeoffExclusions Per-employee dates excluded due to an APPROVED timeoff
@@ -36,7 +35,6 @@ object OptimizationConverter {
         scheduleDates: List<LocalDate>,
         operatingHoursMap: Map<LocalDate, Pair<LocalTime, LocalTime>>,
         coverageFraction: Double = 0.8,
-        laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         maxSolveTimeSeconds: Double = 5.0,
         constraintsService: org.labormanagement.service.ConstraintsService? = null,
@@ -48,8 +46,38 @@ object OptimizationConverter {
         val workingHoursRules = constraintsService?.getWorkingHoursRules(businessId)
         val complianceRules = constraintsService?.getComplianceRules(businessId)
         val fairnessSettings = constraintsService?.getFairnessSettings(businessId)
-        val contractedHoursMap = constraintsService?.getContractedHours(businessId, null)
-            ?.associateBy { it.employeeId } ?: emptyMap()
+
+        // An employee can have multiple effective-dated contracted-hours rows
+        // (e.g. a past rule and a current/future one). Pick the row actually in
+        // effect for this schedule's start date, not just "whichever one sorts
+        // last" - grouping by employeeId first, then filtering each employee's
+        // rows by date, avoids picking a future or expired row.
+        val scheduleStartDate = scheduleDates.minOrNull()
+        val contractedHoursMap = if (scheduleStartDate != null) {
+            constraintsService?.getContractedHours(businessId, null)
+                ?.groupBy { it.employeeId }
+                ?.mapNotNull { (employeeId, rows) ->
+                    val active = rows.firstOrNull { row ->
+                        !scheduleStartDate.isBefore(row.effectiveFrom) &&
+                            (row.effectiveTo == null || !scheduleStartDate.isAfter(row.effectiveTo))
+                    }
+                    active?.let { employeeId to it }
+                }
+                ?.toMap() ?: emptyMap()
+        } else {
+            emptyMap()
+        }
+
+        // The solver's hard budget cap comes from the business's saved weekly
+        // budget, pro-rated to the schedule's actual length (schedules aren't
+        // always exactly 7 days), rather than a value the caller passes in ad
+        // hoc. Only enforced when hardBudgetLimit is on - otherwise it's a
+        // reporting figure only and generation isn't capped by it.
+        val laborBudget = if (budgetConstraints != null && budgetConstraints.hardBudgetLimit && scheduleDates.isNotEmpty()) {
+            (budgetConstraints.weeklyBudget / 7.0 * scheduleDates.size).toLong()
+        } else {
+            Long.MAX_VALUE
+        }
 
         // Generate time slots for all scheduled dates
         val timeSlots = generateTimeSlots(scheduleDates, operatingHoursMap)

@@ -544,6 +544,18 @@ class ShiftSchedulerTest {
             )
         )
 
+        // The labor cost cap now comes from the business's saved budget
+        // (ShiftScheduler.resolveLaborCostBudget), not from ScheduleInput.
+        constraintsService.updateBudgetConstraints(
+            testBusinessId,
+            org.labormanagement.dto.BudgetConstraintsRequest(
+                weeklyBudget = 0.0,
+                monthlyBudget = 0.0,
+                hardBudgetLimit = true,
+                budgetWarningThreshold = 90.0
+            )
+        )
+
         val input = ScheduleInput(
             businessId = testBusinessId,
             employeeIds = listOf(employee.id),
