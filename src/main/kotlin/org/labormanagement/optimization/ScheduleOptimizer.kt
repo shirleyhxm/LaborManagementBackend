@@ -566,11 +566,13 @@ class ScheduleOptimizer {
     }
 
     /**
-     * Enforces minimum rest between shifts: an employee cannot start a new
-     * shift within `minRestHours` of ending their previous one, regardless of
-     * whether the two fall on the same calendar day or different days (e.g.
-     * finishing at 8pm means the next shift cannot start before 7am the next
-     * day for an 11-hour minimum).
+     * Enforces minimum rest between shift days: an employee cannot start a
+     * shift on one calendar day within `minRestHours` of ending a shift on a
+     * different calendar day (e.g. finishing at 8pm means the next day's
+     * shift cannot start before 7am for an 11-hour minimum). Deliberately
+     * does NOT apply within the same calendar day - a same-day split shift
+     * with a short gap is a separate concept (meal/rest breaks), not this
+     * constraint.
      *
      * Only applies at genuine shift boundaries - the end of one contiguous
      * worked block to the start of the next - not to every pair of worked
@@ -645,10 +647,12 @@ class ScheduleOptimizer {
             }
 
             // Forbid a block-end -> block-start pair whose gap is positive but
-            // shorter than the minimum rest.
+            // shorter than the minimum rest, and only when the two fall on
+            // different calendar dates - a same-day gap is out of scope.
             for (t1 in slots.indices) {
                 for (t2 in slots.indices) {
                     if (t1 == t2) continue
+                    if (slots[t1].date == slots[t2].date) continue
                     val gapHours = java.time.Duration.between(slotEnds[t1], slotStarts[t2]).toMinutes() / 60.0
                     if (gapHours > 0.0 && gapHours < minRestHours) {
                         model.addLessOrEqual(

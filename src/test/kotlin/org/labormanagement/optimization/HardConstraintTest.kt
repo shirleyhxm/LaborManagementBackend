@@ -517,16 +517,60 @@ class HardConstraintTest {
         val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
         assertNotNull(assignment, "Employee should be assigned to meet coverage")
 
+        // Only cross-day gaps are subject to the minimum rest requirement.
         val workedSlots = assignment!!.timeSlotIndices.map { timeSlots[it] }.sortedBy { it.date.atTime(it.startTime) }
         for (i in 1 until workedSlots.size) {
+            if (workedSlots[i - 1].date == workedSlots[i].date) continue
             val prevEnd = workedSlots[i - 1].date.atTime(workedSlots[i - 1].endTime)
             val currStart = workedSlots[i].date.atTime(workedSlots[i].startTime)
             val gapHours = java.time.Duration.between(prevEnd, currStart).toMinutes() / 60.0
             assertTrue(
                 gapHours <= 0.0 || gapHours >= minRestHours,
-                "Gap of $gapHours hours between ${workedSlots[i - 1]} and ${workedSlots[i]} is shorter than the minimum rest of $minRestHours hours"
+                "Cross-day gap of $gapHours hours between ${workedSlots[i - 1]} and ${workedSlots[i]} is shorter than the minimum rest of $minRestHours hours"
             )
         }
+    }
+
+    @Test
+    fun `allows a same-day gap shorter than the minimum rest window`() {
+        val minRestHours = 11.0
+        // Available 9am-9pm, all on a single day. A split shift with a short
+        // midday gap (e.g. 9-11am, then 6-9pm) should be allowed even though
+        // the gap between them is well under 11 hours - minRestBetweenShifts
+        // only applies across different calendar days.
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        val timeSlots = hourlySlots(9, 21) // 12 one-hour slots, single day
+        val rules = WorkingHoursRules(
+            businessId = testBusinessId,
+            maxHoursPerWeek = 80.0,
+            maxOvertimeHours = 40.0,
+            minRestBetweenShifts = minRestHours,
+            maxConsecutiveDays = 6,
+            maxShiftLength = 12.0,
+            minShiftLength = 0.0
+        )
+        // Demand only at the two ends of the day, nothing in the middle: a
+        // solver that (incorrectly) treated the midday gap as a rest-window
+        // violation would be forced to either skip one end or bridge the
+        // whole day: this demand shape only rewards a genuine split shift.
+        val demand = List(2) { 1000.0 } + List(timeSlots.size - 4) { 0.0 } + List(2) { 1000.0 }
+        val input = buildInput(listOf(emp), timeSlots, demand, coverageFraction = 0.8, workingHoursRules = rules)
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage at both ends of the day")
+
+        val groups = groupConsecutive(assignment!!.timeSlotIndices)
+        assertTrue(
+            groups.size >= 2,
+            "Expected a split shift (2+ separate worked blocks) covering both demand peaks, got: $groups"
+        )
     }
 
     // ===== Maximum consecutive days =====
