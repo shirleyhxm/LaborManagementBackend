@@ -85,7 +85,6 @@ data class EmployeeContractedHoursResponse(
 // ====== Compliance Rules DTOs ======
 
 data class ComplianceRulesRequest(
-    val flsaOvertimeEnabled: Boolean,
     val mealBreakRequired: Boolean,
     val mealBreakMinShiftHours: Double,
     val mealBreakDuration: Int,
@@ -94,7 +93,6 @@ data class ComplianceRulesRequest(
 )
 
 data class ComplianceRulesResponse(
-    val flsaOvertimeEnabled: Boolean,
     val mealBreakRequired: Boolean,
     val mealBreakMinShiftHours: Double,
     val mealBreakDuration: Int,
@@ -258,7 +256,6 @@ fun EmployeeContractedHours.toResponse(): EmployeeContractedHoursResponse {
 
 fun ComplianceRules.toResponse(): ComplianceRulesResponse {
     return ComplianceRulesResponse(
-        flsaOvertimeEnabled = this.flsaOvertimeEnabled,
         mealBreakRequired = this.mealBreakRequired,
         mealBreakMinShiftHours = this.mealBreakMinShiftHours,
         mealBreakDuration = this.mealBreakDuration,
@@ -357,7 +354,6 @@ fun EmployeeContractedHoursRequest.toModel(businessId: UUID): EmployeeContracted
 fun ComplianceRulesRequest.toModel(businessId: UUID): ComplianceRules {
     return ComplianceRules(
         businessId = businessId,
-        flsaOvertimeEnabled = this.flsaOvertimeEnabled,
         mealBreakRequired = this.mealBreakRequired,
         mealBreakMinShiftHours = this.mealBreakMinShiftHours,
         mealBreakDuration = this.mealBreakDuration,

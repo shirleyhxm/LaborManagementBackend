@@ -23,6 +23,21 @@ class ScheduleOptimizer {
         Loader.loadNativeLibraries()
     }
 
+    companion object {
+        /** Age below which minor labor law restrictions apply. */
+        private const val MINOR_AGE_YEARS = 18L
+
+        /** Daily hours cap applied to minors when minor labor laws are enabled. */
+        private const val MINOR_MAX_HOURS_PER_DAY = 8L
+
+        /**
+         * Minors may not work between these times. A slot is forbidden if it
+         * overlaps [MINOR_NIGHT_START, midnight) or [midnight, MINOR_NIGHT_END).
+         */
+        private val MINOR_NIGHT_START: LocalTime = LocalTime.of(22, 0)
+        private val MINOR_NIGHT_END: LocalTime = LocalTime.of(6, 0)
+    }
+
     /**
      * Optimizes employee schedules to minimize labor costs while meeting sales coverage requirements.
      *
@@ -651,25 +666,7 @@ class ScheduleOptimizer {
 
         val slots = input.timeSlots
 
-        // For each slot, the index of the slot immediately preceding/following
-        // it in time (contiguous: end time of one == start time of the other,
-        // same date or the next calendar date), or null if none exists in this
-        // schedule's slot list.
-        val prevSlot = arrayOfNulls<Int>(slots.size)
-        val nextSlot = arrayOfNulls<Int>(slots.size)
-        for (t1 in slots.indices) {
-            for (t2 in slots.indices) {
-                if (t1 == t2) continue
-                val s1 = slots[t1]
-                val s2 = slots[t2]
-                val contiguous = s1.endTime == s2.startTime &&
-                    (s1.date == s2.date || s1.date.plusDays(1) == s2.date)
-                if (contiguous) {
-                    nextSlot[t1] = t2
-                    prevSlot[t2] = t1
-                }
-            }
-        }
+        val (prevSlot, nextSlot) = buildAdjacentSlotIndex(slots)
 
         val slotStarts = slots.map { it.date.atTime(it.startTime) }
         val slotEnds = slots.map { it.date.atTime(it.endTime) }
@@ -678,33 +675,8 @@ class ScheduleOptimizer {
             // isBlockEnd[t] = worked(t) AND NOT worked(nextSlot(t)) (or no next
             // slot at all) - i.e. t is worked but doesn't continue into another
             // worked slot right after it. isBlockStart[t] is the mirror image.
-            val isBlockEnd = arrayOfNulls<BoolVar>(slots.size)
-            val isBlockStart = arrayOfNulls<BoolVar>(slots.size)
-
-            for (t in slots.indices) {
-                val next = nextSlot[t]
-                isBlockEnd[t] = if (next == null) {
-                    x[e][t]
-                } else {
-                    val blockEnd = model.newBoolVar("rest_blockend_${e}_$t")
-                    // blockEnd <= worked(t); blockEnd <= 1 - worked(next); blockEnd >= worked(t) - worked(next)
-                    model.addLessOrEqual(blockEnd, x[e][t])
-                    model.addLessOrEqual(blockEnd, LinearExpr.affine(x[e][next], -1, 1))
-                    model.addGreaterOrEqual(blockEnd, LinearExpr.weightedSum(arrayOf(x[e][t], x[e][next]), longArrayOf(1, -1)))
-                    blockEnd
-                }
-
-                val prev = prevSlot[t]
-                isBlockStart[t] = if (prev == null) {
-                    x[e][t]
-                } else {
-                    val blockStart = model.newBoolVar("rest_blockstart_${e}_$t")
-                    model.addLessOrEqual(blockStart, x[e][t])
-                    model.addLessOrEqual(blockStart, LinearExpr.affine(x[e][prev], -1, 1))
-                    model.addGreaterOrEqual(blockStart, LinearExpr.weightedSum(arrayOf(x[e][t], x[e][prev]), longArrayOf(1, -1)))
-                    blockStart
-                }
-            }
+            val (isBlockStart, isBlockEnd) =
+                buildBlockBoundaryVars(model, x, e, slots, prevSlot, nextSlot, "rest")
 
             // Forbid a block-end -> block-start pair whose gap is positive but
             // shorter than the minimum rest, and only when the two fall on
@@ -783,8 +755,10 @@ class ScheduleOptimizer {
     }
 
     /**
-     * Enforces compliance rules from ConstraintsService.
-     * Currently handles FLSA overtime and meal break requirements.
+     * Enforces compliance rules from ConstraintsService: the rest-break and
+     * minor-labor-law rules. Overtime is handled separately, in
+     * addHoursConstraints / the cost model, via each employee's
+     * contract.overtimeThreshold.
      */
     private fun addComplianceRulesConstraints(
         model: CpModel,
@@ -793,22 +767,254 @@ class ScheduleOptimizer {
     ) {
         val compliance = input.complianceRules ?: return
 
-        // FLSA overtime is already handled in addHoursConstraints via employee.contract.overtimeThreshold
-
-        // Meal break requirements: for shifts longer than mealBreakMinShiftHours
         if (compliance.mealBreakRequired) {
-            // Note: Meal breaks would require additional modeling
-            // For now, we just ensure shifts longer than the threshold are tracked
-            // A full implementation would need to model break periods as non-work slots
-            log.info("[ScheduleOptimizer] Meal break requirement noted: ${compliance.mealBreakMinShiftHours} hours minimum")
+            addRestBreakConstraints(
+                model,
+                x,
+                input,
+                compliance.mealBreakMinShiftHours,
+                compliance.mealBreakDuration
+            )
         }
 
-        // Minor labor laws: if enabled, additional restrictions could be added
         if (compliance.minorLaborLawsEnabled) {
-            // Example: restrict work hours for employees under 18
-            // This would require employee age information
-            log.info("[ScheduleOptimizer] Minor labor laws enabled")
+            addMinorLaborLawConstraints(model, x, input)
         }
+    }
+
+    /**
+     * Enforces rest breaks (gov.uk: an uninterrupted break during the working
+     * day once it exceeds a threshold length) as two paired constraints:
+     *
+     *  1. No contiguous worked block may exceed `maxContinuousHours` - over
+     *     any consecutive run of slots longer than the threshold, at least one
+     *     slot must be unworked, which forces a break to appear somewhere.
+     *  2. Whenever a block ends and the same employee starts another block
+     *     later that same day, the gap between them must be at least
+     *     `breakDurationMinutes` - otherwise constraint 1 could be satisfied
+     *     by a token one-slot gap that is shorter than the break the manager
+     *     configured.
+     *
+     * Together these mean "work at most N hours before taking a break of at
+     * least M minutes". Constraint 2 is deliberately same-day only: gaps
+     * spanning different calendar days are the daily-rest rule's concern, and
+     * addMinRestBetweenShiftsConstraints already covers those (it skips
+     * same-day pairs for exactly this reason), so the two compose without
+     * either one duplicating or contradicting the other.
+     *
+     * Note that a break is modeled as an unworked slot, so the granularity of
+     * an enforceable break is the time-slot length (1 hour as slots are
+     * currently generated). A configured break shorter than one slot is still
+     * enforced correctly, just conservatively - the gap it produces is a whole
+     * slot, which is longer than strictly required.
+     */
+    private fun addRestBreakConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput,
+        maxContinuousHours: Double,
+        breakDurationMinutes: Int
+    ) {
+        if (maxContinuousHours <= 0.0) return
+
+        val slots = input.timeSlots
+
+        // Constraint 1: cap the length of any contiguous worked block. Mirrors
+        // the max-shift-length window logic - walk each consecutive run and,
+        // once it exceeds the threshold, forbid every slot in it being worked.
+        for (e in input.employees.indices) {
+            for (startIdx in slots.indices) {
+                var totalDuration = 0.0
+                var currentIdx = startIdx
+
+                while (currentIdx < slots.size) {
+                    val currentSlot = slots[currentIdx]
+                    totalDuration += currentSlot.durationHours
+
+                    if (totalDuration > maxContinuousHours) {
+                        val windowVars = (startIdx..currentIdx).map { x[e][it] }.toTypedArray()
+                        model.addLessOrEqual(
+                            LinearExpr.sum(windowVars),
+                            (currentIdx - startIdx + 1).toLong() - 1
+                        )
+                        break // Longer windows are implied by this one
+                    }
+
+                    val nextIdx = currentIdx + 1
+                    if (nextIdx >= slots.size) break
+                    val nextSlot = slots[nextIdx]
+                    val contiguous = currentSlot.endTime == nextSlot.startTime &&
+                        (currentSlot.date == nextSlot.date ||
+                            currentSlot.date.plusDays(1) == nextSlot.date)
+                    if (!contiguous) break
+                    currentIdx = nextIdx
+                }
+            }
+        }
+
+        if (breakDurationMinutes <= 0) return
+
+        // Constraint 2: any same-day gap between two worked blocks must be at
+        // least the configured break duration.
+        val minBreakHours = breakDurationMinutes / 60.0
+        val (prevSlot, nextSlot) = buildAdjacentSlotIndex(slots)
+        val slotStarts = slots.map { it.date.atTime(it.startTime) }
+        val slotEnds = slots.map { it.date.atTime(it.endTime) }
+
+        for (e in input.employees.indices) {
+            val (isBlockStart, isBlockEnd) = buildBlockBoundaryVars(model, x, e, slots, prevSlot, nextSlot, "break")
+
+            for (t1 in slots.indices) {
+                for (t2 in slots.indices) {
+                    if (t1 == t2) continue
+                    // Same-day only - cross-day gaps belong to daily rest.
+                    if (slots[t1].date != slots[t2].date) continue
+                    val gapHours = java.time.Duration.between(slotEnds[t1], slotStarts[t2]).toMinutes() / 60.0
+                    if (gapHours > 0.0 && gapHours < minBreakHours) {
+                        model.addLessOrEqual(
+                            LinearExpr.sum(arrayOf(isBlockEnd[t1]!!, isBlockStart[t2]!!)),
+                            1
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Restricts employees who are under 18 for any part of the schedule
+     * period. Age is derived from Employee.dateOfBirth against each slot's
+     * own date, so an employee turning 18 mid-schedule is correctly treated
+     * as a minor only for the slots that fall before their birthday.
+     *
+     * Applies the two restrictions that are well-defined without
+     * jurisdiction-specific configuration: a lower daily hours cap, and a ban
+     * on working late-night hours. These are intentionally conservative
+     * defaults rather than a full model of any single jurisdiction's minor
+     * labor code.
+     */
+    private fun addMinorLaborLawConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput
+    ) {
+        val slots = input.timeSlots
+        val slotsByDate = slots.indices.groupBy { slots[it].date }
+
+        for (e in input.employees.indices) {
+            val dateOfBirth = input.employees[e].dateOfBirth
+
+            for ((date, slotIndices) in slotsByDate) {
+                val isMinorOnDate = date.isBefore(dateOfBirth.plusYears(MINOR_AGE_YEARS))
+                if (!isMinorOnDate) continue
+
+                // Lower daily hours cap for minors.
+                val dayVars = slotIndices.map { x[e][it] }.toTypedArray()
+                val dayDurations = slotIndices.map { slots[it].durationHours.toLong() }.toLongArray()
+                model.addLessOrEqual(
+                    LinearExpr.weightedSum(dayVars, dayDurations),
+                    MINOR_MAX_HOURS_PER_DAY
+                )
+
+                // No late-night work: forbid any slot that overlaps the
+                // restricted window [MINOR_NIGHT_START, MINOR_NIGHT_END).
+                for (t in slotIndices) {
+                    val slot = slots[t]
+                    val overlapsNight = slot.startTime < MINOR_NIGHT_END || slot.endTime > MINOR_NIGHT_START
+                    if (overlapsNight) {
+                        model.addEquality(x[e][t], 0)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * For each slot, the index of the slot immediately preceding/following it
+     * in time (contiguous: one's end time equals the other's start time, same
+     * date or the next calendar date), or null if none exists in this
+     * schedule's slot list.
+     */
+    private fun buildAdjacentSlotIndex(
+        slots: List<TimeSlot>
+    ): Pair<Array<Int?>, Array<Int?>> {
+        val prevSlot = arrayOfNulls<Int>(slots.size)
+        val nextSlot = arrayOfNulls<Int>(slots.size)
+
+        // Matching purely on "end time == start time" is ambiguous once the
+        // schedule spans multiple days: every day has a slot starting at the
+        // same clock time, so a same-day successor and a different-day one
+        // both match. Comparing full date-times instead makes the successor
+        // unique - and it still admits a genuine overnight slot, whose start
+        // date-time really is the previous slot's end date-time rolled past
+        // midnight.
+        val startAt = slots.map { it.date.atTime(it.startTime) }
+        val endAt = slots.map {
+            // A slot ending at midnight belongs to the following calendar day.
+            if (it.endTime <= it.startTime) it.date.plusDays(1).atTime(it.endTime)
+            else it.date.atTime(it.endTime)
+        }
+
+        val startIndex = startAt.indices.groupBy { startAt[it] }
+        for (t1 in slots.indices) {
+            val successor = startIndex[endAt[t1]]?.firstOrNull { it != t1 } ?: continue
+            nextSlot[t1] = successor
+            prevSlot[successor] = t1
+        }
+        return prevSlot to nextSlot
+    }
+
+    /**
+     * Builds isBlockStart[t] / isBlockEnd[t] for one employee: t is worked but
+     * isn't preceded / followed by another worked slot, i.e. t is the boundary
+     * of a contiguous worked block. Used by the rest-break and daily-rest
+     * constraints, which both reason about gaps between blocks rather than
+     * between individual slots.
+     */
+    private fun buildBlockBoundaryVars(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        e: Int,
+        slots: List<TimeSlot>,
+        prevSlot: Array<Int?>,
+        nextSlot: Array<Int?>,
+        namePrefix: String
+    ): Pair<Array<BoolVar?>, Array<BoolVar?>> {
+        val isBlockStart = arrayOfNulls<BoolVar>(slots.size)
+        val isBlockEnd = arrayOfNulls<BoolVar>(slots.size)
+
+        for (t in slots.indices) {
+            val next = nextSlot[t]
+            isBlockEnd[t] = if (next == null) {
+                x[e][t]
+            } else {
+                val blockEnd = model.newBoolVar("${namePrefix}_blockend_${e}_$t")
+                // blockEnd <= worked(t); blockEnd <= 1 - worked(next); blockEnd >= worked(t) - worked(next)
+                model.addLessOrEqual(blockEnd, x[e][t])
+                model.addLessOrEqual(blockEnd, LinearExpr.affine(x[e][next], -1, 1))
+                model.addGreaterOrEqual(
+                    blockEnd,
+                    LinearExpr.weightedSum(arrayOf(x[e][t], x[e][next]), longArrayOf(1, -1))
+                )
+                blockEnd
+            }
+
+            val prev = prevSlot[t]
+            isBlockStart[t] = if (prev == null) {
+                x[e][t]
+            } else {
+                val blockStart = model.newBoolVar("${namePrefix}_blockstart_${e}_$t")
+                model.addLessOrEqual(blockStart, x[e][t])
+                model.addLessOrEqual(blockStart, LinearExpr.affine(x[e][prev], -1, 1))
+                model.addGreaterOrEqual(
+                    blockStart,
+                    LinearExpr.weightedSum(arrayOf(x[e][t], x[e][prev]), longArrayOf(1, -1))
+                )
+                blockStart
+            }
+        }
+
+        return isBlockStart to isBlockEnd
     }
 
     private fun extractSolution(
@@ -876,6 +1082,7 @@ data class OptimizationInput(
     fun getProductivity(employeeIndex: Int, timeSlotIndex: Int): Long {
         return productivity[employeeIndex][timeSlotIndex].toLong()
     }
+
 }
 
 /**

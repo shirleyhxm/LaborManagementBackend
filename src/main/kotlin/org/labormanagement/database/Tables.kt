@@ -306,6 +306,14 @@ object WorkingHoursRulesTable : Table("business_working_hours_rules") {
 
 object ComplianceRulesTable : Table("business_compliance_rules") {
     val businessId = uuid("business_id").references(Businesses.id).uniqueIndex()
+
+    // Vestigial: FLSA overtime was a US-specific rule, removed from the domain
+    // model, the API and the UI. Overtime itself still applies, driven by each
+    // employee's contract.overtimeThreshold rather than a business-level
+    // toggle. The column is retained (NOT NULL, so it's still written with a
+    // fixed value) because this repo has no migration tooling to drop it
+    // safely from existing databases. Nothing reads it - do not reintroduce a
+    // dependency on it; revisit if/when the US market is in scope.
     val flsaOvertimeEnabled = bool("flsa_overtime_enabled")
     val mealBreakRequired = bool("meal_break_required")
     val mealBreakMinShiftHours = double("meal_break_min_shift_hours")

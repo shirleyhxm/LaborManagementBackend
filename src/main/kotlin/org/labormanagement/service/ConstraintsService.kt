@@ -421,7 +421,6 @@ class ConstraintsService(private val gson: Gson = createGson()) {
 
     private fun org.jetbrains.exposed.sql.ResultRow.toComplianceRules() = ComplianceRules(
         businessId = this[ComplianceRulesTable.businessId],
-        flsaOvertimeEnabled = this[ComplianceRulesTable.flsaOvertimeEnabled],
         mealBreakRequired = this[ComplianceRulesTable.mealBreakRequired],
         mealBreakMinShiftHours = this[ComplianceRulesTable.mealBreakMinShiftHours],
         mealBreakDuration = this[ComplianceRulesTable.mealBreakDuration],
@@ -432,7 +431,12 @@ class ConstraintsService(private val gson: Gson = createGson()) {
 
     private fun org.jetbrains.exposed.sql.statements.UpdateBuilder<Int>.fromModel(model: ComplianceRules) {
         this[ComplianceRulesTable.businessId] = model.businessId
-        this[ComplianceRulesTable.flsaOvertimeEnabled] = model.flsaOvertimeEnabled
+        // FLSA overtime was a US-specific rule that no longer exists in the
+        // domain model or the API. The column is NOT NULL and deliberately
+        // left in place (dropping it would need a migration this repo has no
+        // tooling for), so it's written with a fixed value purely to satisfy
+        // the schema. Nothing reads it.
+        this[ComplianceRulesTable.flsaOvertimeEnabled] = true
         this[ComplianceRulesTable.mealBreakRequired] = model.mealBreakRequired
         this[ComplianceRulesTable.mealBreakMinShiftHours] = model.mealBreakMinShiftHours
         this[ComplianceRulesTable.mealBreakDuration] = model.mealBreakDuration

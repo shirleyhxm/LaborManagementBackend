@@ -51,7 +51,6 @@ data class EmployeeContractedHours(
 
 data class ComplianceRules(
     val businessId: UUID,  // Multi-tenancy: Business these rules belong to
-    val flsaOvertimeEnabled: Boolean,
     val mealBreakRequired: Boolean,
     val mealBreakMinShiftHours: Double, // e.g., 6 hours
     val mealBreakDuration: Int, // e.g., 30 minutes
