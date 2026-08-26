@@ -303,12 +303,16 @@ class ConstraintsService(private val gson: Gson = createGson()) {
                 val minRestBetweenShifts = (request.constraints["minRestBetweenShifts"] as? Number)?.toDouble()
                 val maxShiftLength = (request.constraints["maxShiftLength"] as? Number)?.toDouble()
                 val minShiftLength = (request.constraints["minShiftLength"] as? Number)?.toDouble()
+                val minWeeklyRestHours = (request.constraints["minWeeklyRestHours"] as? Number)?.toDouble()
 
                 if (minRestBetweenShifts != null && minRestBetweenShifts < 0) {
                     errors.add(ValidationError("minRestBetweenShifts", "Minimum rest between shifts must be >= 0"))
                 }
                 if (maxShiftLength != null && minShiftLength != null && maxShiftLength <= minShiftLength) {
                     errors.add(ValidationError("maxShiftLength", "Max shift length must be greater than min shift length"))
+                }
+                if (minWeeklyRestHours != null && (minWeeklyRestHours < 0 || minWeeklyRestHours > 168)) {
+                    errors.add(ValidationError("minWeeklyRestHours", "Minimum weekly rest must be between 0 and 168 hours"))
                 }
             }
             "contractedHours" -> {
@@ -377,6 +381,7 @@ class ConstraintsService(private val gson: Gson = createGson()) {
         maxConsecutiveDays = this[WorkingHoursRulesTable.maxConsecutiveDays],
         maxShiftLength = this[WorkingHoursRulesTable.maxShiftLength],
         minShiftLength = this[WorkingHoursRulesTable.minShiftLength],
+        minWeeklyRestHours = this[WorkingHoursRulesTable.minWeeklyRestHours],
         updatedAt = this[WorkingHoursRulesTable.updatedAt]
     )
 
@@ -388,6 +393,7 @@ class ConstraintsService(private val gson: Gson = createGson()) {
         this[WorkingHoursRulesTable.maxConsecutiveDays] = model.maxConsecutiveDays
         this[WorkingHoursRulesTable.maxShiftLength] = model.maxShiftLength
         this[WorkingHoursRulesTable.minShiftLength] = model.minShiftLength
+        this[WorkingHoursRulesTable.minWeeklyRestHours] = model.minWeeklyRestHours
         this[WorkingHoursRulesTable.updatedAt] = model.updatedAt
     }
 

@@ -28,10 +28,11 @@ data class WorkingHoursRules(
     val businessId: UUID,  // Multi-tenancy: Business these rules belong to
     val maxHoursPerWeek: Double,
     val maxOvertimeHours: Double,
-    val minRestBetweenShifts: Double, // in hours
+    val minRestBetweenShifts: Double, // Daily rest, in hours (gov.uk: 11 hours between working days)
     val maxConsecutiveDays: Int,
     val maxShiftLength: Double, // in hours
     val minShiftLength: Double, // in hours
+    val minWeeklyRestHours: Double = 24.0, // Weekly rest: one uninterrupted rest period of at least this length per rolling 7 days (gov.uk: 24 hours/week)
     val updatedAt: Instant = Instant.now()
 )
 

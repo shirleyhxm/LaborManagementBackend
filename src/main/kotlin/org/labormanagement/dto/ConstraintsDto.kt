@@ -46,7 +46,8 @@ data class WorkingHoursRulesRequest(
     val minRestBetweenShifts: Double,
     val maxConsecutiveDays: Int,
     val maxShiftLength: Double,
-    val minShiftLength: Double
+    val minShiftLength: Double,
+    val minWeeklyRestHours: Double = 24.0
 )
 
 data class WorkingHoursRulesResponse(
@@ -56,6 +57,7 @@ data class WorkingHoursRulesResponse(
     val maxConsecutiveDays: Int,
     val maxShiftLength: Double,
     val minShiftLength: Double,
+    val minWeeklyRestHours: Double,
     val updatedAt: String
 )
 
@@ -237,6 +239,7 @@ fun WorkingHoursRules.toResponse(): WorkingHoursRulesResponse {
         maxConsecutiveDays = this.maxConsecutiveDays,
         maxShiftLength = this.maxShiftLength,
         minShiftLength = this.minShiftLength,
+        minWeeklyRestHours = this.minWeeklyRestHours,
         updatedAt = this.updatedAt.toString()
     )
 }
@@ -333,6 +336,7 @@ fun WorkingHoursRulesRequest.toModel(businessId: UUID): WorkingHoursRules {
         maxConsecutiveDays = this.maxConsecutiveDays,
         maxShiftLength = this.maxShiftLength,
         minShiftLength = this.minShiftLength,
+        minWeeklyRestHours = this.minWeeklyRestHours,
         updatedAt = Instant.now()
     )
 }

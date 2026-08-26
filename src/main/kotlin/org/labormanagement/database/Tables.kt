@@ -298,6 +298,7 @@ object WorkingHoursRulesTable : Table("business_working_hours_rules") {
     val maxConsecutiveDays = integer("max_consecutive_days")
     val maxShiftLength = double("max_shift_length")
     val minShiftLength = double("min_shift_length")
+    val minWeeklyRestHours = double("min_weekly_rest_hours").default(24.0)
     val updatedAt = timestamp("updated_at")
 
     override val primaryKey = PrimaryKey(businessId)

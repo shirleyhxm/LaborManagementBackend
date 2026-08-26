@@ -620,6 +620,43 @@ class HardConstraintTest {
         )
     }
 
+    // ===== Weekly rest =====
+
+    @Test
+    fun `always includes at least one full day off within any 7-day window`() {
+        val dates = (0 until 7).map { scheduleDate.plusDays(it.toLong()) } // Mon-Sun
+        val availability = dates.map { date ->
+            Availability(AvailabilityType.WEEKLY_RECURRING, date.dayOfWeek, null, null, LocalTime.of(9, 0), LocalTime.of(12, 0))
+        }
+        val emp = employee(availability = availability)
+        val timeSlots = dates.flatMap { hourlySlots(9, 12, it) }
+        val rules = WorkingHoursRules(
+            businessId = testBusinessId,
+            maxHoursPerWeek = 80.0,
+            maxOvertimeHours = 40.0,
+            minRestBetweenShifts = 0.0,
+            maxConsecutiveDays = 7, // deliberately not the binding constraint here
+            maxShiftLength = 12.0,
+            minShiftLength = 0.0,
+            minWeeklyRestHours = 24.0
+        )
+        // High demand every day: without a weekly-rest constraint, a
+        // coverage-hungry solver would work all 7 available days straight.
+        val input = buildInput(listOf(emp), timeSlots, highDemand(timeSlots.size), workingHoursRules = rules)
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        val workedDates = assignment!!.timeSlotIndices.map { timeSlots[it].date }.toSortedSet()
+        assertTrue(
+            workedDates.size < dates.size,
+            "Employee worked every day of the 7-day window with no day off, violating weekly rest"
+        )
+    }
+
     /** Groups a sorted or unsorted list of hourly slot indices into consecutive runs. */
     private fun groupConsecutive(indices: List<Int>): List<List<Int>> {
         if (indices.isEmpty()) return emptyList()

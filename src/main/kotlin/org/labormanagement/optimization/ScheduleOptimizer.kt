@@ -521,6 +521,32 @@ class ScheduleOptimizer {
 
         addMinRestBetweenShiftsConstraints(model, x, input, rules.minRestBetweenShifts)
         addMaxConsecutiveDaysConstraints(model, x, input, rules.maxConsecutiveDays)
+        addMinWeeklyRestConstraints(model, x, input, rules.minWeeklyRestHours)
+    }
+
+    /**
+     * Builds workedOnDay[e][d] = 1 if employee e works any slot on
+     * sortedDates[d], for every employee. Shared by the consecutive-days and
+     * weekly-rest constraints, which both reason about whole days off.
+     */
+    private fun buildWorkedOnDayVars(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput,
+        slotsByDate: Map<LocalDate, List<Int>>,
+        sortedDates: List<LocalDate>
+    ): Array<Array<BoolVar>> {
+        return Array(input.employees.size) { e ->
+            Array(sortedDates.size) { d ->
+                val date = sortedDates[d]
+                val dayVars = slotsByDate.getValue(date).map { x[e][it] }.toTypedArray()
+                val worked = model.newBoolVar("worked_${e}_$date")
+                // worked == OR(dayVars): worked >= each var, and worked <= sum(vars)
+                dayVars.forEach { model.addLessOrEqual(it, worked) }
+                model.addLessOrEqual(worked, LinearExpr.sum(dayVars))
+                worked
+            }
+        }
     }
 
     /**
@@ -544,23 +570,57 @@ class ScheduleOptimizer {
         val sortedDates = slotsByDate.keys.sorted()
         if (sortedDates.size <= maxConsecutiveDays) return
 
-        for (e in input.employees.indices) {
-            // workedOnDay[d] = 1 if employee e works any slot on sortedDates[d]
-            val workedOnDay = sortedDates.map { date ->
-                val dayVars = slotsByDate.getValue(date).map { x[e][it] }.toTypedArray()
-                val worked = model.newBoolVar("worked_${e}_$date")
-                // worked == OR(dayVars): worked >= each var, and worked <= sum(vars)
-                dayVars.forEach { model.addLessOrEqual(it, worked) }
-                model.addLessOrEqual(worked, LinearExpr.sum(dayVars))
-                worked
-            }
+        val workedOnDay = buildWorkedOnDayVars(model, x, input, slotsByDate, sortedDates)
 
+        for (e in input.employees.indices) {
             // Slide a window of (maxConsecutiveDays + 1) days; at least one
             // day in every such window must be unworked.
             val windowSize = maxConsecutiveDays + 1
             for (start in 0..(sortedDates.size - windowSize)) {
-                val window = (start until start + windowSize).map { workedOnDay[it] }.toTypedArray()
+                val window = (start until start + windowSize).map { workedOnDay[e][it] }.toTypedArray()
                 model.addLessOrEqual(LinearExpr.sum(window), maxConsecutiveDays.toLong())
+            }
+        }
+    }
+
+    /**
+     * Enforces weekly rest (gov.uk: an uninterrupted 24 hours without work
+     * each week): over any rolling 7-calendar-day window in the schedule
+     * period, at least one full calendar day must be entirely unworked.
+     *
+     * This is a deliberate simplification of "an uninterrupted period of at
+     * least minWeeklyRestHours somewhere in the window," which would require
+     * reasoning about exact clock-time gaps spanning multiple days (including
+     * closed/non-operating hours that have no time slots at all to reason
+     * about). A full day off, combined with the closed hours on the days
+     * immediately before and after it, comfortably exceeds a same-order-of-
+     * magnitude rest requirement (e.g. 24h) in every realistic operating-
+     * hours scenario, so "at least one full day off per rolling week" is used
+     * as a sound proxy rather than exact interval arithmetic. Weeks entirely
+     * outside the schedule period aren't modeled, matching the other rest
+     * constraints.
+     */
+    private fun addMinWeeklyRestConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput,
+        minWeeklyRestHours: Double
+    ) {
+        if (minWeeklyRestHours <= 0.0) return
+
+        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].date }
+        val sortedDates = slotsByDate.keys.sorted()
+        val windowSize = 7
+        if (sortedDates.size < windowSize) return
+
+        val workedOnDay = buildWorkedOnDayVars(model, x, input, slotsByDate, sortedDates)
+
+        for (e in input.employees.indices) {
+            // At least one day in every rolling 7-day window must be
+            // unworked, i.e. at most 6 of the 7 days can be worked.
+            for (start in 0..(sortedDates.size - windowSize)) {
+                val window = (start until start + windowSize).map { workedOnDay[e][it] }.toTypedArray()
+                model.addLessOrEqual(LinearExpr.sum(window), (windowSize - 1).toLong())
             }
         }
     }
