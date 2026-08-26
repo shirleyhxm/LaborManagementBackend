@@ -40,13 +40,14 @@ class HardConstraintTest {
         normalPayRate: Double = 20.0,
         overtimePayRate: Double = 30.0,
         productivity: Double = 100.0,
-        contract: Contract = contract()
+        contract: Contract = contract(),
+        dateOfBirth: LocalDate = LocalDate.of(1990, 1, 1)
     ) = Employee(
         id = UUID.randomUUID(),
         businessId = testBusinessId,
         firstName = "Test",
         lastName = "Employee",
-        dateOfBirth = LocalDate.of(1990, 1, 1),
+        dateOfBirth = dateOfBirth,
         normalPayRate = normalPayRate,
         overtimePayRate = overtimePayRate,
         productivity = productivity,
@@ -72,7 +73,8 @@ class HardConstraintTest {
         laborBudget: Long = Long.MAX_VALUE,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         workingHoursRules: WorkingHoursRules? = null,
-        contractedHours: Map<UUID, EmployeeContractedHours> = emptyMap()
+        contractedHours: Map<UUID, EmployeeContractedHours> = emptyMap(),
+        complianceRules: ComplianceRules? = null
     ): OptimizationInput {
         val availability = employees.map { emp ->
             timeSlots.map { slot -> emp.availability.any { it.isAvailableOn(slot.date, slot.startTime, slot.endTime) } }
@@ -91,9 +93,25 @@ class HardConstraintTest {
             laborBudget = laborBudget,
             objective = objective,
             workingHoursRules = workingHoursRules,
-            contractedHours = contractedHours
+            contractedHours = contractedHours,
+            complianceRules = complianceRules
         )
     }
+
+    /** Compliance rules with only the fields a given test cares about set. */
+    private fun compliance(
+        mealBreakRequired: Boolean = false,
+        mealBreakMinShiftHours: Double = 6.0,
+        mealBreakDuration: Int = 30,
+        minorLaborLawsEnabled: Boolean = false
+    ) = ComplianceRules(
+        businessId = testBusinessId,
+        mealBreakRequired = mealBreakRequired,
+        mealBreakMinShiftHours = mealBreakMinShiftHours,
+        mealBreakDuration = mealBreakDuration,
+        minorLaborLawsEnabled = minorLaborLawsEnabled,
+        advanceNoticePeriod = 7
+    )
 
     // ===== Availability =====
 
@@ -654,6 +672,427 @@ class HardConstraintTest {
         assertTrue(
             workedDates.size < dates.size,
             "Employee worked every day of the 7-day window with no day off, violating weekly rest"
+        )
+    }
+
+    // ===== Rest breaks =====
+
+    @Test
+    fun `never works longer than the rest break threshold without a break`() {
+        val maxContinuousHours = 4.0
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        val timeSlots = hourlySlots(9, 21) // 12 one-hour slots
+        // High demand across the whole day: without a rest break constraint
+        // the solver would happily run one unbroken 12-hour block.
+        val input = buildInput(
+            listOf(emp),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(mealBreakRequired = true, mealBreakMinShiftHours = maxContinuousHours)
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        for (group in groupConsecutive(assignment!!.timeSlotIndices)) {
+            val hours = group.size * 1.0
+            assertTrue(
+                hours <= maxContinuousHours,
+                "Worked $hours continuous hours (slots $group) without a break, exceeding the $maxContinuousHours hour rest break threshold"
+            )
+        }
+    }
+
+    @Test
+    fun `makes any same-day break at least as long as the configured break duration`() {
+        val maxContinuousHours = 4.0
+        val breakMinutes = 120 // deliberately longer than one slot, so a
+        // token 1-hour gap would satisfy the block-length rule but not this one
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        val timeSlots = hourlySlots(9, 21)
+        val input = buildInput(
+            listOf(emp),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(
+                mealBreakRequired = true,
+                mealBreakMinShiftHours = maxContinuousHours,
+                mealBreakDuration = breakMinutes
+            )
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        val groups = groupConsecutive(assignment!!.timeSlotIndices)
+        for (i in 0 until groups.size - 1) {
+            val endOfBlock = timeSlots[groups[i].last()]
+            val startOfNext = timeSlots[groups[i + 1].first()]
+            if (endOfBlock.date != startOfNext.date) continue // cross-day gaps are daily rest's concern
+
+            val gapHours = java.time.Duration.between(
+                endOfBlock.date.atTime(endOfBlock.endTime),
+                startOfNext.date.atTime(startOfNext.startTime)
+            ).toMinutes() / 60.0
+
+            assertTrue(
+                gapHours >= breakMinutes / 60.0,
+                "Break of $gapHours hours between blocks is shorter than the configured ${breakMinutes}-minute break"
+            )
+        }
+    }
+
+    @Test
+    fun `enforces the break duration across a multi-day schedule`() {
+        // Regression test for slot-adjacency being resolved by clock time
+        // alone: across multiple days every date has a slot starting at the
+        // same time, so a slot's "next" could resolve to the following day's
+        // slot instead of its true same-day successor. That silently broke
+        // the block-boundary variables and let 1-hour gaps through, which a
+        // single-day scenario cannot expose.
+        val breakMinutes = 120
+        val dates = (0 until 3).map { scheduleDate.plusDays(it.toLong()) }
+        val availability = dates.map { date ->
+            Availability(AvailabilityType.WEEKLY_RECURRING, date.dayOfWeek, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+        }
+        // Several employees so the solver has the freedom to fragment one
+        // person's day rather than being forced into one contiguous block.
+        val emps = (1..4).map { i ->
+            employee(availability = availability, normalPayRate = 18.0 + i)
+        }
+        val timeSlots = dates.flatMap { hourlySlots(9, 21, it) }
+        val input = buildInput(
+            emps,
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(
+                mealBreakRequired = true,
+                mealBreakMinShiftHours = 4.0,
+                mealBreakDuration = breakMinutes
+            )
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        for (assignment in result!!.assignments) {
+            val byDate = assignment.timeSlotIndices.groupBy { timeSlots[it].date }
+            for ((date, indices) in byDate) {
+                val hours = indices.map { timeSlots[it].startTime.hour }.sorted()
+                val blocks = mutableListOf<MutableList<Int>>()
+                for (h in hours) {
+                    val last = blocks.lastOrNull()
+                    if (last != null && last.last() + 1 == h) last.add(h) else blocks.add(mutableListOf(h))
+                }
+                for (i in 0 until blocks.size - 1) {
+                    val gap = blocks[i + 1].first() - (blocks[i].last() + 1)
+                    assertTrue(
+                        gap >= breakMinutes / 60,
+                        "Employee ${assignment.employeeIndex} on $date has a $gap hour gap between blocks " +
+                            "${blocks[i].first()}-${blocks[i].last() + 1} and ${blocks[i + 1].first()}-${blocks[i + 1].last() + 1}, " +
+                            "shorter than the configured ${breakMinutes}-minute break"
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `does not constrain continuous work when rest breaks are not required`() {
+        // Same setup as the threshold test but with the rule switched off -
+        // confirms the constraint is genuinely driven by the toggle rather
+        // than always applied.
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        val timeSlots = hourlySlots(9, 21)
+        val input = buildInput(
+            listOf(emp),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(mealBreakRequired = false, mealBreakMinShiftHours = 4.0)
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Employee should be assigned to meet coverage")
+
+        val longestBlock = groupConsecutive(assignment!!.timeSlotIndices).maxOf { it.size }
+        assertTrue(
+            longestBlock > 4,
+            "With rest breaks disabled the solver should be free to schedule blocks longer than 4 hours, but the longest was $longestBlock"
+        )
+    }
+
+    // ===== Minor labor laws =====
+
+    @Test
+    fun `caps a minor's daily hours when minor labor laws are enabled`() {
+        // 16 years old on the schedule date.
+        val minor = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(6, 0), LocalTime.of(22, 0))
+            ),
+            dateOfBirth = scheduleDate.minusYears(16)
+        )
+        val timeSlots = hourlySlots(6, 22) // 16 slots, all outside the night window
+        val input = buildInput(
+            listOf(minor),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(minorLaborLawsEnabled = true)
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Minor should still be assigned, just within the reduced cap")
+
+        val hours = assignment!!.timeSlotIndices.sumOf { timeSlots[it].durationHours }
+        assertTrue(
+            hours <= 8.0,
+            "Minor scheduled for $hours hours in one day, exceeding the 8 hour cap for minors"
+        )
+    }
+
+    @Test
+    fun `never schedules a minor during restricted night hours`() {
+        val minor = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(16, 0), LocalTime.of(23, 59))
+            ),
+            dateOfBirth = scheduleDate.minusYears(16)
+        )
+        // Spans the 22:00 night boundary, so a broken constraint shows up as
+        // an assignment in the 22:00-23:00 slot.
+        val timeSlots = hourlySlots(16, 23)
+        val input = buildInput(
+            listOf(minor),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(minorLaborLawsEnabled = true)
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        if (assignment != null) {
+            for (slotIndex in assignment.timeSlotIndices) {
+                val slot = timeSlots[slotIndex]
+                assertTrue(
+                    slot.endTime <= LocalTime.of(22, 0),
+                    "Minor scheduled ${slot.startTime}-${slot.endTime}, inside the restricted night window starting at 22:00"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `does not apply minor restrictions to an adult employee`() {
+        val adult = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(6, 0), LocalTime.of(22, 0))
+            ),
+            dateOfBirth = scheduleDate.minusYears(30),
+            contract = contract(maxHoursPerWeek = 60.0)
+        )
+        val timeSlots = hourlySlots(6, 22)
+        val input = buildInput(
+            listOf(adult),
+            timeSlots,
+            highDemand(timeSlots.size),
+            complianceRules = compliance(minorLaborLawsEnabled = true)
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val assignment = result!!.assignments.firstOrNull { it.employeeIndex == 0 }
+        assertNotNull(assignment, "Adult should be assigned")
+
+        val hours = assignment!!.timeSlotIndices.sumOf { timeSlots[it].durationHours }
+        assertTrue(
+            hours > 8.0,
+            "Adult was capped at $hours hours as though the minor rules applied to them"
+        )
+    }
+
+    // ===== Overtime =====
+
+    @Test
+    fun `pays an overtime premium past the contract's overtime threshold`() {
+        val dates = (0 until 6).map { scheduleDate.plusDays(it.toLong()) }
+        val availability = dates.map { date ->
+            Availability(AvailabilityType.WEEKLY_RECURRING, date.dayOfWeek, null, null, LocalTime.of(9, 0), LocalTime.of(19, 0))
+        }
+        val emp = employee(
+            availability = availability,
+            contract = contract(overtimeThreshold = 40.0, maxHoursPerWeek = 60.0)
+        )
+        val timeSlots = dates.flatMap { hourlySlots(9, 19, it) }
+        val input = buildInput(listOf(emp), timeSlots, highDemand(timeSlots.size))
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val shifts = OptimizationConverter.convertToShifts(result!!, input)
+        val totalHours = shifts.sumOf { it.durationHours }
+        assertTrue(
+            totalHours > 40.0,
+            "Scenario should push past the 40-hour threshold to be meaningful, but only $totalHours hours were scheduled"
+        )
+        assertTrue(
+            shifts.any { it.isOvertime },
+            "No overtime was recorded despite working $totalHours hours past a 40-hour threshold"
+        )
+    }
+
+    // ===== Monthly budget =====
+
+    @Test
+    fun `uses the monthly budget when it is the binding constraint`() {
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 10_000.0,  // 7 days -> 10,000
+            monthlyBudget = 3_000.0,  // 7 days -> 700, the binding cap
+            hardBudgetLimit = true,
+            budgetWarningThreshold = 90.0
+        )
+
+        val resolved = OptimizationConverter.resolveLaborCostBudget(budget, 7)
+
+        assertTrue(
+            kotlin.math.abs(resolved - 700.0) < 0.01,
+            "Expected the pro-rated monthly budget of 700.0 to bind, but got $resolved"
+        )
+    }
+
+    @Test
+    fun `uses the weekly budget when it is the binding constraint`() {
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 700.0,      // 7 days -> 700, the binding cap
+            monthlyBudget = 30_000.0,  // 7 days -> 7,000
+            hardBudgetLimit = true,
+            budgetWarningThreshold = 90.0
+        )
+
+        val resolved = OptimizationConverter.resolveLaborCostBudget(budget, 7)
+
+        assertTrue(
+            kotlin.math.abs(resolved - 700.0) < 0.01,
+            "Expected the pro-rated weekly budget of 700.0 to bind, but got $resolved"
+        )
+    }
+
+    @Test
+    fun `ignores an unset budget rather than treating it as a zero cap`() {
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 700.0,
+            monthlyBudget = 0.0, // never configured
+            hardBudgetLimit = true,
+            budgetWarningThreshold = 90.0
+        )
+
+        val resolved = OptimizationConverter.resolveLaborCostBudget(budget, 7)
+
+        assertTrue(
+            kotlin.math.abs(resolved - 700.0) < 0.01,
+            "An unset monthly budget should not cap spending at zero, but resolved to $resolved"
+        )
+    }
+
+    @Test
+    fun `treats an all-zero budget under a hard limit as a genuine zero cap`() {
+        // Distinct from the unset-budget case above: with no budget carrying
+        // a real value there's nothing to defer to, so zero means zero.
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 0.0,
+            monthlyBudget = 0.0,
+            hardBudgetLimit = true,
+            budgetWarningThreshold = 90.0
+        )
+
+        val resolved = OptimizationConverter.resolveLaborCostBudget(budget, 7)
+
+        assertTrue(
+            resolved == 0.0,
+            "An explicit all-zero budget should cap spending at zero, but resolved to $resolved"
+        )
+    }
+
+    @Test
+    fun `leaves the budget uncapped when the hard budget limit is off`() {
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 700.0,
+            monthlyBudget = 3_000.0,
+            hardBudgetLimit = false,
+            budgetWarningThreshold = 90.0
+        )
+
+        val resolved = OptimizationConverter.resolveLaborCostBudget(budget, 7)
+
+        assertTrue(
+            resolved == Double.MAX_VALUE,
+            "Budgets should not cap generation when the hard budget limit is off, but resolved to $resolved"
+        )
+    }
+
+    @Test
+    fun `enforces the monthly budget as a hard cap during optimization`() {
+        val emp = employee(
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(17, 0))
+            ),
+            normalPayRate = 20.0
+        )
+        val timeSlots = hourlySlots(9, 17) // 8 slots -> 160.0 at full utilization
+        val budget = BudgetConstraints(
+            businessId = testBusinessId,
+            weeklyBudget = 100_000.0, // not binding
+            monthlyBudget = 1_200.0,  // 1 day -> 40.0, i.e. 2 hours of work
+            hardBudgetLimit = true,
+            budgetWarningThreshold = 90.0
+        )
+        val cap = OptimizationConverter.resolveLaborCostBudget(budget, 1)
+        val input = buildInput(
+            listOf(emp),
+            timeSlots,
+            highDemand(timeSlots.size),
+            laborBudget = cap.toLong()
+        )
+
+        val result = ScheduleOptimizer().optimize(input)
+        assertNotNull(result)
+
+        val shifts = OptimizationConverter.convertToShifts(result!!, input)
+        val totalCost = shifts.sumOf { it.laborCost }
+        assertTrue(
+            totalCost <= cap,
+            "Total labor cost $totalCost exceeds the pro-rated monthly cap of $cap"
         )
     }
 

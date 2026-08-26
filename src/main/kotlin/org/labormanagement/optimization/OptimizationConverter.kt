@@ -68,16 +68,13 @@ object OptimizationConverter {
             emptyMap()
         }
 
-        // The solver's hard budget cap comes from the business's saved weekly
-        // budget, pro-rated to the schedule's actual length (schedules aren't
-        // always exactly 7 days), rather than a value the caller passes in ad
-        // hoc. Only enforced when hardBudgetLimit is on - otherwise it's a
-        // reporting figure only and generation isn't capped by it.
-        val laborBudget = if (budgetConstraints != null && budgetConstraints.hardBudgetLimit && scheduleDates.isNotEmpty()) {
-            (budgetConstraints.weeklyBudget / 7.0 * scheduleDates.size).toLong()
-        } else {
-            Long.MAX_VALUE
-        }
+        // The solver's hard budget cap comes from the business's saved wage
+        // budgets, pro-rated to the schedule's actual length, rather than a
+        // value the caller passes in ad hoc. Only enforced when
+        // hardBudgetLimit is on - otherwise the budgets are reporting figures
+        // only and generation isn't capped by them.
+        val laborBudget = resolveLaborCostBudget(budgetConstraints, scheduleDates.size)
+            .let { if (it == Double.MAX_VALUE) Long.MAX_VALUE else it.toLong() }
 
         // Generate time slots for all scheduled dates
         val timeSlots = generateTimeSlots(scheduleDates, operatingHoursMap)
@@ -107,6 +104,48 @@ object OptimizationConverter {
             fairnessSettings = fairnessSettings,
             contractedHours = contractedHoursMap
         )
+    }
+
+    /**
+     * Resolves the hard wage-cost cap for a schedule of [scheduleDayCount]
+     * days from the business's saved budget constraints.
+     *
+     * Both the weekly and the monthly budget are pro-rated to the schedule's
+     * actual length (schedules aren't always exactly 7 or 30 days) and the
+     * lower - i.e. the binding - of the two is used. Taking the minimum means
+     * a schedule can't satisfy a generous weekly budget while blowing through
+     * a tighter monthly one, which is the whole reason a manager would set
+     * both.
+     *
+     * A budget of zero is ambiguous: it's both how an unset budget is stored
+     * and how a manager would express "spend nothing". It's read as unset
+     * only when the *other* budget carries a real value, so that a business
+     * which has configured just one of the two isn't pinned to no spend at
+     * all by the empty one. When every budget is zero under a hard limit
+     * there's nothing else to defer to, so it's taken at face value as a
+     * genuine zero cap.
+     *
+     * Returns Double.MAX_VALUE (uncapped) when there are no budget
+     * constraints, when hardBudgetLimit is off, or when the schedule has no
+     * days.
+     */
+    fun resolveLaborCostBudget(
+        budgetConstraints: org.labormanagement.model.BudgetConstraints?,
+        scheduleDayCount: Int
+    ): Double {
+        if (budgetConstraints == null || !budgetConstraints.hardBudgetLimit) return Double.MAX_VALUE
+        if (scheduleDayCount <= 0) return Double.MAX_VALUE
+
+        val weeklyCap = budgetConstraints.weeklyBudget / 7.0 * scheduleDayCount
+        val monthlyCap = budgetConstraints.monthlyBudget / 30.0 * scheduleDayCount
+
+        val configuredCaps = listOfNotNull(
+            weeklyCap.takeIf { budgetConstraints.weeklyBudget > 0 },
+            monthlyCap.takeIf { budgetConstraints.monthlyBudget > 0 }
+        )
+
+        // No budget carries a real value - an explicit "spend nothing".
+        return configuredCaps.minOrNull() ?: 0.0
     }
 
     /**

@@ -81,11 +81,13 @@ class ShiftScheduler(
     }
 
     private fun resolveLaborCostBudget(businessId: UUID, schedulePeriod: SchedulePeriod): Double {
-        val budget = constraintsService.getBudgetConstraints(businessId) ?: return Double.MAX_VALUE
-        if (!budget.hardBudgetLimit) return Double.MAX_VALUE
-        val days = schedulePeriod.getAllDates().size
-        if (days == 0) return Double.MAX_VALUE
-        return budget.weeklyBudget / 7.0 * days
+        // Shares OptimizationConverter's resolver so the greedy and CP-SAT
+        // paths always agree on what the budget cap actually is - including
+        // how the weekly and monthly budgets combine.
+        return OptimizationConverter.resolveLaborCostBudget(
+            constraintsService.getBudgetConstraints(businessId),
+            schedulePeriod.getAllDates().size
+        )
     }
 
     /**
