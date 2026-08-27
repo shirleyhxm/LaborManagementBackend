@@ -77,9 +77,11 @@ class ShiftModificationService(
                 employeeIds = setOfNotNull(shift.employeeId, movedShift.employeeId)
             )
 
-            // The recalculation can split the moved block into a regular and an overtime
-            // row, so its original id may no longer exist. Report the row the block now
-            // starts with, found by position rather than by id.
+            // The recalculation preserves the moved shift's id, but the row it reports on
+            // still has to be found by position: when the move makes the shift contiguous
+            // with an existing one the two merge into a single block, which keeps the
+            // *earliest* row's id — the neighbour's, not necessarily the moved shift's.
+            // Report the row the block now starts with.
             val modifiedShift = updatedShifts
                 .filter {
                     it.employeeId == movedShift.employeeId &&

@@ -231,6 +231,63 @@ class OvertimeSplitterTest {
     }
 
     @Test
+    fun `recalculate keeps the shift id when the block does not split`() {
+        val e = employee(threshold = 40.0)
+        val original = shift(e, date, "09:00", "15:00")
+
+        val result = OvertimeSplitter.recalculateFor(e, listOf(original))
+
+        assertEquals(1, result.size)
+        assertEquals(original.id, result[0].id)
+    }
+
+    @Test
+    fun `recalculate keeps the shift id on the first row of a split block`() {
+        val e = employee(threshold = 8.0)
+        val day1 = shift(e, date, "09:00", "15:00")
+        val day2 = shift(e, date.plusDays(1), "09:00", "15:00")   // crosses at 11:00
+
+        val result = OvertimeSplitter.recalculateFor(e, listOf(day1, day2))
+            .filter { it.date == day2.date }
+            .sortedBy { it.startTime }
+
+        assertEquals(2, result.size)
+        // The regular portion keeps the original id; only the overtime row is new.
+        assertEquals(day2.id, result[0].id)
+        assertFalse(result[0].isOvertime)
+        assertNotEquals(day2.id, result[1].id)
+        assertTrue(result[1].isOvertime)
+    }
+
+    @Test
+    fun `recalculate keeps ids stable across repeated runs`() {
+        val e = employee(threshold = 8.0)
+        val shifts = listOf(
+            shift(e, date, "09:00", "15:00"),
+            shift(e, date.plusDays(1), "09:00", "15:00")
+        )
+
+        val once = OvertimeSplitter.recalculateFor(e, shifts)
+        val twice = OvertimeSplitter.recalculateFor(e, once)
+
+        // Ids a caller obtained from the first pass still resolve after the second,
+        // which is what stops a slightly stale client from 404ing.
+        assertEquals(once.map { it.id }.toSet(), twice.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `recalculate collapsing a split block keeps the first row's id`() {
+        val e = employee(threshold = 40.0)
+        val regular = shift(e, date, "09:00", "10:00", isOvertime = false)
+        val overtime = shift(e, date, "10:00", "12:00", isOvertime = true)
+
+        val result = OvertimeSplitter.recalculateFor(e, listOf(regular, overtime))
+
+        assertEquals(1, result.size)
+        assertEquals(regular.id, result[0].id)
+    }
+
+    @Test
     fun `recalculate is idempotent`() {
         val e = employee(threshold = 8.0)
         val shifts = listOf(

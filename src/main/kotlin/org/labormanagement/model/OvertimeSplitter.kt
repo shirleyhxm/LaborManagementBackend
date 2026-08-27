@@ -96,6 +96,13 @@ object OvertimeSplitter {
      *
      * Shifts are walked in chronological order and each block is billed against the hours
      * accumulated before it.
+     *
+     * Rebuilt rows reuse the ids of the rows their block was merged from, so recalculating
+     * does not invalidate ids callers are already holding; a new id is minted only when a
+     * split yields more rows than went in. Without this, every reassignment silently
+     * retired the ids it had just been handed, and a client acting on a slightly stale
+     * view — a second browser tab, a queued request, another user on the same draft —
+     * would get "Shift not found" for a shift that plainly exists.
      */
     fun recalculateFor(employee: Employee, shifts: List<Shift>): List<Shift> {
         val (theirs, others) = shifts.partition { it.employeeId == employee.id }
@@ -104,20 +111,36 @@ object OvertimeSplitter {
         val result = mutableListOf<Shift>()
         var hoursSoFar = 0.0
 
-        for (block in mergeContiguous(theirs)) {
+        for ((block, sourceIds) in mergeContiguous(theirs)) {
+            // Hand the rebuilt rows the ids of the rows this block was merged from, in
+            // order, falling back to a new id only when a split produces more rows than
+            // went in. A block that re-splits at the same point therefore comes back with
+            // exactly the ids it had.
+            val reusableIds = ArrayDeque(sourceIds)
+
             result += split(
                 employee = employee,
                 date = block.date,
                 startTime = block.startTime,
                 endTime = block.endTime,
                 hoursBefore = hoursSoFar,
-                blockDurationHours = block.durationHours
+                blockDurationHours = block.durationHours,
+                idFor = { reusableIds.removeFirstOrNull() ?: UUID.randomUUID() }
             )
             hoursSoFar += block.durationHours
         }
 
         return others + result
     }
+
+    /**
+     * A contiguous block of work, together with the ids of the rows it was merged from.
+     *
+     * The ids are kept so the rebuilt rows can reuse them instead of minting new ones —
+     * see [recalculateFor]. They are held in chronological order, so re-splitting a block
+     * at the same point hands each row back the id it had before.
+     */
+    private data class Block(val shift: Shift, val sourceIds: List<UUID>)
 
     /**
      * Merges a single employee's shifts into contiguous blocks, joining rows that touch
@@ -127,27 +150,34 @@ object OvertimeSplitter {
      * merge: the whole point is to rejoin rows that an earlier split separated so the
      * threshold can be reapplied to the original block.
      */
-    private fun mergeContiguous(shifts: List<Shift>): List<Shift> {
-        val merged = mutableListOf<Shift>()
+    private fun mergeContiguous(shifts: List<Shift>): List<Block> {
+        val merged = mutableListOf<Block>()
 
         shifts.groupBy { it.date }.forEach { (_, sameDay) ->
             var current: Shift? = null
+            var currentIds = mutableListOf<UUID>()
 
             for (shift in sameDay.sortedBy { it.startTime }) {
-                current = when {
-                    current == null -> shift
-                    current.endTime == shift.startTime ->
-                        current.copy(endTime = shift.endTime)
+                when {
+                    current == null -> {
+                        current = shift
+                        currentIds = mutableListOf(shift.id)
+                    }
+                    current.endTime == shift.startTime -> {
+                        current = current.copy(endTime = shift.endTime)
+                        currentIds.add(shift.id)
+                    }
                     else -> {
-                        merged.add(current)
-                        shift
+                        merged.add(Block(current, currentIds))
+                        current = shift
+                        currentIds = mutableListOf(shift.id)
                     }
                 }
             }
 
-            current?.let { merged.add(it) }
+            current?.let { merged.add(Block(it, currentIds)) }
         }
 
-        return merged.sortedWith(compareBy({ it.date }, { it.startTime }))
+        return merged.sortedWith(compareBy({ it.shift.date }, { it.shift.startTime }))
     }
 }
