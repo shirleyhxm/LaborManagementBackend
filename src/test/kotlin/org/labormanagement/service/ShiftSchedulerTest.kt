@@ -2037,4 +2037,63 @@ class ShiftSchedulerTest {
 
         assertTrue(onLeaveMondayShifts.isEmpty(), "Employee with approved timeoff should not be scheduled on that date")
     }
+
+    @Test
+    fun `GREEDY should split a shift at a mid-hour overtime threshold`() {
+        // A 37.5h threshold cannot fall on an hour boundary, so overtime has to begin
+        // partway through a shift. Before OvertimeSplitter the greedy path billed the
+        // whole block at one rate and overtime started late, at the next shift boundary.
+        val employee = createEmployee(
+            firstName = "Midhour",
+            productivity = 200.0,
+            payRate = 20.0,
+            availability = (1..5).map {
+                Availability(
+                    AvailabilityType.WEEKLY_RECURRING,
+                    DayOfWeek.of(it), null, null,
+                    LocalTime.of(8, 0), LocalTime.of(22, 0)
+                )
+            },
+            contractedHours = 37.5,
+            maxHours = 50.0
+        )
+
+        val nineHourDay = (8..16).associate { LocalTime.of(it, 0) to 200.0 }
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = (1..5).associate { DayOfWeek.of(it) to nineHourDay }
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 100000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1),
+                endDate = LocalDate.of(2024, 1, 5),
+                operatingHours = (1..5).associate {
+                    LocalDate.of(2024, 1, it) to OperatingHours(LocalTime.of(8, 0), LocalTime.of(21, 0))
+                }
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        val regularHours = output.shifts.filter { !it.isOvertime }.sumOf { it.durationHours }
+        assertTrue(
+            output.shifts.sumOf { it.durationHours } > 37.5,
+            "Test needs to schedule past the threshold to be meaningful"
+        )
+        assertEquals(
+            37.5,
+            regularHours,
+            0.02,
+            "Regular hours must stop exactly at the 37.5h threshold, splitting mid-shift"
+        )
+
+        // The split must conserve money: every hour is billed at exactly one rate.
+        val expectedCost = 37.5 * 20.0 +
+            (output.shifts.sumOf { it.durationHours } - 37.5) * 30.0
+        assertEquals(expectedCost, output.shifts.sumOf { it.laborCost }, 0.5)
+    }
 }

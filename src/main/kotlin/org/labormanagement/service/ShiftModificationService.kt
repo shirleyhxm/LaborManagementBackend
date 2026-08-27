@@ -46,7 +46,7 @@ class ShiftModificationService(
             ?: throw IllegalArgumentException("Shift not found: $shiftId")
 
         // Create modified shift
-        val modifiedShift = shift.copy(
+        val movedShift = shift.copy(
             employeeId = newEmployeeId ?: shift.employeeId,
             date = if (newDayOfWeek != null) {
                 // Find a date in the schedule period that matches the new day of week
@@ -59,13 +59,36 @@ class ShiftModificationService(
         )
 
         // Validate the modification
-        val violations = validateShiftModification(schedule, shift, modifiedShift)
+        val violations = validateShiftModification(schedule, shift, movedShift)
 
         if (violations.isEmpty()) {
             // Replace the shift in the schedule
-            val updatedShifts = schedule.shifts.map {
-                if (it.id == shiftId) modifiedShift else it
+            val movedShifts = schedule.shifts.map {
+                if (it.id == shiftId) movedShift else it
             }
+
+            // Moving a shift changes the running hour totals of both the employee who
+            // gave it up and the one who received it, so overtime has to be re-derived
+            // across each of their whole schedules — not just for the moved shift, whose
+            // new owner may be pushed over the threshold on a *later* shift.
+            val updatedShifts = recalculateOvertimeFor(
+                businessId = businessId,
+                shifts = movedShifts,
+                employeeIds = setOfNotNull(shift.employeeId, movedShift.employeeId)
+            )
+
+            // The recalculation can split the moved block into a regular and an overtime
+            // row, so its original id may no longer exist. Report the row the block now
+            // starts with, found by position rather than by id.
+            val modifiedShift = updatedShifts
+                .filter {
+                    it.employeeId == movedShift.employeeId &&
+                    it.date == movedShift.date &&
+                    it.startTime >= movedShift.startTime &&
+                    it.startTime < movedShift.endTime
+                }
+                .minByOrNull { it.startTime }
+                ?: movedShift
 
             // Recalculate metrics and staffing requirements with updated shifts
             val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
@@ -141,7 +164,13 @@ class ShiftModificationService(
         val violations = validateNewShift(schedule, duplicatedShift)
 
         if (violations.isEmpty()) {
-            val updatedShifts = schedule.shifts + duplicatedShift
+            // Adding hours can push this employee's later shifts over their overtime
+            // threshold, so re-derive the flag across all of their shifts.
+            val updatedShifts = recalculateOvertimeFor(
+                businessId = businessId,
+                shifts = schedule.shifts + duplicatedShift,
+                employeeIds = setOf(duplicatedShift.employeeId)
+            )
 
             // Recalculate metrics and staffing requirements
             val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
@@ -164,7 +193,17 @@ class ShiftModificationService(
             scheduleRepository.update(scheduleId, updatedSchedule)
 
             return DuplicateShiftResult(
-                shift = duplicatedShift,
+                // As in modifyShift, the duplicate may have been split, so its id may no
+                // longer be present — locate the row it now starts with by position.
+                shift = updatedShifts
+                    .filter {
+                        it.employeeId == duplicatedShift.employeeId &&
+                        it.date == duplicatedShift.date &&
+                        it.startTime >= duplicatedShift.startTime &&
+                        it.startTime < duplicatedShift.endTime
+                    }
+                    .minByOrNull { it.startTime }
+                    ?: duplicatedShift,
                 violations = emptyList(),
                 isValid = true
             )
@@ -193,10 +232,16 @@ class ShiftModificationService(
             throw IllegalStateException("Cannot delete shifts from ${schedule.status} schedule. Only DRAFT schedules can be modified.")
         }
 
-        schedule.findShift(shiftId)
+        val deletedShift = schedule.findShift(shiftId)
             ?: throw IllegalArgumentException("Shift not found: $shiftId")
 
-        val updatedShifts = schedule.shifts.filter { it.id != shiftId }
+        // Removing hours can pull this employee's later shifts back under their overtime
+        // threshold, so re-derive the flag across their remaining shifts.
+        val updatedShifts = recalculateOvertimeFor(
+            businessId = businessId,
+            shifts = schedule.shifts.filter { it.id != shiftId },
+            employeeIds = setOf(deletedShift.employeeId)
+        )
 
         // Recalculate metrics and staffing requirements
         val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
@@ -288,6 +333,37 @@ class ShiftModificationService(
         )
 
         return scheduleRepository.save(newSchedule)
+    }
+
+    /**
+     * Re-derive regular/overtime rows for every shift belonging to the given employees.
+     *
+     * Overtime is a property of the employee's accumulated hours, not of the shift, so
+     * any change to one of their shifts can affect the others: adding an hour can push a
+     * later block over the threshold, and removing one can pull it back under.
+     *
+     * Delegates to OvertimeSplitter so reassignment produces exactly the same shapes as
+     * schedule generation, including splitting a block that straddles the threshold.
+     *
+     * Note that this can change the number of shifts and their ids: a block that crosses
+     * the threshold becomes two rows, and one that no longer crosses collapses back into
+     * one. Callers must not assume a shift id survives.
+     *
+     * Shifts belonging to other employees are returned untouched.
+     */
+    private fun recalculateOvertimeFor(
+        businessId: UUID,
+        shifts: List<Shift>,
+        employeeIds: Set<UUID>
+    ): List<Shift> {
+        var result = shifts
+
+        for (employeeId in employeeIds) {
+            val employee = employeeRepository.findById(businessId, employeeId) ?: continue
+            result = OvertimeSplitter.recalculateFor(employee, result)
+        }
+
+        return result
     }
 
     /**

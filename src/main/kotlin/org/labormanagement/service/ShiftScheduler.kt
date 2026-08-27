@@ -3,6 +3,7 @@ package org.labormanagement.service
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OperatingHours
 import org.labormanagement.model.OptimizationObjective
+import org.labormanagement.model.OvertimeSplitter
 import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Schedule
 import org.labormanagement.model.ScheduleInput
@@ -541,10 +542,10 @@ class ShiftScheduler(
                     val finalShiftEnd = shiftStart.plusMinutes((maxShiftHours * 60).toLong())
                     val finalShiftHours = ChronoUnit.MINUTES.between(shiftStart, finalShiftEnd) / 60.0
 
-                    // Determine pay rate
-                    // A shift is considered overtime if the employee has already met or exceeded their overtime threshold
-                    // before this shift begins. This is a simplified model - it doesn't split individual shifts into
-                    // normal and overtime portions.
+                    // Determine pay rate for budget arithmetic below. A block that crosses
+                    // the threshold is split into regular and overtime rows when it is
+                    // created, so this is the rate of the portion that costs most —
+                    // deliberately conservative, to avoid committing budget we don't have.
                     val isOvertime = currentWeeklyHours >= employee.contract.overtimeThreshold
                     val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
 
@@ -563,19 +564,21 @@ class ShiftScheduler(
                     val shiftCost = actualShiftHours * payRate
                     if (shiftCost > currentBudget) continue
 
-                    // Create shift
-                    val shift = Shift(
-                        employeeId = employee.id,
+                    // Create the shift, splitting it at the overtime threshold if it
+                    // crosses one, so the greedy fallback bills the same way the CP-SAT
+                    // path does rather than charging the whole block at a single rate.
+                    val createdShifts = OvertimeSplitter.split(
+                        employee = employee,
                         date = date,
                         startTime = shiftStart,
                         endTime = budgetConstrainedEnd,
-                        payRate = payRate,
-                        isOvertime = isOvertime
+                        hoursBefore = currentWeeklyHours,
+                        blockDurationHours = actualShiftHours
                     )
 
-                    shifts.add(shift)
+                    shifts.addAll(createdShifts)
                     weeklyHours[employee.id] = currentWeeklyHours + actualShiftHours
-                    currentBudget -= shiftCost
+                    currentBudget -= createdShifts.sumOf { it.laborCost }
 
                     // Update coverage for all hours this shift covers
                     evaluationSlots.forEach { coveredInterval ->

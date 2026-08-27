@@ -2,6 +2,7 @@ package org.labormanagement.optimization
 
 import org.labormanagement.model.Employee
 import org.labormanagement.model.OptimizationObjective
+import org.labormanagement.model.OvertimeSplitter
 import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Shift
 import java.time.DayOfWeek
@@ -162,7 +163,6 @@ object OptimizationConverter {
 
         for (assignment in result.assignments) {
             val employee = input.employees[assignment.employeeIndex]
-            val overtimeThreshold = employee.contract.overtimeThreshold
 
             // Group consecutive time slots into continuous shifts
             val consecutiveSlotGroups = groupConsecutiveSlots(assignment.timeSlotIndices, input.timeSlots)
@@ -177,56 +177,16 @@ object OptimizationConverter {
                 // Get current cumulative hours for this employee
                 val currentHours = employeeHours.getOrDefault(assignment.employeeIndex, 0.0)
 
-                // Check if this shift crosses the overtime threshold
-                val hoursAfterShift = currentHours + totalHours
-
-                if (currentHours < overtimeThreshold && hoursAfterShift > overtimeThreshold) {
-                    // Shift crosses the overtime threshold - split it into two shifts
-                    val regularHours = overtimeThreshold - currentHours
-
-                    // Calculate the time when overtime starts
-                    val overtimeStartMinutes = (regularHours * 60).toLong()
-                    val overtimeStartTime = startSlot.startTime.plusMinutes(overtimeStartMinutes)
-
-                    // Create regular pay shift (before threshold)
-                    shifts.add(
-                        Shift(
-                            employeeId = employee.id,
-                            date = startSlot.date,
-                            startTime = startSlot.startTime,
-                            endTime = overtimeStartTime,
-                            payRate = employee.normalPayRate,
-                            isOvertime = false
-                        )
+                shifts.addAll(
+                    OvertimeSplitter.split(
+                        employee = employee,
+                        date = startSlot.date,
+                        startTime = startSlot.startTime,
+                        endTime = endSlot.endTime,
+                        hoursBefore = currentHours,
+                        blockDurationHours = totalHours
                     )
-
-                    // Create overtime pay shift (after threshold)
-                    shifts.add(
-                        Shift(
-                            employeeId = employee.id,
-                            date = endSlot.date,
-                            startTime = overtimeStartTime,
-                            endTime = endSlot.endTime,
-                            payRate = employee.overtimePayRate,
-                            isOvertime = true
-                        )
-                    )
-                } else {
-                    // Shift does not cross threshold - create single shift
-                    val isOvertime = currentHours >= overtimeThreshold
-                    val payRate = if (isOvertime) employee.overtimePayRate else employee.normalPayRate
-
-                    shifts.add(
-                        Shift(
-                            employeeId = employee.id,
-                            date = startSlot.date,
-                            startTime = startSlot.startTime,
-                            endTime = endSlot.endTime,
-                            payRate = payRate,
-                            isOvertime = isOvertime
-                        )
-                    )
-                }
+                )
 
                 // Update cumulative hours for this employee AFTER creating the shift(s)
                 employeeHours[assignment.employeeIndex] = currentHours + totalHours
