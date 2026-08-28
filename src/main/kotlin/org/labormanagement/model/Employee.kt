@@ -68,6 +68,20 @@ data class DateRange(
         !date.isBefore(startDate) && !date.isAfter(endDate)
 }
 
+/**
+ * Lends an employee to a second business under the same owner.
+ *
+ * Deliberately not a field on Employee: the employee stays one row owned by
+ * their home business, and shares only widen who can see and schedule them.
+ */
+data class EmployeeShare(
+    val id: UUID = UUID.randomUUID(),
+    val employeeId: UUID,
+    val businessId: UUID,
+    val sharedBy: String,
+    val sharedAt: java.time.Instant = java.time.Instant.now()
+)
+
 data class Contract(
     val contractedHoursPerWeek: Double,
     val maxHoursPerWeek: Double,

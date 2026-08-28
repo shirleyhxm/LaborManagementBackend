@@ -26,6 +26,7 @@ import io.ktor.server.routing.options
 import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.BusinessController
 import org.labormanagement.controller.BusinessMemberController
+import org.labormanagement.controller.EmployeeShareController
 import org.labormanagement.controller.ConstraintsController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
@@ -45,6 +46,7 @@ import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.EmployeeShareRepository
 import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.RefreshTokenRepository
@@ -147,7 +149,8 @@ fun Application.module() {
     // Initialize PostgreSQL repositories
     val businessRepository = BusinessRepository()
     val businessMembershipRepository = BusinessMembershipRepository()
-    val employeeRepository = EmployeeRepository()
+    val employeeShareRepository = EmployeeShareRepository()
+    val employeeRepository = EmployeeRepository(shareRepository = employeeShareRepository)
     val employeeInviteRepository = EmployeeInviteRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
@@ -239,6 +242,12 @@ fun Application.module() {
 
     // Initialize controllers
     val businessController = BusinessController(businessService)
+    val employeeShareController = EmployeeShareController(
+        shareRepository = employeeShareRepository,
+        employeeRepository = employeeRepository,
+        businessRepository = businessRepository,
+        businessService = businessService
+    )
     val businessMemberController = BusinessMemberController(
         membershipRepository = businessMembershipRepository,
         businessRepository = businessRepository,
@@ -461,6 +470,10 @@ fun Application.module() {
 
         with(businessMemberController) {
             businessMemberRoutes()
+        }
+
+        with(employeeShareController) {
+            employeeShareRoutes()
         }
 
         with(employeeController) {

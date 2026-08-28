@@ -406,8 +406,32 @@ class EmployeeController(
                         groups = request.groups ?: existing.groups
                     )
 
-                    employeeRepository.update(businessId, id, updated)
-                    call.respond(HttpStatusCode.OK, updated.toResponse())
+                    // Editing someone lent in from another business changes the
+                    // single shared record, so it lands in their home business
+                    // too. That is the agreed behaviour, but a pay or contract
+                    // change reaching across businesses should be traceable to
+                    // whoever made it.
+                    val isBorrowed = existing.businessId != businessId
+                    if (isBorrowed) {
+                        val touchesPay = request.normalPayRate != null ||
+                            request.overtimePayRate != null ||
+                            request.contract != null
+                        if (touchesPay) {
+                            val actor = TenantContextHolder.getContext()?.userId ?: "unknown"
+                            call.application.log.warn(
+                                "[EmployeeController] AUDIT: user $actor acting in business " +
+                                    "$businessId changed pay/contract for shared employee $id " +
+                                    "(home business ${existing.businessId})"
+                            )
+                        }
+                    }
+
+                    val saved = employeeRepository.update(businessId, id, updated)
+                    if (saved == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
+                        return@put
+                    }
+                    call.respond(HttpStatusCode.OK, saved.toResponse())
                 } catch (e: Exception) {
                     call.application.log.error("Failed to update employee", e)
                     call.respond(

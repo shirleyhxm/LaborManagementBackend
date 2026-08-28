@@ -18,7 +18,8 @@ import java.util.UUID
  * Handles employees with multi-tenancy support and complex nested data (Contract, Availability).
  */
 class EmployeeRepository(
-    private val gson: Gson = createGson()
+    private val gson: Gson = createGson(),
+    private val shareRepository: EmployeeShareRepository = EmployeeShareRepository()
 ) {
     private val logger = LoggerFactory.getLogger(EmployeeRepository::class.java)
 
@@ -27,8 +28,10 @@ class EmployeeRepository(
      * Checks for duplicates within the same business only.
      */
     fun create(employee: Employee): Employee? = transaction {
-        // Check for duplicates within the same business only
-        val businessEmployees = findAllByBusiness(employee.businessId)
+        // Check for duplicates among this business's own staff only - a
+        // borrowed employee who happens to share a name must not block the
+        // business from hiring someone.
+        val businessEmployees = findOwnedByBusiness(employee.businessId)
         val duplicate = businessEmployees.any {
             it.firstName == employee.firstName &&
             it.lastName == employee.lastName &&
@@ -85,10 +88,36 @@ class EmployeeRepository(
     }
 
     /**
-     * Find an employee by ID with business verification.
-     * Returns null if employee doesn't belong to the specified business.
+     * Find an employee this business may work with: their own staff, or
+     * someone lent to them via EmployeeShares.
+     *
+     * This is the chokepoint the scheduler, timeoff and swap paths all resolve
+     * employees through, so widening it here is what makes a shared employee
+     * schedulable everywhere without touching those callers.
+     *
+     * Returns null when the employee neither belongs to nor is shared into
+     * this business - the tenant boundary still holds, it is just drawn around
+     * "owned or lent" rather than "owned".
      */
     fun findById(businessId: UUID, id: UUID): Employee? = transaction {
+        val employee = Employees.selectAll().where { Employees.id eq id }
+            .singleOrNull()
+            ?.toEmployee()
+            ?: return@transaction null
+
+        val reachable = employee.businessId == businessId ||
+            shareRepository.isSharedInto(id, businessId)
+
+        if (reachable) employee else null
+    }
+
+    /**
+     * Find an employee owned outright by this business, ignoring shares.
+     *
+     * Used where borrowing is not enough - deleting someone, or lending them
+     * on - so a borrowing business cannot give away staff it does not own.
+     */
+    fun findOwnedById(businessId: UUID, id: UUID): Employee? = transaction {
         Employees.selectAll().where { (Employees.id eq id) and (Employees.businessId eq businessId) }
             .singleOrNull()
             ?.toEmployee()
@@ -115,9 +144,32 @@ class EmployeeRepository(
     }
 
     /**
-     * Find all employees for a specific business.
+     * Every employee this business can schedule: its own staff plus anyone
+     * lent to it.
      */
     fun findAllByBusiness(businessId: UUID): List<Employee> = transaction {
+        val owned = Employees.selectAll().where { Employees.businessId eq businessId }
+            .map { it.toEmployee() }
+
+        val sharedIds = shareRepository.findEmployeeIdsSharedInto(businessId)
+        if (sharedIds.isEmpty()) return@transaction owned
+
+        // A share row could in principle point at someone who has since moved
+        // business, so filter rather than trust the join blindly.
+        val ownedIds = owned.map { it.id }.toSet()
+        val shared = Employees.selectAll()
+            .where { Employees.id inList sharedIds.filterNot { it in ownedIds } }
+            .map { it.toEmployee() }
+
+        owned + shared
+    }
+
+    /**
+     * Employees owned outright by this business, ignoring anyone lent in.
+     * Used for the duplicate check on create, which should only compare
+     * against the business's own staff.
+     */
+    fun findOwnedByBusiness(businessId: UUID): List<Employee> = transaction {
         Employees.selectAll().where { Employees.businessId eq businessId }
             .map { it.toEmployee() }
     }
@@ -127,13 +179,16 @@ class EmployeeRepository(
      * Returns null if employee doesn't belong to the specified business.
      */
     fun update(businessId: UUID, id: UUID, employee: Employee): Employee? = transaction {
-        // Security: Verify ownership
-        val existing = Employees.selectAll().where { (Employees.id eq id) and (Employees.businessId eq businessId) }
-            .singleOrNull() ?: return@transaction null
+        // Reachable means owned or lent in: an admin of a borrowing business
+        // may edit a shared employee, and the edit lands on the single shared
+        // record, so it applies in the home business too.
+        val existing = findById(businessId, id) ?: return@transaction null
 
-        // Update employee
+        // Update employee. businessId is taken from the existing row, never
+        // the caller's - editing someone must not silently move them between
+        // businesses, least of all a borrower reassigning ownership to itself.
         Employees.update({ Employees.id eq id }) {
-            it[Employees.businessId] = employee.businessId
+            it[Employees.businessId] = existing.businessId
             it[Employees.userId] = employee.userId
             it[firstName] = employee.firstName
             it[lastName] = employee.lastName
@@ -157,12 +212,14 @@ class EmployeeRepository(
             it[maxHoursPerPeriod] = employee.contract.maxHoursPerPeriod
         }
 
-        // Delete old availabilities and insert new ones
+        // Delete old availabilities and insert new ones. Keyed on the row
+        // being updated rather than the incoming object, so the two halves
+        // cannot disagree.
         Availabilities.deleteWhere { Availabilities.employeeId eq id }
         employee.availability.forEach { avail ->
             Availabilities.insert {
                 it[Availabilities.id] = UUID.randomUUID()
-                it[employeeId] = employee.id
+                it[employeeId] = id
                 it[availabilityType] = avail.availabilityType.name
                 it[dayOfWeek] = avail.dayOfWeek?.name
                 it[specificDate] = avail.specificDate
@@ -173,7 +230,9 @@ class EmployeeRepository(
             }
         }
 
-        employee
+        // Report the home business, not the caller's, so a borrower editing a
+        // shared employee doesn't appear to have taken ownership of them.
+        employee.copy(id = id, businessId = existing.businessId)
     }
 
     /**
@@ -187,17 +246,25 @@ class EmployeeRepository(
         // Delete availabilities first (foreign key constraint)
         Availabilities.deleteWhere { Availabilities.employeeId eq id }
 
+        // Any business borrowing this employee stops borrowing them. Also a
+        // foreign key constraint, so the delete would fail without this.
+        shareRepository.deleteByEmployee(id)
+
         // Delete employee
         Employees.deleteWhere { Employees.id eq id } > 0
     }
 
     /**
-     * Find employees by IDs with business verification.
-     * Only returns employees that belong to the specified business.
+     * Find employees by ID, restricted to those this business may work with -
+     * its own staff or anyone lent to it.
      */
     fun findByIds(businessId: UUID, ids: List<UUID>): List<Employee> = transaction {
-        Employees.selectAll().where { (Employees.id inList ids) and (Employees.businessId eq businessId) }
+        if (ids.isEmpty()) return@transaction emptyList()
+
+        val sharedIds = shareRepository.findEmployeeIdsSharedInto(businessId).toSet()
+        Employees.selectAll().where { Employees.id inList ids }
             .map { it.toEmployee() }
+            .filter { it.businessId == businessId || it.id in sharedIds }
     }
 
     /**
