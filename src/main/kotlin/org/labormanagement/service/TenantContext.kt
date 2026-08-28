@@ -79,6 +79,21 @@ object TenantContextHolder {
 }
 
 /**
+ * The caller's role in the business this request is scoped to.
+ *
+ * Prefer this over reading the `role` claim off the JWT. The claim is
+ * account-level: it cannot distinguish an owner who is an admin over their own
+ * chain from the same person acting as a manager in someone else's business,
+ * and it goes stale when a grant is revoked mid-token. TenantInterceptor
+ * resolves the per-business role on every request and puts it here.
+ *
+ * Falls back to the passed-in role when there is no context, which happens on
+ * endpoints that are not business-scoped.
+ */
+fun effectiveRoleOr(fallback: UserRole): UserRole =
+    TenantContextHolder.getContext()?.userRole ?: fallback
+
+/**
  * Exception thrown when a user is not authenticated
  */
 class UnauthorizedException(message: String) : Exception(message)

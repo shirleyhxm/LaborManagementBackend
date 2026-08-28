@@ -22,6 +22,7 @@ import org.labormanagement.model.UserRole
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.repository.SwapRequestRepository
+import org.labormanagement.service.effectiveRoleOr
 import java.util.UUID
 
 /**
@@ -399,11 +400,13 @@ class SwapController(
 
     private fun io.ktor.server.application.ApplicationCall.callerRole(): UserRole {
         val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
-        return try {
+        val claimed = try {
             UserRole.valueOf(principal.payload.getClaim("role").asString())
         } catch (e: Exception) {
             UserRole.EMPLOYEE
         }
+        // Per-business role wins over the account-level claim.
+        return effectiveRoleOr(claimed)
     }
 
     private fun requireCallerEmployee(userId: String, businessId: UUID): Employee? {

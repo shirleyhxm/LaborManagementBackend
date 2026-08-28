@@ -3,11 +3,13 @@ package org.labormanagement.repository
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.labormanagement.database.BusinessMemberships
 import org.labormanagement.database.Businesses
 import org.labormanagement.database.Employees
 import org.labormanagement.model.Business
 import org.labormanagement.model.BusinessSettings
 import org.labormanagement.model.BusinessStatus
+import org.labormanagement.model.MembershipStatus
 import org.labormanagement.model.SubscriptionPlan
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
@@ -66,11 +68,32 @@ class BusinessRepository {
     }
 
     /**
-     * Find all active businesses for a user (owned or member).
-     * Note: For now, we only return owned businesses.
+     * Find all businesses a user can reach: everything they own (an admin owns
+     * the whole account) plus every business they hold an active manager grant
+     * in. A manager sees exactly the businesses assigned to them and no others.
      */
     fun findByUserId(userId: String): List<Business> {
-        return findByOwnerId(userId)
+        val owned = findByOwnerId(userId)
+        val ownedIds = owned.map { it.id }.toSet()
+
+        val managed = transaction {
+            val grantedIds = BusinessMemberships.selectAll()
+                .where {
+                    (BusinessMemberships.userId eq userId) and
+                        (BusinessMemberships.status eq MembershipStatus.ACTIVE.name)
+                }
+                .map { it[BusinessMemberships.businessId] }
+                .filterNot { it in ownedIds }
+
+            if (grantedIds.isEmpty()) {
+                emptyList()
+            } else {
+                Businesses.selectAll().where { Businesses.id inList grantedIds }
+                    .map { it.toBusiness() }
+            }
+        }
+
+        return owned + managed
     }
 
     /**
@@ -151,17 +174,36 @@ class BusinessRepository {
     }
 
     /**
-     * Check if a user has access to a specific business - either as owner,
-     * or as an employee linked to that business (Employees.userId).
+     * Check if a user has access to a specific business - as owner, as a
+     * manager holding an active membership grant, or as an employee linked to
+     * that business (Employees.userId).
      */
     fun hasAccess(userId: String, businessId: UUID): Boolean {
         if (isOwner(userId, businessId)) return true
 
-        return transaction {
-            Employees.selectAll()
-                .where { (Employees.userId eq userId) and (Employees.businessId eq businessId) }
+        val hasActiveGrant = transaction {
+            BusinessMemberships.selectAll()
+                .where {
+                    (BusinessMemberships.userId eq userId) and
+                        (BusinessMemberships.businessId eq businessId) and
+                        (BusinessMemberships.status eq MembershipStatus.ACTIVE.name)
+                }
                 .empty().not()
         }
+        if (hasActiveGrant) return true
+
+        return hasLinkedEmployee(userId, businessId)
+    }
+
+    /**
+     * Whether the user has an employee record in this business linked to their
+     * login account. Split out of [hasAccess] so role resolution can tell an
+     * employee apart from a manager rather than just seeing "has access".
+     */
+    fun hasLinkedEmployee(userId: String, businessId: UUID): Boolean = transaction {
+        Employees.selectAll()
+            .where { (Employees.userId eq userId) and (Employees.businessId eq businessId) }
+            .empty().not()
     }
 
     /**

@@ -9,6 +9,9 @@ import org.labormanagement.dto.toResponse
 import org.labormanagement.dto.toSummary
 import org.labormanagement.model.Business
 import org.labormanagement.model.BusinessStatus
+import org.labormanagement.model.MembershipStatus
+import org.labormanagement.model.UserRole
+import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.UserRepository
 import java.util.UUID
@@ -19,7 +22,8 @@ import java.util.UUID
  */
 class BusinessService(
     private val businessRepository: BusinessRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val membershipRepository: BusinessMembershipRepository = BusinessMembershipRepository()
 ) {
 
     /**
@@ -160,6 +164,43 @@ class BusinessService(
      */
     fun isOwner(userId: String, businessId: UUID): Boolean {
         return businessRepository.isOwner(userId, businessId)
+    }
+
+    /**
+     * Resolve what a user is allowed to do *in this specific business*.
+     *
+     * This is the authorization source of truth for business-scoped requests,
+     * deliberately in preference to the `role` claim on the JWT. The claim is
+     * account-level and cannot express "admin of my own chain, but only a
+     * manager over there" - and because it is baked into the token, a
+     * revocation would not take effect until the token expired. Resolving per
+     * request costs one indexed lookup and makes revocation immediate.
+     *
+     * Order matters: ownership wins over a membership row, so an owner who
+     * somehow also holds a manager grant is still treated as an admin.
+     *
+     * Returns null when the user has no access to the business at all.
+     */
+    fun resolveEffectiveRole(userId: String, businessId: UUID): UserRole? {
+        // An admin owns the account, so they hold admin over every business
+        // under it. Derived from ownership rather than stored per business -
+        // see BusinessMemberships for the reasoning.
+        if (businessRepository.isOwner(userId, businessId)) {
+            return UserRole.ADMIN
+        }
+
+        val membership = membershipRepository.findByBusinessAndUser(businessId, userId)
+        if (membership != null && membership.status == MembershipStatus.ACTIVE) {
+            return membership.role
+        }
+
+        // Someone with a linked employee record in this business can reach
+        // their own data (availability, their schedule) but nothing else.
+        if (businessRepository.hasLinkedEmployee(userId, businessId)) {
+            return UserRole.EMPLOYEE
+        }
+
+        return null
     }
 
     /**

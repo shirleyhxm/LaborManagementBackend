@@ -19,6 +19,7 @@ import org.labormanagement.dto.*
 import org.labormanagement.model.UserRole
 import org.labormanagement.service.ConstraintsService
 import org.labormanagement.service.TenantContextHolder
+import org.labormanagement.service.effectiveRoleOr
 import java.time.LocalDate
 import java.util.UUID
 
@@ -28,11 +29,13 @@ class ConstraintsController(
 
     private fun ApplicationCall.callerRole(): UserRole {
         val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
-        return try {
+        val claimed = try {
             UserRole.valueOf(principal.payload.getClaim("role").asString())
         } catch (e: Exception) {
             UserRole.EMPLOYEE
         }
+        // Per-business role wins over the account-level claim.
+        return effectiveRoleOr(claimed)
     }
 
     private fun ApplicationCall.isManager(): Boolean {

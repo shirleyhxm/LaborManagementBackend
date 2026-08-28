@@ -31,6 +31,7 @@ import org.labormanagement.service.ImportService
 import org.labormanagement.service.TenantContextHolder
 import org.labormanagement.service.ForbiddenException
 import org.labormanagement.service.UnauthorizedException
+import org.labormanagement.service.effectiveRoleOr
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.*
@@ -137,11 +138,13 @@ class EmployeeController(
                     // authenticated employee should be able to call.
                     val principal = call.principal<JWTPrincipal>()
                         ?: return@get call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
-                    val callerRole = try {
-                        UserRole.valueOf(principal.payload.getClaim("role").asString())
-                    } catch (e: Exception) {
-                        UserRole.EMPLOYEE
-                    }
+                    val callerRole = effectiveRoleOr(
+                        try {
+                            UserRole.valueOf(principal.payload.getClaim("role").asString())
+                        } catch (e: Exception) {
+                            UserRole.EMPLOYEE
+                        }
+                    )
                     if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER) {
                         call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Requires ADMIN or MANAGER role"))
                         return@get
@@ -199,11 +202,13 @@ class EmployeeController(
                         return@get
                     }
 
-                    val callerRole = try {
-                        UserRole.valueOf(principal.payload.getClaim("role").asString())
-                    } catch (e: Exception) {
-                        UserRole.EMPLOYEE
-                    }
+                    val callerRole = effectiveRoleOr(
+                        try {
+                            UserRole.valueOf(principal.payload.getClaim("role").asString())
+                        } catch (e: Exception) {
+                            UserRole.EMPLOYEE
+                        }
+                    )
                     val callerUserId = principal.payload.getClaim("userId").asString()
                     val isSelf = employeeRepository.findByUserId(callerUserId)?.id == id
                     if (callerRole != UserRole.ADMIN && callerRole != UserRole.MANAGER && !isSelf) {

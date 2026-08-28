@@ -104,6 +104,7 @@ object DatabaseFactory {
         val allTables = arrayOf(
             org.labormanagement.database.Users,
             org.labormanagement.database.Businesses,
+            org.labormanagement.database.BusinessMemberships,
             org.labormanagement.database.Employees,
             org.labormanagement.database.EmployeeInvites,
             org.labormanagement.database.Availabilities,
@@ -172,6 +173,7 @@ object DatabaseFactory {
                 org.labormanagement.database.Availabilities,
                 org.labormanagement.database.EmployeeInvites,
                 org.labormanagement.database.Employees,
+                org.labormanagement.database.BusinessMemberships,
                 org.labormanagement.database.Businesses,
                 org.labormanagement.database.Users
             )

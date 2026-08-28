@@ -72,6 +72,34 @@ object Businesses : Table("businesses") {
     override val primaryKey = PrimaryKey(id)
 }
 
+/**
+ * Grants a user a role within one specific business.
+ *
+ * Only ever holds MANAGER grants. ADMIN is deliberately not stored here: an
+ * admin is the account owner, and their authority over a business derives from
+ * Businesses.ownerId. Writing admin rows here would mean re-deriving that
+ * invariant on every business creation, and it would silently break the first
+ * time someone forgot.
+ *
+ * A user may hold rows for several businesses (one manager covering two sites),
+ * so the uniqueness is on the pair, not on userId alone.
+ */
+object BusinessMemberships : Table("business_memberships") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val userId = varchar("user_id", 50).references(Users.id)
+    val role = varchar("role", 50)
+    val status = varchar("status", 50)
+    val invitedBy = varchar("invited_by", 50)
+    val invitedAt = timestamp("invited_at")
+
+    override val primaryKey = PrimaryKey(id)
+
+    init {
+        uniqueIndex(businessId, userId)
+    }
+}
+
 // ===== Employee Tables =====
 
 object Employees : Table("employees") {

@@ -51,7 +51,9 @@ class TenantInterceptorPlugin(private val config: Configuration) {
             val jwtService = configuration.jwtService
                 ?: throw IllegalStateException("JwtService must be configured for TenantInterceptor")
 
-            // Intercept after authentication (must run after authenticate blocks set the principal)
+            // Runs on the Call phase, ahead of the route's authenticate block,
+            // so it verifies the bearer token itself rather than relying on a
+            // principal that is not installed yet.
             pipeline.intercept(ApplicationCallPipeline.Call) {
                 try {
                     val path = call.request.path()
@@ -70,18 +72,36 @@ class TenantInterceptorPlugin(private val config: Configuration) {
                     val authHeader = call.request.headers["Authorization"]
                     call.application.log.info("[TenantInterceptor] Auth header: ${if (authHeader != null) "Present (${authHeader.take(30)}...)" else "Missing"}")
 
-                    val principal = call.principal<JWTPrincipal>()
-                    call.application.log.info("[TenantInterceptor] JWT Principal: ${if (principal != null) "Present" else "null"}")
+                    // This runs on ApplicationCallPipeline.Call, which is
+                    // *before* the route's authenticate("auth-jwt") block
+                    // installs the principal - so the principal is normally
+                    // still null here. Verify the bearer token directly
+                    // instead; jwtService.verifyToken checks signature,
+                    // audience and issuer, and returns null on anything
+                    // invalid or expired, so this is not a weaker check.
+                    // Requests without a usable token fall through untouched
+                    // and the authenticate block rejects them as before.
+                    val claims = call.principal<JWTPrincipal>()?.payload
+                        ?: authHeader
+                            ?.removePrefix("Bearer ")
+                            ?.trim()
+                            ?.let { jwtService.verifyToken(it) }
 
-                    if (principal == null) {
-                        call.application.log.warn("[TenantInterceptor] No JWT principal - skipping context setup for $path")
+                    if (claims == null) {
+                        call.application.log.warn("[TenantInterceptor] No verified JWT - skipping context setup for $path")
                         // No authentication - context not set, endpoints should handle appropriately
                         return@intercept
                     }
 
-                    val userId = principal.payload.getClaim("userId").asString()
-                    val roleString = principal.payload.getClaim("role").asString()
-                    val userRole = try {
+                    val userId = claims.getClaim("userId").asString()
+
+                    // Account-level role from the token. Only used for public
+                    // endpoints that have no business to scope to - anything
+                    // business-scoped resolves its role per business below,
+                    // since this claim cannot express "admin of my own chain,
+                    // manager elsewhere" and would go stale on revocation.
+                    val roleString = claims.getClaim("role").asString()
+                    val accountRole = try {
                         UserRole.valueOf(roleString)
                     } catch (e: IllegalArgumentException) {
                         UserRole.EMPLOYEE // Default fallback
@@ -93,10 +113,38 @@ class TenantInterceptorPlugin(private val config: Configuration) {
                     // For public endpoints, set context with userId only (no businessId validation)
                     if (isPublic) {
                         call.application.log.info("[TenantInterceptor] Public endpoint - setting context with userId=$userId, businessId=$businessId")
+                        // "Public" here is broader than it looks: the prefix
+                        // match on /api/businesses means every
+                        // /api/businesses/{id}/... route lands in this branch,
+                        // so business-scoped requests must still be authorized
+                        // rather than waved through on the account claim.
+                        val publicRole = if (businessId != null) {
+                            val resolved = businessService.resolveEffectiveRole(userId, businessId)
+                            if (resolved == null) {
+                                // No grant, no ownership, no employee record -
+                                // e.g. a manager whose access was just revoked.
+                                // Falling back to the token's claim here would
+                                // keep them in until the token expired.
+                                call.application.log.warn(
+                                    "[TenantInterceptor] No role resolvable for user $userId " +
+                                        "in business $businessId - denying"
+                                )
+                                call.respond(
+                                    HttpStatusCode.Forbidden,
+                                    mapOf("error" to "User does not have access to business: $businessId")
+                                )
+                                finish()
+                                return@intercept
+                            }
+                            resolved
+                        } else {
+                            accountRole
+                        }
+
                         val tenantContext = TenantContext(
                             userId = userId,
                             businessId = businessId, // May be null for public endpoints
-                            userRole = userRole
+                            userRole = publicRole
                         )
                         TenantContextHolder.setContext(tenantContext)
                         call.application.log.info("[TenantInterceptor] Context set successfully for public endpoint")
@@ -125,11 +173,28 @@ class TenantInterceptorPlugin(private val config: Configuration) {
                             return@intercept
                         }
 
+                        // Resolve what this user may do *in this business*.
+                        // validateAccess above already established they can
+                        // reach it, so a null here would mean the two
+                        // disagreed - deny rather than guess.
+                        val effectiveRole = businessService.resolveEffectiveRole(userId, businessId)
+                        if (effectiveRole == null) {
+                            call.application.log.warn(
+                                "[TenantInterceptor] No role resolvable for user $userId in business $businessId"
+                            )
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                mapOf("error" to "User does not have access to business: $businessId")
+                            )
+                            finish()
+                            return@intercept
+                        }
+
                         // Set tenant context for this request
                         val tenantContext = TenantContext(
                             userId = userId,
                             businessId = businessId,
-                            userRole = userRole
+                            userRole = effectiveRole
                         )
                         TenantContextHolder.setContext(tenantContext)
                     }

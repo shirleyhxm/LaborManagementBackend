@@ -25,6 +25,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.options
 import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.BusinessController
+import org.labormanagement.controller.BusinessMemberController
 import org.labormanagement.controller.ConstraintsController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
@@ -39,6 +40,8 @@ import org.labormanagement.controller.timeoffRoutes
 import org.labormanagement.controller.salesRoutes
 import org.labormanagement.database.DatabaseFactory
 import org.labormanagement.repository.AttendanceRepository
+import org.labormanagement.plugin.configureTenantInterceptor
+import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
@@ -143,6 +146,7 @@ fun Application.module() {
 
     // Initialize PostgreSQL repositories
     val businessRepository = BusinessRepository()
+    val businessMembershipRepository = BusinessMembershipRepository()
     val employeeRepository = EmployeeRepository()
     val employeeInviteRepository = EmployeeInviteRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
@@ -182,7 +186,8 @@ fun Application.module() {
     // Initialize business service (multi-tenancy)
     val businessService = BusinessService(
         businessRepository = businessRepository,
-        userRepository = userRepository
+        userRepository = userRepository,
+        membershipRepository = businessMembershipRepository
     )
 
     // Initialize auth service with business service for auto-business creation on registration
@@ -234,6 +239,12 @@ fun Application.module() {
 
     // Initialize controllers
     val businessController = BusinessController(businessService)
+    val businessMemberController = BusinessMemberController(
+        membershipRepository = businessMembershipRepository,
+        businessRepository = businessRepository,
+        userRepository = userRepository,
+        businessService = businessService
+    )
     val employeeController = EmployeeController(employeeRepository, importService, employeeInviteRepository)
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
     val scheduleController = ScheduleController(
@@ -332,6 +343,12 @@ fun Application.module() {
             }
         }
     }
+
+    // Resolves the caller's role in the business each request targets and
+    // publishes it on TenantContext. Controllers read that instead of the JWT
+    // `role` claim, so a revoked grant stops working immediately rather than
+    // when the token happens to expire.
+    configureTenantInterceptor(businessService, jwtService)
 
     install(CallLogging) {
         level = Level.INFO
@@ -440,6 +457,10 @@ fun Application.module() {
 
         with(businessController) {
             businessRoutes()
+        }
+
+        with(businessMemberController) {
+            businessMemberRoutes()
         }
 
         with(employeeController) {
