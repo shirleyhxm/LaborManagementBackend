@@ -406,22 +406,22 @@ class EmployeeController(
                         groups = request.groups ?: existing.groups
                     )
 
-                    // Editing someone lent in from another business changes the
-                    // single shared record, so it lands in their home business
+                    // Editing someone assigned in from another location changes
+                    // the single record, so it lands at their home location
                     // too. That is the agreed behaviour, but a pay or contract
-                    // change reaching across businesses should be traceable to
+                    // change reaching across locations should be traceable to
                     // whoever made it.
-                    val isBorrowed = existing.businessId != businessId
-                    if (isBorrowed) {
+                    val isAssignedIn = existing.businessId != businessId
+                    if (isAssignedIn) {
                         val touchesPay = request.normalPayRate != null ||
                             request.overtimePayRate != null ||
                             request.contract != null
                         if (touchesPay) {
                             val actor = TenantContextHolder.getContext()?.userId ?: "unknown"
                             call.application.log.warn(
-                                "[EmployeeController] AUDIT: user $actor acting in business " +
-                                    "$businessId changed pay/contract for shared employee $id " +
-                                    "(home business ${existing.businessId})"
+                                "[EmployeeController] AUDIT: user $actor acting at location " +
+                                    "$businessId changed pay/contract for employee $id " +
+                                    "assigned in from ${existing.businessId}"
                             )
                         }
                     }

@@ -19,7 +19,7 @@ import java.util.UUID
  */
 class EmployeeRepository(
     private val gson: Gson = createGson(),
-    private val shareRepository: EmployeeShareRepository = EmployeeShareRepository()
+    private val locationRepository: EmployeeLocationRepository = EmployeeLocationRepository()
 ) {
     private val logger = LoggerFactory.getLogger(EmployeeRepository::class.java)
 
@@ -89,16 +89,16 @@ class EmployeeRepository(
     }
 
     /**
-     * Find an employee this business may work with: their own staff, or
-     * someone lent to them via EmployeeShares.
+     * Find an employee this location may work with: their own staff, or
+     * someone assigned to them via EmployeeLocations.
      *
      * This is the chokepoint the scheduler, timeoff and swap paths all resolve
-     * employees through, so widening it here is what makes a shared employee
+     * employees through, so widening it here is what makes an assigned employee
      * schedulable everywhere without touching those callers.
      *
-     * Returns null when the employee neither belongs to nor is shared into
-     * this business - the tenant boundary still holds, it is just drawn around
-     * "owned or lent" rather than "owned".
+     * Returns null when the employee neither belongs to nor is assigned to
+     * this location - the tenant boundary still holds, it is just drawn around
+     * "owned or assigned" rather than "owned".
      */
     fun findById(businessId: UUID, id: UUID): Employee? = transaction {
         val employee = Employees.selectAll().where { Employees.id eq id }
@@ -107,16 +107,16 @@ class EmployeeRepository(
             ?: return@transaction null
 
         val reachable = employee.businessId == businessId ||
-            shareRepository.isSharedInto(id, businessId)
+            locationRepository.isAssignedTo(id, businessId)
 
         if (reachable) employee else null
     }
 
     /**
-     * Find an employee owned outright by this business, ignoring shares.
+     * Find an employee owned outright by this location, ignoring assignments.
      *
-     * Used where borrowing is not enough - deleting someone, or lending them
-     * on - so a borrowing business cannot give away staff it does not own.
+     * Used where being assigned is not enough - deleting someone, or assigning
+     * them on - so a location cannot give away staff it does not own.
      */
     fun findOwnedById(businessId: UUID, id: UUID): Employee? = transaction {
         Employees.selectAll().where { (Employees.id eq id) and (Employees.businessId eq businessId) }
@@ -145,8 +145,8 @@ class EmployeeRepository(
     }
 
     /**
-     * Every employee this business can schedule: its own staff plus anyone
-     * lent to it.
+     * Every employee this location can schedule: its own staff plus anyone
+     * assigned to it.
      *
      * Excludes non-schedulable records - the ones that exist purely to back a
      * manager's login. This is the roster, so it also governs schedule
@@ -163,21 +163,21 @@ class EmployeeRepository(
         val owned = Employees.selectAll().where { Employees.businessId eq businessId }
             .map { it.toEmployee() }
 
-        val sharedIds = shareRepository.findEmployeeIdsSharedInto(businessId)
-        if (sharedIds.isEmpty()) return@transaction owned
+        val assignedIds = locationRepository.findEmployeeIdsAssignedTo(businessId)
+        if (assignedIds.isEmpty()) return@transaction owned
 
-        // A share row could in principle point at someone who has since moved
-        // business, so filter rather than trust the join blindly.
+        // An assignment row could in principle point at someone who has since
+        // moved location, so filter rather than trust the join blindly.
         val ownedIds = owned.map { it.id }.toSet()
-        val shared = Employees.selectAll()
-            .where { Employees.id inList sharedIds.filterNot { it in ownedIds } }
+        val assigned = Employees.selectAll()
+            .where { Employees.id inList assignedIds.filterNot { it in ownedIds } }
             .map { it.toEmployee() }
 
-        owned + shared
+        owned + assigned
     }
 
     /**
-     * Employees owned outright by this business, ignoring anyone lent in.
+     * Employees owned outright by this location, ignoring anyone assigned in.
      * Used for the duplicate check on create, which should only compare
      * against the business's own staff.
      *
@@ -196,7 +196,7 @@ class EmployeeRepository(
      */
     fun update(businessId: UUID, id: UUID, employee: Employee): Employee? = transaction {
         // Reachable means owned or lent in: an admin of a borrowing business
-        // may edit a shared employee, and the edit lands on the single shared
+        // may edit an assigned employee, and the edit lands on the single shared
         // record, so it applies in the home business too.
         val existing = findById(businessId, id) ?: return@transaction null
 
@@ -248,7 +248,7 @@ class EmployeeRepository(
         }
 
         // Report the home business, not the caller's, so a borrower editing a
-        // shared employee doesn't appear to have taken ownership of them.
+        // assigned employee doesn't appear to have taken ownership of them.
         employee.copy(id = id, businessId = existing.businessId)
     }
 
@@ -265,7 +265,7 @@ class EmployeeRepository(
 
         // Any business borrowing this employee stops borrowing them. Also a
         // foreign key constraint, so the delete would fail without this.
-        shareRepository.deleteByEmployee(id)
+        locationRepository.deleteByEmployee(id)
 
         // Delete employee
         Employees.deleteWhere { Employees.id eq id } > 0
@@ -278,10 +278,10 @@ class EmployeeRepository(
     fun findByIds(businessId: UUID, ids: List<UUID>): List<Employee> = transaction {
         if (ids.isEmpty()) return@transaction emptyList()
 
-        val sharedIds = shareRepository.findEmployeeIdsSharedInto(businessId).toSet()
+        val assignedIds = locationRepository.findEmployeeIdsAssignedTo(businessId).toSet()
         Employees.selectAll().where { Employees.id inList ids }
             .map { it.toEmployee() }
-            .filter { it.businessId == businessId || it.id in sharedIds }
+            .filter { it.businessId == businessId || it.id in assignedIds }
     }
 
     /**

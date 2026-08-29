@@ -13,57 +13,57 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
-import org.labormanagement.dto.EmployeeShareResponse
-import org.labormanagement.dto.EmployeeSharesListResponse
-import org.labormanagement.dto.ShareEmployeeRequest
-import org.labormanagement.model.EmployeeShare
+import org.labormanagement.dto.AssignEmployeeLocationRequest
+import org.labormanagement.dto.EmployeeLocationResponse
+import org.labormanagement.dto.EmployeeLocationsListResponse
+import org.labormanagement.model.EmployeeLocation
 import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.EmployeeLocationRepository
 import org.labormanagement.repository.EmployeeRepository
-import org.labormanagement.repository.EmployeeShareRepository
 import org.labormanagement.service.BusinessService
 import java.time.Instant
 import java.util.UUID
 
 /**
- * Lending employees between businesses of one account.
+ * Assigning employees to additional locations within one account.
  *
- * Owner-only throughout, and both businesses must have the same owner - the
+ * Owner-only throughout, and both locations must have the same owner - the
  * point is moving staff between locations of a chain, not across account
- * boundaries. Only the employee's *home* business can lend them on, so a
- * borrowing business cannot re-share staff it does not own.
+ * boundaries. Only the employee's *home* location can assign them onward, so a
+ * location that has merely borrowed someone cannot pass them along.
  */
-class EmployeeShareController(
-    private val shareRepository: EmployeeShareRepository,
+class EmployeeLocationController(
+    private val locationRepository: EmployeeLocationRepository,
     private val employeeRepository: EmployeeRepository,
     private val businessRepository: BusinessRepository,
     private val businessService: BusinessService
 ) {
 
-    fun Route.employeeShareRoutes() {
-        route("/api/businesses/{businessId}/employees/{employeeId}/shares") {
+    fun Route.employeeLocationRoutes() {
+        route("/api/businesses/{businessId}/employees/{employeeId}/locations") {
             authenticate("auth-jwt") {
 
                 get {
                     val ctx = call.requireOwnerOfHomeBusiness() ?: return@get
 
-                    val shares = shareRepository.findBusinessIdsForEmployee(ctx.employeeId)
+                    val assignments = locationRepository.findBusinessIdsForEmployee(ctx.employeeId)
                         .mapNotNull { bid ->
                             val business = businessRepository.findById(bid) ?: return@mapNotNull null
-                            EmployeeShareResponse(
+                            EmployeeLocationResponse(
                                 employeeId = ctx.employeeId.toString(),
                                 businessId = bid.toString(),
                                 businessName = business.name,
-                                sharedAt = shareRepository.find(ctx.employeeId, bid)
-                                    ?.sharedAt?.toString() ?: ""
+                                assignedAt = locationRepository.find(ctx.employeeId, bid)
+                                    ?.assignedAt?.toString() ?: ""
                             )
                         }
 
                     call.respond(
                         HttpStatusCode.OK,
-                        EmployeeSharesListResponse(
+                        EmployeeLocationsListResponse(
                             employeeId = ctx.employeeId.toString(),
                             homeBusinessId = ctx.businessId.toString(),
-                            sharedWith = shares
+                            assignedTo = assignments
                         )
                     )
                 }
@@ -72,7 +72,7 @@ class EmployeeShareController(
                     val ctx = call.requireOwnerOfHomeBusiness() ?: return@post
 
                     val request = try {
-                        call.receive<ShareEmployeeRequest>()
+                        call.receive<AssignEmployeeLocationRequest>()
                     } catch (e: Exception) {
                         call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid request body"))
                         return@post
@@ -81,57 +81,57 @@ class EmployeeShareController(
                     val targetId = try {
                         UUID.fromString(request.businessId)
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid target business ID"))
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid target location ID"))
                         return@post
                     }
 
                     if (targetId == ctx.businessId) {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            mapOf("error" to "This employee already belongs to that business")
+                            mapOf("error" to "This employee already works at that location")
                         )
                         return@post
                     }
 
                     val target = businessRepository.findById(targetId)
                     if (target == null) {
-                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Target business not found"))
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Target location not found"))
                         return@post
                     }
 
-                    // The invariant that keeps sharing inside one account:
-                    // both businesses must have the same owner. Checked here
-                    // rather than trusted from the caller, so sharing can never
+                    // The invariant that keeps assignment inside one account:
+                    // both locations must have the same owner. Checked here
+                    // rather than trusted from the caller, so this can never
                     // become a route between two accounts.
                     if (!businessService.isOwner(ctx.userId, targetId)) {
                         call.respond(
                             HttpStatusCode.Forbidden,
-                            mapOf("error" to "You can only share employees between businesses you own")
+                            mapOf("error" to "You can only assign employees to locations you own")
                         )
                         return@post
                     }
 
-                    val saved = shareRepository.share(
-                        EmployeeShare(
+                    val saved = locationRepository.assign(
+                        EmployeeLocation(
                             employeeId = ctx.employeeId,
                             businessId = targetId,
-                            sharedBy = ctx.userId,
-                            sharedAt = Instant.now()
+                            assignedBy = ctx.userId,
+                            assignedAt = Instant.now()
                         )
                     )
 
                     call.application.log.info(
-                        "[EmployeeShareController] ${ctx.userId} shared employee ${ctx.employeeId} " +
-                            "from business ${ctx.businessId} into $targetId"
+                        "[EmployeeLocationController] ${ctx.userId} assigned employee ${ctx.employeeId} " +
+                            "from location ${ctx.businessId} to $targetId"
                     )
 
                     call.respond(
                         HttpStatusCode.Created,
-                        EmployeeShareResponse(
+                        EmployeeLocationResponse(
                             employeeId = ctx.employeeId.toString(),
                             businessId = targetId.toString(),
                             businessName = target.name,
-                            sharedAt = saved.sharedAt.toString()
+                            assignedAt = saved.assignedAt.toString()
                         )
                     )
                 }
@@ -143,21 +143,21 @@ class EmployeeShareController(
                         try { UUID.fromString(it) } catch (e: Exception) { null }
                     }
                     if (targetId == null) {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid target business ID"))
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid target location ID"))
                         return@delete
                     }
 
-                    if (!shareRepository.unshare(ctx.employeeId, targetId)) {
+                    if (!locationRepository.unassign(ctx.employeeId, targetId)) {
                         call.respond(
                             HttpStatusCode.NotFound,
-                            mapOf("error" to "This employee is not shared with that business")
+                            mapOf("error" to "This employee is not assigned to that location")
                         )
                         return@delete
                     }
 
                     call.application.log.info(
-                        "[EmployeeShareController] ${ctx.userId} unshared employee ${ctx.employeeId} " +
-                            "from business $targetId"
+                        "[EmployeeLocationController] ${ctx.userId} unassigned employee ${ctx.employeeId} " +
+                            "from location $targetId"
                     )
                     call.respond(HttpStatusCode.NoContent)
                 }
@@ -165,21 +165,24 @@ class EmployeeShareController(
         }
     }
 
-    private data class ShareContext(
+    private data class LocationContext(
         val userId: String,
         val businessId: UUID,
         val employeeId: UUID
     )
 
     /**
-     * Require that the caller owns the business in the path *and* that the
+     * Require that the caller owns the location in the path *and* that the
      * employee actually belongs to it.
      *
-     * Deliberately uses findOwnedById rather than findById: a business that has
-     * merely borrowed someone must not be able to lend them on to a third
-     * business, or to revoke a share it did not create.
+     * Deliberately uses findOwnedById rather than findById: a location that has
+     * merely borrowed someone must not be able to assign them on to a third
+     * location, or to revoke an assignment it did not create.
+     *
+     * Responds and returns null when the check fails, so callers can
+     * `?: return@get`.
      */
-    private suspend fun io.ktor.server.application.ApplicationCall.requireOwnerOfHomeBusiness(): ShareContext? {
+    private suspend fun io.ktor.server.application.ApplicationCall.requireOwnerOfHomeBusiness(): LocationContext? {
         val principal = principal<JWTPrincipal>()
         if (principal == null) {
             respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
@@ -194,14 +197,14 @@ class EmployeeShareController(
             try { UUID.fromString(it) } catch (e: Exception) { null }
         }
         if (businessId == null || employeeId == null) {
-            respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business or employee ID"))
+            respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid location or employee ID"))
             return null
         }
 
         if (!businessService.isOwner(userId, businessId)) {
             respond(
                 HttpStatusCode.Forbidden,
-                mapOf("error" to "Only the business owner can share employees")
+                mapOf("error" to "Only the business owner can assign employee locations")
             )
             return null
         }
@@ -209,11 +212,11 @@ class EmployeeShareController(
         if (employeeRepository.findOwnedById(businessId, employeeId) == null) {
             respond(
                 HttpStatusCode.NotFound,
-                mapOf("error" to "This employee does not belong to this business")
+                mapOf("error" to "This employee does not belong to this location")
             )
             return null
         }
 
-        return ShareContext(userId, businessId, employeeId)
+        return LocationContext(userId, businessId, employeeId)
     }
 }

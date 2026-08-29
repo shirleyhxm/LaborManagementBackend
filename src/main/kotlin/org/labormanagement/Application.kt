@@ -26,7 +26,7 @@ import io.ktor.server.routing.options
 import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.BusinessController
 import org.labormanagement.controller.BusinessMemberController
-import org.labormanagement.controller.EmployeeShareController
+import org.labormanagement.controller.EmployeeLocationController
 import org.labormanagement.controller.ConstraintsController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
@@ -46,7 +46,7 @@ import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
-import org.labormanagement.repository.EmployeeShareRepository
+import org.labormanagement.repository.EmployeeLocationRepository
 import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.RefreshTokenRepository
@@ -149,8 +149,8 @@ fun Application.module() {
     // Initialize PostgreSQL repositories
     val businessRepository = BusinessRepository()
     val businessMembershipRepository = BusinessMembershipRepository()
-    val employeeShareRepository = EmployeeShareRepository()
-    val employeeRepository = EmployeeRepository(shareRepository = employeeShareRepository)
+    val employeeLocationRepository = EmployeeLocationRepository()
+    val employeeRepository = EmployeeRepository(locationRepository = employeeLocationRepository)
     val employeeInviteRepository = EmployeeInviteRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
@@ -243,8 +243,8 @@ fun Application.module() {
 
     // Initialize controllers
     val businessController = BusinessController(businessService)
-    val employeeShareController = EmployeeShareController(
-        shareRepository = employeeShareRepository,
+    val employeeLocationController = EmployeeLocationController(
+        locationRepository = employeeLocationRepository,
         employeeRepository = employeeRepository,
         businessRepository = businessRepository,
         businessService = businessService
@@ -475,8 +475,8 @@ fun Application.module() {
             businessMemberRoutes()
         }
 
-        with(employeeShareController) {
-            employeeShareRoutes()
+        with(employeeLocationController) {
+            employeeLocationRoutes()
         }
 
         with(employeeController) {

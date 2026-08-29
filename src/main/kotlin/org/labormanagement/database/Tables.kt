@@ -166,22 +166,27 @@ object EmployeeInvites : Table("employee_invites") {
 }
 
 /**
- * Lends one employee to a second business.
+ * Assigns one employee to an additional location.
  *
  * The employee row itself is untouched: Employees.businessId stays their home
- * business, and this table only widens who can see and schedule them. That
- * keeps a shared person a single record with one availability calendar and one
- * set of hours, so combined hours and double-booking stay answerable.
+ * location, and this table only widens who can see and schedule them. That
+ * keeps someone working at two locations a single record with one availability
+ * calendar and one set of hours, so combined hours and double-booking stay
+ * answerable.
  *
- * Both businesses must have the same owner - sharing moves staff between
- * locations of one account, never across account boundaries.
+ * Both locations must have the same owner - this moves staff between locations
+ * of one account, never across account boundaries.
+ *
+ * The physical table is still employee_shares, from when this was modelled as
+ * "sharing". This repo has no migration tool, so renaming it would strand the
+ * existing rows in a table nothing reads. Column names likewise.
  */
-object EmployeeShares : Table("employee_shares") {
+object EmployeeLocations : Table("employee_shares") {
     val id = uuid("id")
     val employeeId = uuid("employee_id").references(Employees.id)
     val businessId = uuid("business_id").references(Businesses.id)
-    val sharedBy = varchar("shared_by", 50)
-    val sharedAt = timestamp("shared_at")
+    val assignedBy = varchar("shared_by", 50)
+    val assignedAt = timestamp("shared_at")
 
     override val primaryKey = PrimaryKey(id)
 

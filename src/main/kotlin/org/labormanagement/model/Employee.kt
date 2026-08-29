@@ -73,17 +73,18 @@ data class DateRange(
 }
 
 /**
- * Lends an employee to a second business under the same owner.
+ * Assigns an employee to a second location under the same owner.
  *
  * Deliberately not a field on Employee: the employee stays one row owned by
- * their home business, and shares only widen who can see and schedule them.
+ * their home location, and assignments only widen who can see and schedule
+ * them.
  */
-data class EmployeeShare(
+data class EmployeeLocation(
     val id: UUID = UUID.randomUUID(),
     val employeeId: UUID,
     val businessId: UUID,
-    val sharedBy: String,
-    val sharedAt: java.time.Instant = java.time.Instant.now()
+    val assignedBy: String,
+    val assignedAt: java.time.Instant = java.time.Instant.now()
 )
 
 data class Contract(
