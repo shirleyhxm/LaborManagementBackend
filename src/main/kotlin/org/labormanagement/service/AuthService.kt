@@ -1,6 +1,7 @@
 package org.labormanagement.service
 
 import org.labormanagement.model.*
+import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
@@ -8,6 +9,7 @@ import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.UserRepository
 import org.labormanagement.dto.CreateBusinessRequest
+import java.time.Instant
 import org.labormanagement.dto.InviteDetailsResponse
 
 class AuthService(
@@ -19,7 +21,8 @@ class AuthService(
     private val totpService: TotpService = TotpService(),
     private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
     private val employeeRepository: EmployeeRepository = EmployeeRepository(),
-    private val businessRepository: BusinessRepository = BusinessRepository()
+    private val businessRepository: BusinessRepository = BusinessRepository(),
+    private val businessMembershipRepository: BusinessMembershipRepository = BusinessMembershipRepository()
 ) {
     // Temporary storage for pending 2FA verifications during login
     // In production, use Redis or similar with expiration
@@ -382,7 +385,10 @@ class AuthService(
                 firstName = employee.firstName,
                 lastName = employee.lastName,
                 password = password,
-                role = UserRole.EMPLOYEE,
+                role = invite.role,
+                // Never BUSINESS_OWNER: accepting an invite joins someone to an
+                // existing business, so no business is auto-created for them
+                // the way self-registration does.
                 accountType = AccountType.TEAM_MEMBER
             )
         } catch (e: IllegalArgumentException) {
@@ -390,6 +396,24 @@ class AuthService(
         }
 
         employeeRepository.setUserId(employee.id, user.id)
+
+        // A manager's authority comes from a membership grant, not from the
+        // role on their user row - that is what the per-business resolution
+        // reads. Without this they would land with no access to the business
+        // that invited them.
+        if (invite.role == UserRole.MANAGER) {
+            businessMembershipRepository.upsert(
+                BusinessMembership(
+                    businessId = invite.businessId,
+                    userId = user.id,
+                    role = UserRole.MANAGER,
+                    invitedBy = invite.invitedBy,
+                    invitedAt = Instant.now(),
+                    status = MembershipStatus.ACTIVE
+                )
+            )
+        }
+
         employeeInviteRepository.markAccepted(invite.id)
 
         val token2 = jwtService.generateToken(user)

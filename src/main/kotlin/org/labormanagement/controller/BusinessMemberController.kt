@@ -14,16 +14,25 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
+import org.labormanagement.config.EnvironmentConfig
 import org.labormanagement.dto.AddBusinessMemberRequest
 import org.labormanagement.dto.BusinessMemberResponse
 import org.labormanagement.dto.BusinessMembersListResponse
+import org.labormanagement.dto.CreateInviteResponse
+import org.labormanagement.dto.InviteManagerRequest
 import org.labormanagement.dto.UpdateBusinessMemberRequest
 import org.labormanagement.model.BusinessMembership
+import org.labormanagement.model.Contract
+import org.labormanagement.model.Employee
+import org.labormanagement.model.EmployeeInvite
 import org.labormanagement.model.MembershipStatus
 import org.labormanagement.model.UserRole
 import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.EmployeeInviteRepository
+import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.UserRepository
+import java.time.LocalDate
 import org.labormanagement.service.BusinessService
 import java.time.Instant
 import java.util.UUID
@@ -39,7 +48,10 @@ class BusinessMemberController(
     private val membershipRepository: BusinessMembershipRepository,
     private val businessRepository: BusinessRepository,
     private val userRepository: UserRepository,
-    private val businessService: BusinessService
+    private val businessService: BusinessService,
+    private val employeeRepository: EmployeeRepository = EmployeeRepository(),
+    private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
+    private val frontendOrigin: String = EnvironmentConfig.get("FRONTEND_ORIGIN", "http://localhost:3000")
 ) {
 
     fun Route.businessMemberRoutes() {
@@ -153,6 +165,90 @@ class BusinessMemberController(
                             status = saved.status.name,
                             isOwner = false
                         )
+                    )
+                }
+
+                // Invite someone who has no account yet. Self-registration
+                // makes people admins of their own new business, so it cannot
+                // be used to onboard a manager - this is the only path that
+                // produces one.
+                post("/invite") {
+                    val ctx = call.requireOwner() ?: return@post
+
+                    val request = try {
+                        call.receive<InviteManagerRequest>()
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid request body"))
+                        return@post
+                    }
+
+                    if (request.email.isBlank() || request.firstName.isBlank() || request.lastName.isBlank()) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "Name and email are required")
+                        )
+                        return@post
+                    }
+
+                    if (userRepository.findByEmail(request.email) != null) {
+                        call.respond(
+                            HttpStatusCode.Conflict,
+                            mapOf("error" to "An account with this email already exists — add them directly instead")
+                        )
+                        return@post
+                    }
+
+                    // The invite flow links the new login to an employee
+                    // record, so a manager gets one too. It is marked
+                    // non-schedulable, which keeps them off the roster and out
+                    // of schedule generation.
+                    val employee = employeeRepository.create(
+                        Employee(
+                            businessId = ctx.businessId,
+                            firstName = request.firstName,
+                            lastName = request.lastName,
+                            dateOfBirth = LocalDate.of(1970, 1, 1),
+                            normalPayRate = 0.0,
+                            overtimePayRate = 0.0,
+                            productivity = 0.0,
+                            contract = Contract(
+                                contractedHoursPerWeek = 0.0,
+                                maxHoursPerWeek = 0.0,
+                                maxHoursPerDay = 0.0,
+                                overtimeThreshold = 0.0
+                            ),
+                            availability = emptyList(),
+                            schedulable = false
+                        )
+                    )
+                    if (employee == null) {
+                        call.respond(
+                            HttpStatusCode.Conflict,
+                            mapOf("error" to "Someone with that name already exists in this business")
+                        )
+                        return@post
+                    }
+
+                    val invite = employeeInviteRepository.create(
+                        EmployeeInvite(
+                            employeeId = employee.id,
+                            businessId = ctx.businessId,
+                            email = request.email,
+                            token = UUID.randomUUID().toString(),
+                            role = UserRole.MANAGER,
+                            invitedBy = ctx.userId,
+                            invitedAt = Instant.now()
+                        )
+                    )
+
+                    call.application.log.info(
+                        "[BusinessMemberController] ${ctx.userId} invited ${request.email} " +
+                            "to manage business ${ctx.businessId}"
+                    )
+
+                    call.respond(
+                        HttpStatusCode.Created,
+                        CreateInviteResponse(inviteLink = "$frontendOrigin/join?token=${invite.token}")
                     )
                 }
 

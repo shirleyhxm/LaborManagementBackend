@@ -114,6 +114,11 @@ object Employees : Table("employees") {
     val overtimePayRate = double("overtime_pay_rate")
     val productivity = double("productivity")
     val groups = text("groups").default("[]") // JSON array of group names
+    // Whether this person is scheduled for shifts. False for the record that
+    // backs a manager's login, which exists to hold the account rather than to
+    // represent someone who works shifts. Defaults true so every existing row
+    // stays on the roster.
+    val schedulable = bool("schedulable").default(true)
 
     // Contract fields
     val contractedHoursPerWeek = double("contracted_hours_per_week")
@@ -150,6 +155,7 @@ object EmployeeInvites : Table("employee_invites") {
     val businessId = uuid("business_id").references(Businesses.id)
     val email = varchar("email", 255)
     val token = varchar("token", 255).uniqueIndex()
+    val role = varchar("role", 20).default("EMPLOYEE") // what the accepted account becomes
     val status = varchar("status", 20).default("PENDING") // PENDING | ACCEPTED | REVOKED
     val invitedBy = varchar("invited_by", 50)
     val invitedAt = timestamp("invited_at")

@@ -12,6 +12,10 @@ data class EmployeeInvite(
     val businessId: UUID,
     val email: String,
     val token: String,
+    // What the accepted account becomes. A manager invite still creates an
+    // employee record to hang the login on, but that record is kept off the
+    // roster and the account gets a manager grant for this business.
+    val role: UserRole = UserRole.EMPLOYEE,
     val status: InviteStatus = InviteStatus.PENDING,
     val invitedBy: String,
     val invitedAt: Instant = Instant.now(),

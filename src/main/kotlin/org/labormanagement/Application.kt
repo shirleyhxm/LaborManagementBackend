@@ -202,7 +202,8 @@ fun Application.module() {
         refreshTokenRepository = refreshTokenRepository,
         employeeInviteRepository = employeeInviteRepository,
         employeeRepository = employeeRepository,
-        businessRepository = businessRepository
+        businessRepository = businessRepository,
+        businessMembershipRepository = businessMembershipRepository
     )
 
     // Initialize new services
@@ -252,7 +253,9 @@ fun Application.module() {
         membershipRepository = businessMembershipRepository,
         businessRepository = businessRepository,
         userRepository = userRepository,
-        businessService = businessService
+        businessService = businessService,
+        employeeRepository = employeeRepository,
+        employeeInviteRepository = employeeInviteRepository
     )
     val employeeController = EmployeeController(employeeRepository, importService, employeeInviteRepository)
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)

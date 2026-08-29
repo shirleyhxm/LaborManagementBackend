@@ -55,6 +55,7 @@ class EmployeeRepository(
             it[overtimePayRate] = employee.overtimePayRate
             it[productivity] = employee.productivity
             it[groups] = gson.toJson(employee.groups.toList())
+            it[schedulable] = employee.schedulable
 
             // Contract fields
             it[contractedHoursPerWeek] = employee.contract.contractedHoursPerWeek
@@ -146,8 +147,19 @@ class EmployeeRepository(
     /**
      * Every employee this business can schedule: its own staff plus anyone
      * lent to it.
+     *
+     * Excludes non-schedulable records - the ones that exist purely to back a
+     * manager's login. This is the roster, so it also governs schedule
+     * generation and the group filters; use [findAllByBusinessIncludingUnschedulable]
+     * where a manager's own record has to be found.
      */
-    fun findAllByBusiness(businessId: UUID): List<Employee> = transaction {
+    fun findAllByBusiness(businessId: UUID): List<Employee> =
+        findAllByBusinessIncludingUnschedulable(businessId).filter { it.schedulable }
+
+    /**
+     * As [findAllByBusiness], but including records kept off the roster.
+     */
+    fun findAllByBusinessIncludingUnschedulable(businessId: UUID): List<Employee> = transaction {
         val owned = Employees.selectAll().where { Employees.businessId eq businessId }
             .map { it.toEmployee() }
 
@@ -168,6 +180,10 @@ class EmployeeRepository(
      * Employees owned outright by this business, ignoring anyone lent in.
      * Used for the duplicate check on create, which should only compare
      * against the business's own staff.
+     *
+     * Deliberately includes non-schedulable records: a manager kept off the
+     * roster is still a real person, and creating a second record for them
+     * would be a genuine duplicate.
      */
     fun findOwnedByBusiness(businessId: UUID): List<Employee> = transaction {
         Employees.selectAll().where { Employees.businessId eq businessId }
@@ -198,6 +214,7 @@ class EmployeeRepository(
             it[overtimePayRate] = employee.overtimePayRate
             it[productivity] = employee.productivity
             it[groups] = gson.toJson(employee.groups.toList())
+            it[schedulable] = employee.schedulable
 
             // Contract fields
             it[contractedHoursPerWeek] = employee.contract.contractedHoursPerWeek
@@ -343,7 +360,8 @@ class EmployeeRepository(
                 maxHoursPerPeriod = this[Employees.maxHoursPerPeriod]
             ),
             availability = availabilities,
-            groups = groups
+            groups = groups,
+            schedulable = this[Employees.schedulable]
         )
     }
 }

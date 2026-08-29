@@ -38,3 +38,13 @@ data class AddBusinessMemberRequest(
 data class UpdateBusinessMemberRequest(
     val role: String
 )
+
+/**
+ * Invite someone to manage this business. They need no prior account - the
+ * link creates one when they set a password.
+ */
+data class InviteManagerRequest(
+    val email: String,
+    val firstName: String,
+    val lastName: String
+)

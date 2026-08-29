@@ -18,7 +18,11 @@ data class Employee(
     val productivity: Double, // Sales ($) per hour
     val contract: Contract,
     val availability: List<Availability>,
-    val groups: Set<String> = emptySet() // Tag-based group membership (e.g., "Sales", "Management")
+    val groups: Set<String> = emptySet(), // Tag-based group membership (e.g., "Sales", "Management")
+    // A manager's record exists so their login has somewhere to hang - it is
+    // not a person to be scheduled. Kept off the roster and out of schedule
+    // generation unless someone deliberately puts them on it.
+    val schedulable: Boolean = true
 ) {
     val fullName: String
         get() = if (middleName.isNotEmpty()) "$firstName $middleName $lastName" else "$firstName $lastName"

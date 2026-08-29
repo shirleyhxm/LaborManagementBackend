@@ -10,6 +10,7 @@ import org.jetbrains.exposed.sql.update
 import org.labormanagement.database.EmployeeInvites
 import org.labormanagement.model.EmployeeInvite
 import org.labormanagement.model.InviteStatus
+import org.labormanagement.model.UserRole
 import java.time.Instant
 import java.util.UUID
 
@@ -25,6 +26,7 @@ class EmployeeInviteRepository {
             it[businessId] = invite.businessId
             it[email] = invite.email
             it[token] = invite.token
+            it[role] = invite.role.name
             it[status] = invite.status.name
             it[invitedBy] = invite.invitedBy
             it[invitedAt] = invite.invitedAt
@@ -66,6 +68,12 @@ class EmployeeInviteRepository {
         businessId = this[EmployeeInvites.businessId],
         email = this[EmployeeInvites.email],
         token = this[EmployeeInvites.token],
+        role = try {
+            UserRole.valueOf(this[EmployeeInvites.role])
+        } catch (e: IllegalArgumentException) {
+            // Rows created before this column existed default to EMPLOYEE.
+            UserRole.EMPLOYEE
+        },
         status = InviteStatus.valueOf(this[EmployeeInvites.status]),
         invitedBy = this[EmployeeInvites.invitedBy],
         invitedAt = this[EmployeeInvites.invitedAt],
