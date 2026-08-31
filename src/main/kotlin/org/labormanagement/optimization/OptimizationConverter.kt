@@ -171,8 +171,16 @@ object OptimizationConverter {
     ): List<Shift> {
         val shifts = mutableListOf<Shift>()
 
-        // Track cumulative hours per employee to determine overtime correctly
-        val employeeHours = mutableMapOf<Int, Double>()
+        // Track cumulative hours per employee to determine overtime correctly.
+        //
+        // Seeded with hours already worked at other locations that week, not
+        // zero: the overtime threshold is reached across every location someone
+        // works at, so a second location's first hour can already be overtime.
+        // Starting from zero would bill those hours at the regular rate and
+        // quietly under-pay them.
+        val employeeHours = input.employees.indices.associateWith { index ->
+            input.hoursCommittedElsewhere[input.employees[index].id] ?: 0.0
+        }.toMutableMap()
 
         for (assignment in result.assignments) {
             val employee = input.employees[assignment.employeeIndex]
