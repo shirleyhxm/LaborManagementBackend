@@ -258,6 +258,25 @@ data class Shift(
 }
 
 /**
+ * One of an employee's own shifts, carrying the location it is at.
+ *
+ * Someone assigned to several locations has one calendar spanning all of them,
+ * so their shift list has to say which location each shift belongs to -
+ * otherwise two shifts on the same day are indistinguishable.
+ */
+data class EmployeeShiftRow(
+    val id: UUID,
+    val employeeId: UUID,
+    val businessId: UUID,
+    val businessName: String,
+    val date: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime,
+    val payRate: Double,
+    val isOvertime: Boolean
+)
+
+/**
  * A lean, team-wide shift row - deliberately not the full Shift model,
  * since payRate here needs to be redactable (null for shifts that don't
  * belong to the caller) and this always carries the owning employee's name.

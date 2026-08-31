@@ -100,6 +100,7 @@ class ScheduleOptimizer {
 
         // Add constraints from ConstraintsService
         addWorkingHoursRulesConstraints(model, x, input)
+        addContractWeeklyHoursConstraints(model, x, input)
         addContractedHoursConstraints(model, x, totalHours, input)
         addComplianceRulesConstraints(model, x, input)
 
@@ -451,6 +452,36 @@ class ScheduleOptimizer {
      * Enforces working hours rules from ConstraintsService.
      * Includes max shift length, min shift length, max consecutive days, and rest between shifts.
      */
+    /**
+     * Caps each employee at their own contract's weekly hours, less anything
+     * already worked at another location that week.
+     *
+     * Separate from [addWorkingHoursRulesConstraints] because that block bails
+     * out entirely when a business has saved no working-hours rules - which a
+     * newly created location has not. The contract belongs to the employee
+     * rather than the location, so it has to bind either way; otherwise a
+     * second location could hand someone a full week on top of a full week
+     * they are already working.
+     */
+    private fun addContractWeeklyHoursConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput
+    ) {
+        val slotDurations = input.timeSlots.map { it.durationHours.toLong() }.toLongArray()
+
+        for (e in input.employees.indices) {
+            val contractCap = input.employees[e].contract.maxHoursPerWeek
+            if (contractCap <= 0.0) continue
+
+            val allSlots = input.timeSlots.indices.map { x[e][it] }.toTypedArray()
+            model.addLessOrEqual(
+                LinearExpr.weightedSum(allSlots, slotDurations),
+                input.remainingOf(contractCap, e)
+            )
+        }
+    }
+
     private fun addWorkingHoursRulesConstraints(
         model: CpModel,
         x: Array<Array<BoolVar>>,
@@ -507,18 +538,26 @@ class ScheduleOptimizer {
             }
         }
 
-        // Max hours per week (weighted by slot duration)
+        // Max hours per week (weighted by slot duration). The cap is shared
+        // across every location the employee works at, so hours already
+        // committed elsewhere come off it before the solver allocates any.
         for (e in input.employees.indices) {
             val allSlots = input.timeSlots.indices.map { x[e][it] }.toTypedArray()
             model.addLessOrEqual(
                 LinearExpr.weightedSum(allSlots, slotDurations),
-                rules.maxHoursPerWeek.toLong()
+                input.remainingOf(rules.maxHoursPerWeek, e)
             )
         }
 
         // Max overtime hours per week (weighted by slot duration)
         for (e in input.employees.indices) {
-            val overtimeThreshold = input.employees[e].contract.overtimeThreshold.toLong()
+            // The overtime threshold is likewise reached across all locations:
+            // hours worked elsewhere count towards it, so someone already past
+            // it starts this schedule in overtime rather than at zero.
+            val overtimeThreshold = input.remainingOf(
+                input.employees[e].contract.overtimeThreshold,
+                e
+            )
             val allSlots = input.timeSlots.indices.map { x[e][it] }.toTypedArray()
 
             // Total weekly hours worked
@@ -1073,10 +1112,26 @@ data class OptimizationInput(
     val workingHoursRules: org.labormanagement.model.WorkingHoursRules? = null,
     val complianceRules: org.labormanagement.model.ComplianceRules? = null,
     val fairnessSettings: org.labormanagement.model.FairnessSettings? = null,
-    val contractedHours: Map<UUID, org.labormanagement.model.EmployeeContractedHours> = emptyMap()
+    val contractedHours: Map<UUID, org.labormanagement.model.EmployeeContractedHours> = emptyMap(),
+
+    // Hours already committed at other locations in this window, by employee.
+    // Weekly caps are one budget per person rather than one per location, so
+    // these hours are spent before the solver allocates anything.
+    val hoursCommittedElsewhere: Map<UUID, Double> = emptyMap()
 ) {
     fun isAvailable(employeeIndex: Int, timeSlotIndex: Int): Boolean {
         return availability[employeeIndex][timeSlotIndex]
+    }
+
+    /**
+     * How many hours of [cap] remain for this employee once hours already
+     * worked at other locations are deducted. Never negative: someone already
+     * over their cap elsewhere gets zero here, not a constraint the solver
+     * cannot satisfy.
+     */
+    fun remainingOf(cap: Double, employeeIndex: Int): Long {
+        val spent = hoursCommittedElsewhere[employees[employeeIndex].id] ?: 0.0
+        return maxOf(0.0, cap - spent).toLong()
     }
 
     fun getProductivity(employeeIndex: Int, timeSlotIndex: Int): Long {

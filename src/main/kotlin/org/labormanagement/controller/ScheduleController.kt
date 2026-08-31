@@ -202,6 +202,10 @@ class ScheduleController(
             // and returns just the matching shifts - built for callers like the
             // employee portal calendar that need "my shifts this week" regardless of
             // how the underlying schedules were chunked.
+            // Authenticated so the allLocations option can tell whether the
+            // caller is asking about their own record - same reason
+            // /team-shifts below is authenticated.
+            authenticate("auth-jwt") {
             get("/shifts") {
                 try {
                     val businessId = call.parameters["businessId"]?.let {
@@ -264,6 +268,29 @@ class ScheduleController(
                         }
                     } else null
 
+                    // An employee assigned to several locations has one
+                    // calendar, so they can ask for all of it rather than just
+                    // the location they happen to be viewing. Restricted to
+                    // their own record: this route takes employeeId as a query
+                    // parameter, so without the check anyone could read another
+                    // employee's schedule across every location.
+                    val wantsAllLocations =
+                        call.request.queryParameters["allLocations"]?.toBoolean() == true
+                    val callerUserId = call.principal<io.ktor.server.auth.jwt.JWTPrincipal>()
+                        ?.payload?.getClaim("userId")?.asString()
+                    val isSelf = callerUserId != null &&
+                        employeeRepository.findByUserId(callerUserId)?.id == employeeId
+
+                    if (wantsAllLocations && isSelf) {
+                        call.respond(
+                            HttpStatusCode.OK,
+                            scheduleRepository.findAllShiftsForEmployeeInRange(
+                                employeeId, startDate, endDate, status
+                            )
+                        )
+                        return@get
+                    }
+
                     val shifts = scheduleRepository.findShiftsForEmployeeInRange(
                         businessId, employeeId, startDate, endDate, status
                     )
@@ -275,6 +302,7 @@ class ScheduleController(
                         mapOf("error" to "Failed to fetch employee shifts: ${e.message}")
                     )
                 }
+            }
             }
 
             // Get every employee's shifts within a date range - the team-wide

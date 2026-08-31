@@ -8,6 +8,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.config.GsonConfig.createGson
+import org.labormanagement.database.Businesses
 import org.labormanagement.database.Employees
 import org.labormanagement.database.Schedules
 import org.labormanagement.database.Shifts as ShiftsTable
@@ -157,6 +158,86 @@ class ScheduleRepository(
             .selectAll()
             .where { if (status != null) condition and (Schedules.status eq status.name) else condition }
             .orderBy(ShiftsTable.date, SortOrder.ASC)
+            .map { row ->
+                Shift(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
+    }
+
+    /**
+     * Every shift this employee holds in a date range, across all the
+     * locations they work at, each carrying the location it belongs to.
+     *
+     * Not business-scoped: an employee assigned to several locations has one
+     * calendar, and showing them only the shifts of whichever location they
+     * happen to be viewing would hide half their week.
+     */
+    fun findAllShiftsForEmployeeInRange(
+        employeeId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        status: ScheduleStatus? = null
+    ): List<EmployeeShiftRow> = transaction {
+        val condition = (ShiftsTable.employeeId eq employeeId) and
+            (ShiftsTable.date greaterEq startDate) and
+            (ShiftsTable.date lessEq endDate)
+
+        (ShiftsTable innerJoin Schedules innerJoin Businesses)
+            .selectAll()
+            .where { if (status != null) condition and (Schedules.status eq status.name) else condition }
+            .orderBy(ShiftsTable.date, SortOrder.ASC)
+            .map { row ->
+                EmployeeShiftRow(
+                    id = row[ShiftsTable.id],
+                    employeeId = row[ShiftsTable.employeeId],
+                    businessId = row[Schedules.businessId],
+                    businessName = row[Businesses.name],
+                    date = row[ShiftsTable.date],
+                    startTime = row[ShiftsTable.startTime],
+                    endTime = row[ShiftsTable.endTime],
+                    payRate = row[ShiftsTable.payRate],
+                    isOvertime = row[ShiftsTable.isOvertime]
+                )
+            }
+    }
+
+    /**
+     * Published shifts these employees already hold at *other* locations,
+     * within a date range.
+     *
+     * Deliberately not scoped to one business: someone assigned to several
+     * locations is one person with one calendar, so generation at one location
+     * has to see what the others have already committed them to. Without this,
+     * two locations can book the same hours and neither notices.
+     *
+     * Only PUBLISHED shifts count. A draft elsewhere is a proposal, not a
+     * commitment, and letting drafts block each other would mean whichever
+     * location generated first silently won.
+     */
+    fun findPublishedShiftsElsewhere(
+        excludeBusinessId: UUID,
+        employeeIds: List<UUID>,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<Shift> = transaction {
+        if (employeeIds.isEmpty()) return@transaction emptyList()
+
+        (ShiftsTable innerJoin Schedules)
+            .selectAll()
+            .where {
+                (Schedules.businessId neq excludeBusinessId) and
+                    (ShiftsTable.employeeId inList employeeIds) and
+                    (ShiftsTable.date greaterEq startDate) and
+                    (ShiftsTable.date lessEq endDate) and
+                    (Schedules.status eq ScheduleStatus.PUBLISHED.name)
+            }
             .map { row ->
                 Shift(
                     id = row[ShiftsTable.id],

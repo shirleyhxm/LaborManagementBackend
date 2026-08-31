@@ -40,7 +40,8 @@ object OptimizationConverter {
         maxSolveTimeSeconds: Double = 5.0,
         constraintsService: org.labormanagement.service.ConstraintsService? = null,
         businessId: java.util.UUID,
-        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap(),
+        shiftsElsewhere: List<org.labormanagement.model.Shift> = emptyList()
     ): OptimizationInput {
         // Fetch constraints from ConstraintsService if provided
         val budgetConstraints = constraintsService?.getBudgetConstraints(businessId)
@@ -81,7 +82,18 @@ object OptimizationConverter {
         val timeSlots = generateTimeSlots(scheduleDates, operatingHoursMap)
 
         // Build availability matrix [employee][timeSlot]
-        val availability = buildAvailabilityMatrix(employees, timeSlots, timeoffExclusions)
+        val availability = buildAvailabilityMatrix(employees, timeSlots, timeoffExclusions, shiftsElsewhere)
+
+        // Hours each employee has already committed at other locations in this
+        // window. The weekly cap is one budget for the person, not one per
+        // location, so the solver only gets to allocate what is left of it.
+        val hoursCommittedElsewhere = shiftsElsewhere
+            .groupBy { it.employeeId }
+            .mapValues { (_, shifts) ->
+                shifts.sumOf { shift ->
+                    java.time.Duration.between(shift.startTime, shift.endTime).toMinutes() / 60.0
+                }
+            }
 
         // Build productivity matrix [employee][timeSlot]
         val productivity = buildProductivityMatrix(employees, timeSlots)
@@ -103,7 +115,8 @@ object OptimizationConverter {
             workingHoursRules = workingHoursRules,
             complianceRules = complianceRules,
             fairnessSettings = fairnessSettings,
-            contractedHours = contractedHoursMap
+            contractedHours = contractedHoursMap,
+            hoursCommittedElsewhere = hoursCommittedElsewhere
         )
     }
 
@@ -239,20 +252,39 @@ object OptimizationConverter {
 
     /**
      * Builds availability matrix indicating which employees are available for which time slots.
-     * A slot is unavailable if the employee's recurring availability doesn't cover it, OR if
-     * they have an APPROVED timeoff request covering that date.
+     *
+     * A slot is unavailable if the employee's recurring availability doesn't cover it,
+     * if they have an APPROVED timeoff request covering that date, or if they are already
+     * working that time at another location - someone assigned to several locations is
+     * still one person who can only be in one place at once.
      */
     private fun buildAvailabilityMatrix(
         employees: List<Employee>,
         timeSlots: List<TimeSlot>,
-        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap(),
+        shiftsElsewhere: List<org.labormanagement.model.Shift> = emptyList()
     ): List<List<Boolean>> {
+        val shiftsByEmployee = shiftsElsewhere.groupBy { it.employeeId }
+
         return employees.map { employee ->
             val excludedDates = timeoffExclusions[employee.id] ?: emptySet()
+            val committed = shiftsByEmployee[employee.id] ?: emptyList()
+
             timeSlots.map { slot ->
-                slot.date !in excludedDates && employee.availability.any { avail ->
-                    avail.isAvailableOn(slot.date, slot.startTime, slot.endTime)
+                val availableInPrinciple = slot.date !in excludedDates &&
+                    employee.availability.any { avail ->
+                        avail.isAvailableOn(slot.date, slot.startTime, slot.endTime)
+                    }
+
+                // Half-open overlap: a shift ending exactly when this slot
+                // starts does not collide with it.
+                val alreadyWorking = committed.any { shift ->
+                    shift.date == slot.date &&
+                        shift.startTime < slot.endTime &&
+                        shift.endTime > slot.startTime
                 }
+
+                availableInPrinciple && !alreadyWorking
             }
         }
     }

@@ -92,17 +92,18 @@ class ShiftScheduler(
     }
 
     /**
-     * Builds a per-employee set of dates excluded from scheduling because of an
-     * APPROVED timeoff request overlapping that date. One query for the whole
-     * business/date-range rather than per-employee, since the scheduler always
-     * needs every employee's exclusions at once.
+     * Dates each employee is approved to be off, keyed by employee id.
+     *
+     * Looked up by employee rather than by business: someone who works at
+     * several locations books their holiday once, and it has to be honoured
+     * wherever they are scheduled.
      */
     private fun buildTimeoffExclusions(
-        businessId: UUID,
+        employeeIds: List<UUID>,
         startDate: LocalDate,
         endDate: LocalDate
     ): Map<UUID, Set<LocalDate>> {
-        val approvedRequests = timeoffRepository.findApprovedByBusinessAndDateRange(businessId, startDate, endDate)
+        val approvedRequests = timeoffRepository.findApprovedByEmployeeIdsAndDateRange(employeeIds, startDate, endDate)
         return approvedRequests
             .groupBy { it.employeeId }
             .mapValues { (_, requests) ->
@@ -132,19 +133,41 @@ class ShiftScheduler(
         // Get sales forecast from repository
         val salesForecast = salesForecastRepository.getByBusiness(businessId)
 
-        // Track weekly hours across all days for overtime calculation and contract limits
-        val weeklyHours = mutableMapOf<UUID, Double>()
-
         val employees = input.employeeIds.mapNotNull { id ->
             employeeRepository.findById(businessId, id)
         }
 
         val scheduleDates = input.schedulePeriod.getAllDates()
         val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
-            buildTimeoffExclusions(businessId, scheduleDates.min(), scheduleDates.max())
+            buildTimeoffExclusions(employees.map { it.id }, scheduleDates.min(), scheduleDates.max())
         } else {
             emptyMap()
         }
+
+        // Whole weeks, not just the schedule's own dates - the weekly cap is
+        // about the calendar week, so shifts elsewhere earlier in the same week
+        // still count against it.
+        val shiftsElsewhere = if (scheduleDates.isNotEmpty()) {
+            scheduleRepository.findPublishedShiftsElsewhere(
+                excludeBusinessId = businessId,
+                employeeIds = employees.map { it.id },
+                startDate = scheduleDates.min().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
+                endDate = scheduleDates.max().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+            )
+        } else {
+            emptyList()
+        }
+
+        // Track weekly hours across all days for overtime calculation and
+        // contract limits. Seeded with hours already worked at other
+        // locations, so the weekly cap is one budget for the person rather
+        // than a fresh allowance at every location.
+        val weeklyHours = shiftsElsewhere
+            .groupBy { it.employeeId }
+            .mapValues { (_, shifts) ->
+                shifts.sumOf { ChronoUnit.MINUTES.between(it.startTime, it.endTime) / 60.0 }
+            }
+            .toMutableMap()
 
         // Generate candidate shifts for each day
         profile("generateSchedule.allDays") {
@@ -160,7 +183,8 @@ class ShiftScheduler(
                         weeklyHours,
                         minShiftDurationHours,
                         optimizationObjective,
-                        timeoffExclusions
+                        timeoffExclusions,
+                        shiftsElsewhere
                     )
                 }
                 shifts.addAll(dayShifts)
@@ -227,9 +251,27 @@ class ShiftScheduler(
         }
 
         val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
-            buildTimeoffExclusions(businessId, scheduleDates.min(), scheduleDates.max())
+            buildTimeoffExclusions(employees.map { it.id }, scheduleDates.min(), scheduleDates.max())
         } else {
             emptyMap()
+        }
+
+        // What these people are already committed to elsewhere. Feeds two
+        // things: the slots they cannot be booked into, and the hours already
+        // counted against their weekly cap.
+        //
+        // Widened to whole weeks rather than just the schedule's own dates: a
+        // weekly cap is about the calendar week, so a Monday shift at another
+        // location has to count against a schedule that starts on Wednesday.
+        val shiftsElsewhere = if (scheduleDates.isNotEmpty()) {
+            scheduleRepository.findPublishedShiftsElsewhere(
+                excludeBusinessId = businessId,
+                employeeIds = employees.map { it.id },
+                startDate = scheduleDates.min().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
+                endDate = scheduleDates.max().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+            )
+        } else {
+            emptyList()
         }
 
         // Convert to optimization input
@@ -244,7 +286,8 @@ class ShiftScheduler(
                 maxSolveTimeSeconds = 30.0,
                 constraintsService = constraintsService,
                 businessId = businessId,
-                timeoffExclusions = timeoffExclusions
+                timeoffExclusions = timeoffExclusions,
+                shiftsElsewhere = shiftsElsewhere
             )
         }
 
@@ -427,7 +470,8 @@ class ShiftScheduler(
         weeklyHours: MutableMap<UUID, Double>, // Shared across all days
         minShiftDurationHours: Double, // Minimum shift duration in hours
         optimizationObjective: OptimizationObjective, // Optimization strategy
-        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap(),
+        shiftsElsewhere: List<Shift> = emptyList()
     ): Pair<List<Shift>, List<StaffingRequirement>> {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
@@ -436,8 +480,20 @@ class ShiftScheduler(
         // excluded up front, same as if they had no availability at all -
         // every downstream check (assignment, staffing-requirement headcount)
         // naturally respects it since it only ever sees this filtered list.
+        //
+        // Anyone already working at another location on this date is excluded
+        // the same way. The greedy path builds whole-day shifts, so excluding
+        // the day is the honest granularity here - it will not squeeze someone
+        // into the hours around an existing shift, but neither will it
+        // double-book them.
+        val committedElsewhereToday = shiftsElsewhere
+            .filter { it.date == date }
+            .map { it.employeeId }
+            .toSet()
+
         val schedulableEmployees = employees.filter { employee ->
-            date !in (timeoffExclusions[employee.id] ?: emptySet())
+            date !in (timeoffExclusions[employee.id] ?: emptySet()) &&
+                employee.id !in committedElsewhereToday
         }
 
         // Sort employees according to the optimization objective

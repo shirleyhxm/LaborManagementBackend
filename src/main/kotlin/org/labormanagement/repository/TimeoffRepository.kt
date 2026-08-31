@@ -133,6 +133,31 @@ class TimeoffRepository {
     }
 
     /**
+     * Find approved timeoff for the given employees that overlaps a date range,
+     * regardless of which location approved it.
+     *
+     * Deliberately not business-scoped, unlike the finders above. Someone who
+     * works at two locations books their holiday once; if generation at the
+     * second location only saw its own rows, it would schedule straight through
+     * an absence the first location had already approved.
+     */
+    fun findApprovedByEmployeeIdsAndDateRange(
+        employeeIds: List<UUID>,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<TimeoffRequest> = transaction {
+        if (employeeIds.isEmpty()) return@transaction emptyList()
+
+        Timeoffs.selectAll().where {
+            (Timeoffs.employeeId inList employeeIds) and
+            (Timeoffs.status eq TimeoffStatus.APPROVED.name) and
+            (Timeoffs.startDate lessEq endDate) and
+            (Timeoffs.endDate greaterEq startDate)
+        }
+            .map { it.toTimeoffRequest() }
+    }
+
+    /**
      * Check if employee has approved timeoff on a specific date within a specific business
      */
     fun hasApprovedTimeoffOnDate(businessId: UUID, employeeId: UUID, date: LocalDate): Boolean = transaction {
