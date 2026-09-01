@@ -172,7 +172,20 @@ class TimeoffService(
     /**
      * Get timeoff requests for an employee
      */
+    /**
+     * An employee's own requests, across every location they work at - this is
+     * their record of their own absences, not one location's queue.
+     */
     fun getTimeoffRequestsByEmployee(businessId: UUID, employeeId: UUID): List<TimeoffRequest> {
+        return timeoffRepository.findAllByEmployeeId(employeeId)
+    }
+
+    /**
+     * One employee's requests filed at a single location - what a manager
+     * reviewing their own roster should see, rather than absences owned by
+     * businesses they do not run.
+     */
+    fun getTimeoffRequestsByEmployeeAtLocation(businessId: UUID, employeeId: UUID): List<TimeoffRequest> {
         return timeoffRepository.findByEmployeeId(businessId, employeeId)
     }
 

@@ -35,6 +35,10 @@ data class ReviewTimeoffRequest(
 data class TimeoffRequestResponse(
     val id: String,
     val employeeId: String,
+    // Which location the request was filed at. An employee's own list spans
+    // every location they work at, so each row has to say where it belongs.
+    val businessId: String,
+    val businessName: String? = null,
     val startDate: String,
     val endDate: String,
     val reason: String,
@@ -51,10 +55,12 @@ data class TimeoffRequestResponse(
 /**
  * Extension function for conversion
  */
-fun TimeoffRequest.toResponse(): TimeoffRequestResponse {
+fun TimeoffRequest.toResponse(businessName: String? = null): TimeoffRequestResponse {
     return TimeoffRequestResponse(
         id = id.toString(),
         employeeId = employeeId.toString(),
+        businessId = businessId.toString(),
+        businessName = businessName,
         startDate = startDate.toString(),
         endDate = endDate.toString(),
         reason = reason,

@@ -133,6 +133,24 @@ class TimeoffRepository {
     }
 
     /**
+     * Every timeoff request an employee has filed, across every location they
+     * work at.
+     *
+     * Deliberately not business-scoped: an absence is the person's, and
+     * scheduling already honours an approved one at every location they work
+     * at - so showing them only the requests filed where they happen to be
+     * looking would contradict what the schedule does with them.
+     *
+     * The manager-facing queue stays scoped: approving an absence is the job
+     * of the location that owns the request.
+     */
+    fun findAllByEmployeeId(employeeId: UUID): List<TimeoffRequest> = transaction {
+        Timeoffs.selectAll().where { Timeoffs.employeeId eq employeeId }
+            .orderBy(Timeoffs.requestedAt, SortOrder.DESC)
+            .map { it.toTimeoffRequest() }
+    }
+
+    /**
      * Find approved timeoff for the given employees that overlaps a date range,
      * regardless of which location approved it.
      *

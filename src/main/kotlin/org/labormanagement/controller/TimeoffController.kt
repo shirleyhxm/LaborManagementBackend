@@ -20,7 +20,12 @@ import java.util.*
 /**
  * Controller for timeoff request endpoints
  */
-fun Route.timeoffRoutes(timeoffService: TimeoffService, employeeRepository: EmployeeRepository) {
+fun Route.timeoffRoutes(
+    timeoffService: TimeoffService,
+    employeeRepository: EmployeeRepository,
+    businessRepository: org.labormanagement.repository.BusinessRepository =
+        org.labormanagement.repository.BusinessRepository()
+) {
 
     fun ApplicationCall.callerRole(): UserRole {
         val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
@@ -333,8 +338,21 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService, employeeRepository: Empl
                 return@get
             }
 
-            val requests = timeoffService.getTimeoffRequestsByEmployee(businessId, employeeId)
-            call.respond(HttpStatusCode.OK, requests.map { it.toResponse() })
+            // An employee sees their own absences wherever they filed them;
+            // a manager looking at someone else's sees only what belongs to
+            // this location, since that is the queue they are responsible for.
+            val requests = if (call.isSelf(businessId, employeeId)) {
+                timeoffService.getTimeoffRequestsByEmployee(businessId, employeeId)
+            } else {
+                timeoffService.getTimeoffRequestsByEmployeeAtLocation(businessId, employeeId)
+            }
+
+            val names = requests
+                .map { it.businessId }
+                .distinct()
+                .associateWith { businessRepository.findById(it)?.name }
+
+            call.respond(HttpStatusCode.OK, requests.map { it.toResponse(names[it.businessId]) })
         }
 
         /**
