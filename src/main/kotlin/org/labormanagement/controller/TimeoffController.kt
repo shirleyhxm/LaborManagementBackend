@@ -44,7 +44,11 @@ fun Route.timeoffRoutes(timeoffService: TimeoffService, employeeRepository: Empl
     fun ApplicationCall.isSelf(businessId: UUID, employeeId: UUID): Boolean {
         val callerUserId = principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: return false
         val employee = employeeRepository.findByUserId(callerUserId) ?: return false
-        return employee.businessId == businessId && employee.id == employeeId
+        if (employee.id != employeeId) return false
+
+        // Reachable rather than owned: someone assigned here from another
+        // location works shifts here, so they can file and view requests here.
+        return employeeRepository.findById(businessId, employeeId) != null
     }
 
     authenticate("auth-jwt") {

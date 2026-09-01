@@ -30,6 +30,10 @@ data class ClockOutRequest(
 data class ClockRecordResponse(
     val id: String,
     val employeeId: String,
+    // Where this was clocked. Records now span every location the employee
+    // works at, so each one has to say which it belongs to.
+    val businessId: String,
+    val businessName: String?,
     val scheduleId: String?,
     val shiftId: String?,
     val clockInTime: String,
@@ -58,10 +62,12 @@ data class AttendanceStatsResponse(
 /**
  * Extension functions for conversion
  */
-fun ClockRecord.toResponse(): ClockRecordResponse {
+fun ClockRecord.toResponse(businessName: String? = null): ClockRecordResponse {
     return ClockRecordResponse(
         id = id.toString(),
         employeeId = employeeId.toString(),
+        businessId = businessId.toString(),
+        businessName = businessName,
         scheduleId = scheduleId?.toString(),
         shiftId = shiftId?.toString(),
         clockInTime = clockInTime.toString(),

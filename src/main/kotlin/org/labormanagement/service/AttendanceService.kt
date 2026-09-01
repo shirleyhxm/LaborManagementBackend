@@ -34,10 +34,18 @@ class AttendanceService(
         val employee = employeeRepository.findById(businessId, employeeId)
             ?: return Result.failure(Exception("Employee not found"))
 
-        // Check if already clocked in
-        val activeRecord = attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
+        // Check if already clocked in - anywhere, not just here. A person can
+        // only be in one place at a time, so an open session at another
+        // location has to block this one; scoping the check to this business
+        // would let them run two clock-ins at once.
+        val activeRecord = attendanceRepository.findActiveByEmployeeIdAnyLocation(employeeId)
         if (activeRecord != null) {
-            return Result.failure(Exception("Employee is already clocked in"))
+            return Result.failure(
+                Exception(
+                    if (activeRecord.businessId == businessId) "Employee is already clocked in"
+                    else "Employee is already clocked in at another location"
+                )
+            )
         }
 
         // Verify schedule and shift if provided
@@ -79,8 +87,10 @@ class AttendanceService(
         employeeId: UUID,
         notes: String = ""
     ): Result<ClockRecord> {
-        // Find active clock record
-        val activeRecord = attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
+        // Find the open session wherever it was opened - someone who clocked in
+        // at another location still has to be able to clock out, and the portal
+        // they use has no location switcher.
+        val activeRecord = attendanceRepository.findActiveByEmployeeIdAnyLocation(employeeId)
             ?: return Result.failure(Exception("Employee is not clocked in"))
 
         val clockOutTime = Instant.now()
@@ -95,23 +105,29 @@ class AttendanceService(
             notes = if (notes.isNotEmpty()) "${activeRecord.notes}\n$notes".trim() else activeRecord.notes
         )
 
-        val updated = attendanceRepository.update(businessId, updatedRecord)
+        // Scoped to the record's own location, not the caller's - the session
+        // being closed may have been opened somewhere else.
+        val updated = attendanceRepository.update(activeRecord.businessId, updatedRecord)
             ?: return Result.failure(Exception("Failed to update clock record"))
         return Result.success(updated)
     }
 
     /**
-     * Get active clock record for an employee
+     * Get an employee's open clock-in, wherever it was made. Someone can only
+     * be clocked in one place at a time, so scoping this to a location would
+     * show them as clocked out while a session was still running elsewhere.
      */
     fun getActiveClockRecord(businessId: UUID, employeeId: UUID): ClockRecord? {
-        return attendanceRepository.findActiveByEmployeeId(businessId, employeeId)
+        return attendanceRepository.findActiveByEmployeeIdAnyLocation(employeeId)
     }
 
     /**
-     * Get all clock records for an employee
+     * Get an employee's clock records across every location they work at -
+     * attendance is a record of what the person did, not of one location's
+     * roster.
      */
     fun getClockRecordsByEmployee(businessId: UUID, employeeId: UUID): List<ClockRecord> {
-        return attendanceRepository.findByEmployeeId(businessId, employeeId)
+        return attendanceRepository.findAllByEmployeeId(employeeId)
     }
 
     /**
@@ -144,7 +160,8 @@ class AttendanceService(
         val startInstant = startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
         val endInstant = endDate.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant()
 
-        val clockRecords = attendanceRepository.findByDateRange(businessId, employeeId, startInstant, endInstant)
+        // Across locations, matching how scheduled hours are counted below.
+        val clockRecords = attendanceRepository.findByDateRangeAllLocations(employeeId, startInstant, endInstant)
         val completedRecords = clockRecords.filter { it.clockOutTime != null }
 
         val totalHoursWorked = completedRecords.mapNotNull { it.durationHours }.sum()
@@ -178,21 +195,27 @@ class AttendanceService(
      * Calculate scheduled hours for an employee in a date range, from
      * published schedules' shifts falling on dates within [startDate, endDate].
      */
+    /**
+     * Hours this employee is scheduled for across every location they work at.
+     *
+     * Counted per person rather than per location so it lines up with the hours
+     * they actually worked, which are counted the same way - comparing one
+     * location's actual against one location's expected would be internally
+     * consistent but would not describe anybody's week.
+     */
     private fun calculateScheduledHours(
         businessId: UUID,
         employeeId: UUID,
         startDate: LocalDate,
         endDate: LocalDate
     ): Double {
-        val schedules = scheduleRepository.findByBusinessAndStatus(
-            businessId,
-            org.labormanagement.model.ScheduleStatus.PUBLISHED
-        )
-
-        return schedules.sumOf { schedule ->
-            schedule.shifts
-                .filter { it.employeeId == employeeId && it.date >= startDate && it.date <= endDate }
-                .sumOf { it.durationHours }
+        return scheduleRepository.findAllShiftsForEmployeeInRange(
+            employeeId = employeeId,
+            startDate = startDate,
+            endDate = endDate,
+            status = org.labormanagement.model.ScheduleStatus.PUBLISHED
+        ).sumOf { row ->
+            java.time.Duration.between(row.startTime, row.endTime).toMinutes() / 60.0
         }
     }
 

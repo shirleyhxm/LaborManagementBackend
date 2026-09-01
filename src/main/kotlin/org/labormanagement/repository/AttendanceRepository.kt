@@ -82,6 +82,56 @@ class AttendanceRepository {
     }
 
     /**
+     * Every clock record for an employee, across every location they work at.
+     *
+     * Deliberately not business-scoped: attendance is a record of what a person
+     * actually did, and someone working at two locations has one history. Each
+     * record still carries its own businessId, so callers can say where it
+     * happened.
+     */
+    fun findAllByEmployeeId(employeeId: UUID): List<ClockRecord> = transaction {
+        Attendances.selectAll().where { Attendances.employeeId eq employeeId }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
+    }
+
+    /**
+     * The employee's open clock-in, wherever they made it.
+     *
+     * Someone can only be clocked in one place at a time, so this is not
+     * business-scoped - otherwise clocking in at one location would leave them
+     * looking clocked out at another, and they could open a second session.
+     */
+    fun findActiveByEmployeeIdAnyLocation(employeeId: UUID): ClockRecord? = transaction {
+        Attendances.selectAll().where {
+            (Attendances.employeeId eq employeeId) and
+            (Attendances.clockOutTime.isNull())
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .limit(1)
+            .singleOrNull()
+            ?.toClockRecord()
+    }
+
+    /**
+     * Clock records in a date range for an employee, across every location.
+     * Used for stats, which should reflect the person's whole week.
+     */
+    fun findByDateRangeAllLocations(
+        employeeId: UUID,
+        startDate: Instant,
+        endDate: Instant
+    ): List<ClockRecord> = transaction {
+        Attendances.selectAll().where {
+            (Attendances.employeeId eq employeeId) and
+            (Attendances.clockInTime greaterEq startDate) and
+            (Attendances.clockInTime lessEq endDate)
+        }
+            .orderBy(Attendances.clockInTime, SortOrder.DESC)
+            .map { it.toClockRecord() }
+    }
+
+    /**
      * Find clock records by shift ID within a specific business
      */
     fun findByShiftId(businessId: UUID, shiftId: UUID): List<ClockRecord> = transaction {

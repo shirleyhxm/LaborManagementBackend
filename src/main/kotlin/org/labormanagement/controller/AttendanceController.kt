@@ -20,7 +20,22 @@ import java.util.*
 /**
  * Controller for employee attendance (clock in/out) endpoints
  */
-fun Route.attendanceRoutes(attendanceService: AttendanceService, employeeRepository: EmployeeRepository) {
+fun Route.attendanceRoutes(
+    attendanceService: AttendanceService,
+    employeeRepository: EmployeeRepository,
+    businessRepository: org.labormanagement.repository.BusinessRepository =
+        org.labormanagement.repository.BusinessRepository()
+) {
+    // Records now span every location an employee works at, so each needs the
+    // name of the one it belongs to. Resolved once per distinct location rather
+    // than per record.
+    fun withLocationNames(records: List<org.labormanagement.model.ClockRecord>) =
+        records
+            .map { it.businessId }
+            .distinct()
+            .associateWith { businessRepository.findById(it)?.name }
+            .let { names -> records.map { it.toResponse(names[it.businessId]) } }
+
 
     fun ApplicationCall.callerRole(): UserRole {
         val principal = principal<JWTPrincipal>() ?: return UserRole.EMPLOYEE
@@ -44,7 +59,12 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService, employeeReposit
     fun ApplicationCall.isSelf(businessId: UUID, employeeId: UUID): Boolean {
         val callerUserId = principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asString() ?: return false
         val employee = employeeRepository.findByUserId(callerUserId) ?: return false
-        return employee.businessId == businessId && employee.id == employeeId
+        if (employee.id != employeeId) return false
+
+        // Reachable rather than owned: someone assigned to this location from
+        // elsewhere still works shifts here, so they have to be able to clock
+        // in and out. findById already answers "owned or assigned".
+        return employeeRepository.findById(businessId, employeeId) != null
     }
 
     authenticate("auth-jwt") {
@@ -215,7 +235,10 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService, employeeReposit
 
             val activeRecord = attendanceService.getActiveClockRecord(businessId, employeeId)
             if (activeRecord != null) {
-                call.respond(HttpStatusCode.OK, activeRecord.toResponse())
+                call.respond(
+                    HttpStatusCode.OK,
+                    activeRecord.toResponse(businessRepository.findById(activeRecord.businessId)?.name)
+                )
             } else {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("No active clock record found"))
             }
@@ -255,7 +278,7 @@ fun Route.attendanceRoutes(attendanceService: AttendanceService, employeeReposit
             }
 
             val records = attendanceService.getClockRecordsByEmployee(businessId, employeeId)
-            call.respond(HttpStatusCode.OK, records.map { it.toResponse() })
+            call.respond(HttpStatusCode.OK, withLocationNames(records))
         }
 
         /**

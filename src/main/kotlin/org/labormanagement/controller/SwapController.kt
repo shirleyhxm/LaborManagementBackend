@@ -411,7 +411,9 @@ class SwapController(
 
     private fun requireCallerEmployee(userId: String, businessId: UUID): Employee? {
         val employee = employeeRepository.findByUserId(userId) ?: return null
-        return if (employee.businessId == businessId) employee else null
+        // Reachable rather than owned - someone assigned here from another
+        // location is on this roster and can swap shifts on it.
+        return employeeRepository.findById(businessId, employee.id)
     }
 
     private fun SwapRequest.toResponse(
