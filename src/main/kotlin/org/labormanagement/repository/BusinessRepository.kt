@@ -5,6 +5,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.database.BusinessMemberships
 import org.labormanagement.database.Businesses
+import org.labormanagement.database.EmployeeLocations
 import org.labormanagement.database.Employees
 import org.labormanagement.model.Business
 import org.labormanagement.model.BusinessSettings
@@ -201,8 +202,21 @@ class BusinessRepository {
      * employee apart from a manager rather than just seeing "has access".
      */
     fun hasLinkedEmployee(userId: String, businessId: UUID): Boolean = transaction {
-        Employees.selectAll()
+        val owned = Employees.selectAll()
             .where { (Employees.userId eq userId) and (Employees.businessId eq businessId) }
+            .empty().not()
+        if (owned) return@transaction true
+
+        // Assigned in from another location counts too: they work shifts here,
+        // so they need to reach this business to clock in, request time off and
+        // see their schedule. Without this the tenant check rejects them before
+        // any controller gets a say.
+        Employees
+            .innerJoin(EmployeeLocations, { Employees.id }, { EmployeeLocations.employeeId })
+            .selectAll()
+            .where {
+                (Employees.userId eq userId) and (EmployeeLocations.businessId eq businessId)
+            }
             .empty().not()
     }
 
