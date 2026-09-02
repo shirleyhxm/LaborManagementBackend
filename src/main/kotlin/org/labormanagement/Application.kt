@@ -28,6 +28,7 @@ import org.labormanagement.controller.BusinessController
 import org.labormanagement.controller.BusinessMemberController
 import org.labormanagement.controller.EmployeeLocationController
 import org.labormanagement.controller.ConstraintsController
+import org.labormanagement.controller.EmployeeContractController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
 import org.labormanagement.controller.OptimizationControllerV2
@@ -44,6 +45,7 @@ import org.labormanagement.repository.AttendanceRepository
 import org.labormanagement.plugin.configureTenantInterceptor
 import org.labormanagement.repository.BusinessMembershipRepository
 import org.labormanagement.repository.BusinessRepository
+import org.labormanagement.repository.EmployeeContractRepository
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.EmployeeLocationRepository
@@ -152,6 +154,7 @@ fun Application.module() {
     val employeeLocationRepository = EmployeeLocationRepository()
     val employeeRepository = EmployeeRepository(locationRepository = employeeLocationRepository)
     val employeeInviteRepository = EmployeeInviteRepository()
+    val employeeContractRepository = EmployeeContractRepository()
     val employeeGroupRepository = EmployeeGroupRepository()
     val scheduleRepository = ScheduleRepository()
     val swapRequestRepository = SwapRequestRepository()
@@ -258,6 +261,10 @@ fun Application.module() {
         employeeInviteRepository = employeeInviteRepository
     )
     val employeeController = EmployeeController(employeeRepository, importService, employeeInviteRepository)
+    val employeeContractController = EmployeeContractController(
+        contractRepository = employeeContractRepository,
+        employeeRepository = employeeRepository
+    )
     val employeeGroupController = EmployeeGroupController(employeeGroupRepository)
     val scheduleController = ScheduleController(
         scheduleRepository = scheduleRepository,
@@ -481,6 +488,10 @@ fun Application.module() {
 
         with(employeeController) {
             employeeRoutes()
+        }
+
+        with(employeeContractController) {
+            employeeContractRoutes()
         }
 
         with(employeeGroupController) {

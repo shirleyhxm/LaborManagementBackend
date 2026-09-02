@@ -19,7 +19,8 @@ import java.util.UUID
  */
 class EmployeeRepository(
     private val gson: Gson = createGson(),
-    private val locationRepository: EmployeeLocationRepository = EmployeeLocationRepository()
+    private val locationRepository: EmployeeLocationRepository = EmployeeLocationRepository(),
+    private val contractRepository: EmployeeContractRepository = EmployeeContractRepository()
 ) {
     private val logger = LoggerFactory.getLogger(EmployeeRepository::class.java)
 
@@ -266,6 +267,10 @@ class EmployeeRepository(
         // Any business borrowing this employee stops borrowing them. Also a
         // foreign key constraint, so the delete would fail without this.
         locationRepository.deleteByEmployee(id)
+
+        // Their contract documents go with them - another foreign key, and
+        // there is nothing left to attach the files to once the record is gone.
+        contractRepository.deleteByEmployee(id)
 
         // Delete employee
         Employees.deleteWhere { Employees.id eq id } > 0

@@ -195,6 +195,44 @@ object EmployeeLocations : Table("employee_shares") {
     }
 }
 
+/**
+ * Contract documents belonging to an employee.
+ *
+ * The file itself lives in [content] rather than on disk or in object storage.
+ * Contracts are small and low-volume, and keeping the bytes in the same
+ * transaction as the metadata means an upload cannot half-succeed and leave a
+ * row pointing at a file that is not there - which for a signed employment
+ * contract is the failure mode worth spending storage to avoid.
+ *
+ * businessId is the employee's *home* location, matching who is allowed to
+ * manage the documents. A location that has merely borrowed the employee never
+ * owns their contracts.
+ *
+ * Queries that only need the listing must select columns explicitly and leave
+ * [content] out: the runtime heap is 384MB, and `selectAll()` here would pull
+ * every stored file into memory to render a list of file names.
+ */
+object EmployeeContracts : Table("employee_contracts") {
+    val id = uuid("id")
+    val employeeId = uuid("employee_id").references(Employees.id)
+    val businessId = uuid("business_id").references(Businesses.id)
+    val fileName = varchar("file_name", 255)
+    val contentType = varchar("content_type", 100)
+    val sizeBytes = long("size_bytes")
+    // No length argument: that is what maps to Postgres bytea rather than a
+    // fixed-width bytea(n).
+    val content = binary("content")
+    val uploadedBy = varchar("uploaded_by", 50)
+    val uploadedAt = timestamp("uploaded_at")
+
+    override val primaryKey = PrimaryKey(id)
+
+    init {
+        // Every read is "this employee's contracts, newest first".
+        index(false, employeeId)
+    }
+}
+
 object EmployeeGroups : Table("employee_groups") {
     val businessId = uuid("business_id").references(Businesses.id)
     val name = varchar("name", 100)
