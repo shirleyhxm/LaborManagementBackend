@@ -28,6 +28,8 @@ data class Employee(
         get() = if (middleName.isNotEmpty()) "$firstName $middleName $lastName" else "$firstName $lastName"
 }
 
+private const val MINUTES_PER_DAY = 24 * 60
+
 data class Availability(
     // Support both recurring patterns and specific date ranges
     val availabilityType: AvailabilityType,
@@ -37,8 +39,32 @@ data class Availability(
     val startTime: LocalTime,
     val endTime: LocalTime
 ) {
+    /**
+     * This window's end as minutes from midnight, with 00:00 meaning the end of the
+     * day rather than the start of it.
+     *
+     * A window running to midnight is stored as a LocalTime of 00:00, which is the
+     * *smallest* LocalTime there is. Compared directly, `end <= 00:00` is false for
+     * every real end time, so a window like 08:00-00:00 — an employee available all
+     * evening — matches nothing at all and reads as no availability whatsoever.
+     *
+     * Only the end is normalized: a start of 00:00 genuinely means midnight at the
+     * beginning of the day, and is already the lowest possible bound.
+     */
+    val endMinuteOfDay: Int
+        get() = if (endTime == LocalTime.MIDNIGHT) MINUTES_PER_DAY else endTime.toSecondOfDay() / 60
+
+    /** True when [start]..[end] falls entirely inside this window. */
+    fun covers(start: LocalTime, end: LocalTime): Boolean {
+        val startMinute = start.toSecondOfDay() / 60
+        // The requested end gets the same midnight treatment: a shift finishing at
+        // 00:00 ends at the close of the day, not before it began.
+        val endMinute = if (end == LocalTime.MIDNIGHT) MINUTES_PER_DAY else end.toSecondOfDay() / 60
+        return startMinute >= this.startTime.toSecondOfDay() / 60 && endMinute <= endMinuteOfDay
+    }
+
     fun isAvailableOn(date: LocalDate, startTime: LocalTime, endTime: LocalTime): Boolean {
-        val timeMatches = startTime >= this.startTime && endTime <= this.endTime
+        val timeMatches = covers(startTime, endTime)
 
         return when (availabilityType) {
             AvailabilityType.WEEKLY_RECURRING ->

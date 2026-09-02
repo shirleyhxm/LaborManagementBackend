@@ -584,8 +584,7 @@ class ShiftScheduler(
                     // Check if employee is available during this hour
                     val availabilityForHour = employee.availability.find { avail ->
                         avail.dayOfWeek == date.dayOfWeek &&
-                                avail.startTime <= interval.first &&
-                                avail.endTime >= interval.second
+                                avail.covers(interval.first, interval.second)
                     }
                     if (availabilityForHour == null) continue
 
@@ -699,8 +698,7 @@ class ShiftScheduler(
             val availableEmployees = sortedEmployees.filter { employee ->
                 employee.availability.any { avail ->
                     avail.dayOfWeek == date.dayOfWeek &&
-                    avail.startTime <= startTime &&
-                    avail.endTime >= endTime
+                    avail.covers(startTime, endTime)
                 }
             }
 
@@ -1027,8 +1025,7 @@ class ShiftScheduler(
                 val availableEmployees = schedulableEmployees.filter { employee ->
                     employee.availability.any { avail ->
                         avail.dayOfWeek == date.dayOfWeek &&
-                        avail.startTime <= startTime &&
-                        avail.endTime >= endTime
+                        avail.covers(startTime, endTime)
                     }
                 }
 
