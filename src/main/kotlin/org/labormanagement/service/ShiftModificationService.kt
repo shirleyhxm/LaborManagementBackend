@@ -3,6 +3,7 @@ package org.labormanagement.service
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
+import org.labormanagement.repository.TimeoffRepository
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -18,7 +19,9 @@ class ShiftModificationService(
     private val scheduleRepository: ScheduleRepository,
     private val employeeRepository: EmployeeRepository,
     private val constraintValidator: ConstraintValidator,
-    private val constraintsService: ConstraintsService = ConstraintsService()
+    private val constraintsService: ConstraintsService = ConstraintsService(),
+    private val timeoffRepository: TimeoffRepository = TimeoffRepository(),
+    private val planValidator: ShiftPlanValidator = ShiftPlanValidator()
 ) {
 
     /**
@@ -369,16 +372,32 @@ class ShiftModificationService(
     }
 
     /**
-     * Validate a shift modification (employee change, time change, etc.)
+     * Validate a shift modification (employee change, time change, etc.).
+     *
+     * Delegates to [ShiftPlanValidator], the same checker that validates a generated
+     * schedule, so a dragged shift is judged against the rules the optimizer enforces
+     * rather than a hand-maintained subset of them. Before this was shared, every rule the
+     * solver knew about but this path didn't was a way to assemble by dragging a schedule
+     * generation would have refused to produce.
+     *
+     * The plan handed to the validator is the schedule as it *would be* after the move: the
+     * original row is dropped and the modified one added, so rules that depend on the whole
+     * day or week (block length, daily totals, rest between shifts) see the real result
+     * rather than the moved shift in isolation.
+     *
+     * Only violations the edit actually *introduces* are returned. A draft routinely
+     * carries violations already — generation records them rather than refusing to produce
+     * a schedule, and rules can be tightened after the fact, which retroactively makes
+     * saved schedules non-compliant. Reporting the resulting state as-is would blame each
+     * edit for every pre-existing problem on the employees it touches and leave the grid
+     * uneditable, so the plan is validated before and after and the difference is what
+     * gets reported.
      */
     private fun validateShiftModification(
         schedule: Schedule,
         originalShift: Shift,
         modifiedShift: Shift
     ): List<ConstraintViolation> {
-        val violations = mutableListOf<ConstraintViolation>()
-
-        // Get employee
         val employee = employeeRepository.findById(schedule.businessId, modifiedShift.employeeId)
             ?: return listOf(
                 ConstraintViolation.Shift(
@@ -391,75 +410,74 @@ class ShiftModificationService(
                 )
             )
 
-        // Check employee availability
-        val isAvailable = employee.availability.any {
-            it.dayOfWeek == modifiedShift.date.dayOfWeek &&
-                    it.startTime <= modifiedShift.startTime &&
-                    it.endTime >= modifiedShift.endTime
+        // Both sides of a reassignment are affected: the employee receiving the shift, and
+        // the one giving it up, whose own totals and rest gaps change too.
+        val affected = setOfNotNull(employee.id, originalShift.employeeId)
+        val employees = affected.mapNotNull { employeeRepository.findById(schedule.businessId, it) }
+        val rules = buildRules(schedule, affected)
+
+        fun check(shifts: List<Shift>) = planValidator.validate(
+            shifts = shifts,
+            employees = employees,
+            rules = rules,
+            restrictTo = affected
+        )
+
+        val before = check(schedule.shifts).map { it.identity() }.toMutableList()
+        val after = check(schedule.shifts.filter { it.id != originalShift.id } + modifiedShift)
+
+        // Set subtraction would collapse duplicates: two identical violations before and
+        // three after is one new problem, not none. Remove matches one at a time instead.
+        return after.filterNot { violation -> before.remove(violation.identity()) }
+    }
+
+    /**
+     * What makes two violations "the same problem" across a before/after comparison.
+     *
+     * Descriptions embed hours and times that shift as shifts move, so comparing them
+     * directly would report a pre-existing violation as new whenever the edit nudged its
+     * numbers. The type plus who and when it concerns is what identifies the problem.
+     */
+    private fun ConstraintViolation.identity(): Triple<ViolationType, UUID?, LocalDate?> =
+        when (this) {
+            is ConstraintViolation.Shift -> Triple(type, employeeId, date)
+            is ConstraintViolation.EmployeeDay -> Triple(type, employeeId, date)
+            is ConstraintViolation.Employee -> Triple(type, employeeId, null)
+            is ConstraintViolation.TimeBlock -> Triple(type, null, date)
+            is ConstraintViolation.ScheduleLevel -> Triple(type, null, null)
         }
 
-        if (!isAvailable) {
-            violations.add(
-                ConstraintViolation.Shift(
-                    type = ViolationType.AVAILABILITY_CONFLICT,
-                    description = "Employee ${employee.fullName} is not available on ${modifiedShift.date.dayOfWeek} from ${modifiedShift.startTime} to ${modifiedShift.endTime}",
-                    employeeId = modifiedShift.employeeId,
-                    date = modifiedShift.date,
-                    startTime = modifiedShift.startTime,
-                    endTime = modifiedShift.endTime
-                )
-            )
+    /**
+     * Assembles the business's saved rules for a validation run.
+     *
+     * Time off is fetched per affected employee rather than for the whole business: a move
+     * only concerns the people it touches, and the schedule period bounds the dates worth
+     * asking about.
+     */
+    private fun buildRules(schedule: Schedule, affected: Set<UUID>): ShiftPlanValidator.Rules {
+        val dates = schedule.schedulePeriod.getAllDates()
+        val timeoffDates = if (dates.isEmpty()) {
+            emptyMap()
+        } else {
+            affected.associateWith { employeeId ->
+                timeoffRepository.findApprovedByEmployeeIdAndDateRange(
+                    schedule.businessId,
+                    employeeId,
+                    dates.min(),
+                    dates.max()
+                ).flatMap { request ->
+                    generateSequence(request.startDate) { day ->
+                        day.plusDays(1).takeIf { !it.isAfter(request.endDate) }
+                    }.toList()
+                }.toSet()
+            }.filterValues { it.isNotEmpty() }
         }
 
-        // Check for shift overlaps (exclude the original shift being modified)
-        val otherShifts = schedule.shifts.filter { it.id != originalShift.id }
-        val hasOverlap = otherShifts.any {
-            it.employeeId == modifiedShift.employeeId && it.overlaps(modifiedShift)
-        }
-
-        if (hasOverlap) {
-            violations.add(
-                ConstraintViolation.Shift(
-                    type = ViolationType.SHIFT_OVERLAP,
-                    description = "Shift overlaps with another shift for ${employee.fullName}",
-                    employeeId = modifiedShift.employeeId,
-                    date = modifiedShift.date,
-                    startTime = modifiedShift.startTime,
-                    endTime = modifiedShift.endTime
-                )
-            )
-        }
-
-        // Check contract hours (calculate weekly total excluding original shift)
-        val weeklyHours = otherShifts
-            .filter { it.employeeId == modifiedShift.employeeId }
-            .sumOf { it.durationHours } + modifiedShift.durationHours
-
-        if (weeklyHours > employee.contract.maxHoursPerWeek) {
-            violations.add(
-                ConstraintViolation.Employee(
-                    type = ViolationType.CONTRACT_HOURS_EXCEEDED,
-                    description = "Total weekly hours (${String.format("%.1f", weeklyHours)}) exceeds maximum (${employee.contract.maxHoursPerWeek}) for ${employee.fullName}",
-                    employeeId = modifiedShift.employeeId
-                )
-            )
-        }
-
-        // Check daily hours
-        if (modifiedShift.durationHours > employee.contract.maxHoursPerDay) {
-            violations.add(
-                ConstraintViolation.Shift(
-                    type = ViolationType.CONTRACT_HOURS_EXCEEDED,
-                    description = "Shift duration (${String.format("%.1f", modifiedShift.durationHours)}h) exceeds daily maximum (${employee.contract.maxHoursPerDay}h) for ${employee.fullName}",
-                    employeeId = modifiedShift.employeeId,
-                    date = modifiedShift.date,
-                    startTime = modifiedShift.startTime,
-                    endTime = modifiedShift.endTime
-                )
-            )
-        }
-
-        return violations
+        return ShiftPlanValidator.Rules(
+            workingHours = constraintsService.getWorkingHoursRules(schedule.businessId),
+            compliance = constraintsService.getComplianceRules(schedule.businessId),
+            timeoffDates = timeoffDates
+        )
     }
 
     /**

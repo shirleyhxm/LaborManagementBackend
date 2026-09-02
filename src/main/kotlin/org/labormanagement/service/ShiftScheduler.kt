@@ -92,6 +92,24 @@ class ShiftScheduler(
     }
 
     /**
+     * The business's saved rules, packaged for [ShiftPlanValidator].
+     *
+     * Takes the time off and other-location commitments already resolved for the solver
+     * rather than re-fetching them, so the post-generation check reasons about exactly the
+     * inputs the schedule was built from.
+     */
+    private fun planRules(
+        businessId: UUID,
+        timeoffExclusions: Map<UUID, Set<LocalDate>>,
+        shiftsElsewhere: List<Shift>
+    ): ShiftPlanValidator.Rules = ShiftPlanValidator.Rules(
+        workingHours = constraintsService.getWorkingHoursRules(businessId),
+        compliance = constraintsService.getComplianceRules(businessId),
+        timeoffDates = timeoffExclusions,
+        shiftsElsewhere = shiftsElsewhere
+    )
+
+    /**
      * Dates each employee is approved to be off, keyed by employee id.
      *
      * Looked up by employee rather than by business: someone who works at
@@ -200,9 +218,17 @@ class ShiftScheduler(
             mergeConsecutiveStaffingRequirements(staffingRequirements)
         }
 
-        // Validate constraints
+        // Validate constraints. The rules are handed over explicitly so the generated
+        // schedule is judged against exactly what a manual edit is judged against - the
+        // shared ShiftPlanValidator behind both paths can only check what it is given.
         val violations = profile("generateSchedule.validate") {
-            validator.validate(mergedShifts, employees, input.laborCostBudget, mergedRequirements)
+            validator.validate(
+                mergedShifts,
+                employees,
+                input.laborCostBudget,
+                mergedRequirements,
+                planRules(businessId, timeoffExclusions, shiftsElsewhere)
+            )
         }
 
         // Calculate metrics
@@ -321,9 +347,15 @@ class ShiftScheduler(
             )
         }
 
-        // Validate constraints
+        // Validate constraints - see the note on the other call site.
         val violations = profile("generateSchedule.validate") {
-            validator.validate(shifts, employees, input.laborCostBudget, staffingRequirements)
+            validator.validate(
+                shifts,
+                employees,
+                input.laborCostBudget,
+                staffingRequirements,
+                planRules(businessId, timeoffExclusions, shiftsElsewhere)
+            )
         }
 
         // Calculate metrics

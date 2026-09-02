@@ -7,149 +7,37 @@ import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.model.ViolationType
 import java.time.LocalDate
 
-class ConstraintValidator {
+/**
+ * Validates a generated schedule.
+ *
+ * The per-employee rule checks live in [ShiftPlanValidator], which is shared with the
+ * manual-edit path in ShiftModificationService so a dragged shift is judged against the
+ * same rules a generated one is. What remains here is the part that is specific to a
+ * freshly generated schedule: the staffing requirements it was built to satisfy, which a
+ * single shift edit has no equivalent of.
+ */
+class ConstraintValidator(
+    private val planValidator: ShiftPlanValidator = ShiftPlanValidator()
+) {
 
     fun validate(
         shifts: List<Shift>,
         employees: List<Employee>,
         laborCostBudget: Double,
-        staffingRequirements: List<StaffingRequirement> = emptyList()
+        staffingRequirements: List<StaffingRequirement> = emptyList(),
+        rules: ShiftPlanValidator.Rules = ShiftPlanValidator.Rules()
     ): List<ConstraintViolation> {
         val violations = mutableListOf<ConstraintViolation>()
 
-        // Check budget constraint
-        val totalCost = shifts.sumOf { it.laborCost }
-        if (totalCost > laborCostBudget) {
-            violations.add(
-                ConstraintViolation.ScheduleLevel(
-                    type = ViolationType.BUDGET_EXCEEDED,
-                    description = "Total labor cost $${"%.2f".format(totalCost)} exceeds budget $${
-                        "%.2f".format(
-                            laborCostBudget
-                        )
-                    }"
-                )
+        violations.addAll(
+            planValidator.validate(
+                shifts = shifts,
+                employees = employees,
+                rules = rules.copy(laborCostBudget = laborCostBudget)
             )
-        }
+        )
 
-        // Check understaffing
         violations.addAll(checkUnderstaffing(staffingRequirements))
-
-        // Check employee-specific constraints
-        val employeeMap = employees.associateBy { it.id }
-        val shiftsByEmployee = shifts.groupBy { it.employeeId }
-
-        shiftsByEmployee.forEach { (employeeId, employeeShifts) ->
-            val employee = employeeMap[employeeId] ?: return@forEach
-
-            // Check availability
-            violations.addAll(checkAvailability(employee, employeeShifts))
-
-            // Check contract hours
-            violations.addAll(checkContractCompliance(employee, employeeShifts))
-
-            // Check for overlapping shifts
-            violations.addAll(checkShiftOverlaps(employee, employeeShifts))
-
-            // Check break requirements
-            violations.addAll(checkBreakRequirements(employee, employeeShifts))
-        }
-
-        return violations
-    }
-
-    private fun checkAvailability(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
-        val violations = mutableListOf<ConstraintViolation>()
-
-        shifts.forEach { shift ->
-            val isAvailable = employee.availability.any { it.canWork(shift) }
-            if (!isAvailable) {
-                violations.add(
-                    ConstraintViolation.Shift(
-                        type = ViolationType.AVAILABILITY_CONFLICT,
-                        description = "${employee.fullName} is not available for shift on ${shift.dayOfWeek} ${shift.startTime}-${shift.endTime}",
-                        employeeId = employee.id,
-                        date = shift.date,
-                        startTime = shift.startTime,
-                        endTime = shift.endTime
-                    )
-                )
-            }
-        }
-
-        return violations
-    }
-
-    private fun checkContractCompliance(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
-        val violations = mutableListOf<ConstraintViolation>()
-        val contract = employee.contract
-
-        // Check weekly hours
-        val totalWeeklyHours = shifts.sumOf { it.durationHours }
-        if (totalWeeklyHours > contract.maxHoursPerWeek) {
-            violations.add(
-                ConstraintViolation.Employee(
-                    type = ViolationType.CONTRACT_HOURS_EXCEEDED,
-                    description = "${employee.fullName} scheduled for ${"%.2f".format(totalWeeklyHours)} hours, exceeds max ${contract.maxHoursPerWeek} hours/week",
-                    employeeId = employee.id
-                )
-            )
-        }
-
-        // Check daily hours
-        shifts.groupBy { it.dayOfWeek }.forEach { (day, dayShifts) ->
-            val dailyHours = dayShifts.sumOf { it.durationHours }
-            if (dailyHours > contract.maxHoursPerDay) {
-                violations.add(
-                    ConstraintViolation.EmployeeDay(
-                        type = ViolationType.CONTRACT_HOURS_EXCEEDED,
-                        description = "${employee.fullName} scheduled for ${"%.2f".format(dailyHours)} hours on $day, exceeds max ${contract.maxHoursPerDay} hours/day",
-                        employeeId = employee.id,
-                        date = dayShifts[0].date
-                    )
-                )
-            }
-        }
-
-        return violations
-    }
-
-    private fun checkShiftOverlaps(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
-        val violations = mutableListOf<ConstraintViolation>()
-
-        for (i in shifts.indices) {
-            for (j in i + 1 until shifts.size) {
-                if (shifts[i].overlaps(shifts[j])) {
-                    violations.add(
-                        ConstraintViolation.Shift(
-                            type = ViolationType.SHIFT_OVERLAP,
-                            description = "${employee.fullName} has overlapping shifts on ${shifts[i].dayOfWeek}",
-                            employeeId = employee.id,
-                            date = shifts[i].date,
-                            startTime = shifts[i].startTime,
-                            endTime = shifts[i].endTime
-                        )
-                    )
-                }
-            }
-        }
-
-        return violations
-    }
-
-    private fun checkBreakRequirements(employee: Employee, shifts: List<Shift>): List<ConstraintViolation> {
-        val violations = mutableListOf<ConstraintViolation>()
-        val contract = employee.contract
-
-        if (!contract.requiresBreak) return violations
-
-        shifts.forEach { shift ->
-            if (shift.durationHours > contract.shiftLengthThresholdHours) {
-                // In a real system, we'd track whether breaks are scheduled
-                // For now, we just validate that long shifts exist and warn about breaks
-                // This is informational rather than a violation
-            }
-        }
 
         return violations
     }
