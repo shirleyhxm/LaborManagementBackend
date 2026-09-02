@@ -839,9 +839,127 @@ class ScheduleController(
                     )
                 }
             }
+
+            /**
+             * Whether an undo is currently available for this schedule.
+             *
+             * Its own endpoint rather than a field on the schedule payload: undo
+             * availability is server-side state that changes independently of the
+             * schedule itself, and widening the schedule response would change a shape
+             * every existing consumer already parses.
+             */
+            get("/{scheduleId}/undo") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@get
+                    }
+
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@get
+                    }
+
+                    val scheduleId = call.parameters["scheduleId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (scheduleId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid schedule ID"))
+                        return@get
+                    }
+
+                    val schedule = scheduleRepository.findById(businessId, scheduleId)
+                    if (schedule == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Schedule not found"))
+                        return@get
+                    }
+
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        // A published schedule can't be edited, so a retained snapshot
+                        // is not an offer worth making.
+                        "canUndo" to (schedule.isDraft && shiftModificationService.canUndo(scheduleId))
+                    ))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to check undo availability", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to check undo availability: ${e.message}")
+                    )
+                }
+            }
+
+            /**
+             * Undo the last shift change to a draft schedule.
+             *
+             * Answers 200 either way: `restored: false` means there was nothing retained
+             * to go back to, which is an ordinary state for a schedule that hasn't been
+             * edited yet, not a failure. Any violations the restored plan carries are
+             * returned alongside it — the restore is not refused for them.
+             */
+            post("/{scheduleId}/undo") {
+                try {
+                    val businessId = call.parameters["businessId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (businessId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid business ID"))
+                        return@post
+                    }
+
+                    val contextBusinessId = TenantContextHolder.getContext()?.businessId
+                    if (contextBusinessId != null && contextBusinessId != businessId) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Cannot access schedules from different business"))
+                        return@post
+                    }
+
+                    val scheduleId = call.parameters["scheduleId"]?.let {
+                        try { UUID.fromString(it) } catch (e: Exception) { null }
+                    }
+                    if (scheduleId == null) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid schedule ID"))
+                        return@post
+                    }
+
+                    val request = try {
+                        call.receive<UndoScheduleRequest>()
+                    } catch (e: Exception) {
+                        UndoScheduleRequest()
+                    }
+
+                    val result = shiftModificationService.undoLastChange(
+                        businessId = businessId,
+                        scheduleId = scheduleId,
+                        modifiedBy = request.modifiedBy
+                    )
+
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        "restored" to result.restored,
+                        "schedule" to result.schedule,
+                        "violations" to result.violations
+                    ))
+                } catch (e: IllegalStateException) {
+                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to e.message))
+                } catch (e: IllegalArgumentException) {
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to e.message))
+                } catch (e: Exception) {
+                    call.application.log.error("Failed to undo schedule change", e)
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "Failed to undo change: ${e.message}")
+                    )
+                }
+            }
         }
     }
 }
+
+data class UndoScheduleRequest(
+    val modifiedBy: String = "system"
+)
 
 // DTOs
 data class GenerateScheduleRequest(

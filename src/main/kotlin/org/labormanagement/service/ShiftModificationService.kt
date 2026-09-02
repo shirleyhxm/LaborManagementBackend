@@ -1,5 +1,6 @@
 package org.labormanagement.service
 
+import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.model.*
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
@@ -21,7 +22,8 @@ class ShiftModificationService(
     private val constraintValidator: ConstraintValidator,
     private val constraintsService: ConstraintsService = ConstraintsService(),
     private val timeoffRepository: TimeoffRepository = TimeoffRepository(),
-    private val planValidator: ShiftPlanValidator = ShiftPlanValidator()
+    private val planValidator: ShiftPlanValidator = ShiftPlanValidator(),
+    private val undoService: ScheduleUndoService = ScheduleUndoService()
 ) {
 
     /**
@@ -113,7 +115,16 @@ class ShiftModificationService(
                 lastModifiedBy = modifiedBy
             )
 
-            scheduleRepository.update(scheduleId, updatedSchedule)
+            // Recorded before the write, so an undo returns to the shifts as they were
+            // rather than as they are about to become. Only successful edits are
+            // snapshotted: a rejected move changes nothing, so there is nothing to undo.
+            //
+            // Both in one transaction, so a schedule can never end up edited with no way
+            // back, or carrying a snapshot for an edit that didn't land.
+            transaction {
+                undoService.recordSnapshot(scheduleId, schedule.shifts, modifiedBy)
+                scheduleRepository.update(scheduleId, updatedSchedule)
+            }
 
             return ShiftModificationResult(
                 shift = modifiedShift,
@@ -195,7 +206,10 @@ class ShiftModificationService(
                 lastModifiedBy = createdBy
             )
 
-            scheduleRepository.update(scheduleId, updatedSchedule)
+            transaction {
+                undoService.recordSnapshot(scheduleId, schedule.shifts, createdBy)
+                scheduleRepository.update(scheduleId, updatedSchedule)
+            }
 
             return DuplicateShiftResult(
                 // As in modifyShift, the duplicate may have been split, so its id may no
@@ -266,8 +280,82 @@ class ShiftModificationService(
             lastModifiedBy = modifiedBy
         )
 
-        scheduleRepository.update(scheduleId, updatedSchedule)
+        transaction {
+            undoService.recordSnapshot(scheduleId, schedule.shifts, modifiedBy)
+            scheduleRepository.update(scheduleId, updatedSchedule)
+        }
     }
+
+    /**
+     * Restore the shifts a draft schedule had before its most recent edit.
+     *
+     * The snapshot is consumed, so one edit can be undone once. This is what makes undo
+     * work across a merge: [modifyShift] can only move rows that exist, and a merge
+     * destroys the boundary it would need to move back, whereas the recorded rows state
+     * the previous shape outright.
+     *
+     * The restored plan is re-validated but never refused. A state that was acceptable
+     * when it was recorded can breach a rule that has been tightened since, and blocking
+     * the undo would strand the manager in a state they explicitly asked to leave. The
+     * resulting violations are recorded on the schedule instead — the same treatment
+     * generation gives a schedule it could not make perfectly compliant.
+     */
+    fun undoLastChange(
+        businessId: UUID,
+        scheduleId: UUID,
+        modifiedBy: String
+    ): UndoResult {
+        val schedule = scheduleRepository.findById(businessId, scheduleId)
+            ?: throw IllegalArgumentException("Schedule not found: $scheduleId")
+
+        if (!schedule.isDraft) {
+            throw IllegalStateException("Cannot undo changes to a ${schedule.status} schedule. Only DRAFT schedules can be edited.")
+        }
+
+        val employees = schedule.employeeIds.mapNotNull { employeeRepository.findById(businessId, it) }
+
+        // Consuming the snapshot and writing the restore share one transaction: a failure
+        // partway through has to leave the undo still available, rather than spending it
+        // on a restore that never landed.
+        return transaction {
+            val restoredShifts = undoService.consumeLatestSnapshot(scheduleId)
+                ?: return@transaction UndoResult(
+                    schedule = schedule,
+                    restored = false,
+                    violations = emptyList()
+                )
+
+            // Validated as a whole rather than as a diff: there is no "edit" being judged
+            // here, just a plan being reinstated, so every violation it carries is reported.
+            val violations = planValidator.validate(
+                shifts = restoredShifts,
+                employees = employees,
+                rules = buildRules(schedule, employees.map { it.id }.toSet()),
+                restrictTo = null
+            )
+
+            val restoredSchedule = schedule.copy(
+                shifts = restoredShifts,
+                metrics = calculateScheduleMetrics(restoredShifts, employees, businessId),
+                staffingRequirements = recalculateStaffingRequirements(
+                    shifts = restoredShifts,
+                    originalRequirements = schedule.staffingRequirements,
+                    employees = employees
+                ),
+                violations = violations,
+                version = schedule.version + 1,
+                lastModifiedAt = Instant.now(),
+                lastModifiedBy = modifiedBy
+            )
+
+            scheduleRepository.update(scheduleId, restoredSchedule)
+
+            UndoResult(schedule = restoredSchedule, restored = true, violations = violations)
+        }
+    }
+
+    /** Whether [undoLastChange] currently has anything to restore. */
+    fun canUndo(scheduleId: UUID): Boolean = transaction { undoService.hasSnapshot(scheduleId) }
 
     /**
      * Publish a schedule (makes it immutable)
@@ -297,7 +385,12 @@ class ShiftModificationService(
             lastModifiedBy = publishedBy
         )
 
-        return scheduleRepository.update(scheduleId, publishedSchedule)
+        // A published schedule is immutable, so a retained undo could only ever be an
+        // offer to reinstate draft shifts into a schedule that no longer accepts edits.
+        return transaction {
+            undoService.clear(scheduleId)
+            scheduleRepository.update(scheduleId, publishedSchedule)
+        }
     }
 
     /**
@@ -594,4 +687,17 @@ data class DuplicateShiftResult(
     val shift: Shift?,
     val violations: List<ConstraintViolation>,
     val isValid: Boolean
+)
+
+/**
+ * Result of undoing the last change to a schedule.
+ *
+ * [restored] is false when there was nothing retained to go back to — a distinct case
+ * from a failure, and the one the caller reports as "nothing to undo" rather than an
+ * error. [violations] are those the restored plan carries; it is reinstated regardless.
+ */
+data class UndoResult(
+    val schedule: Schedule,
+    val restored: Boolean,
+    val violations: List<ConstraintViolation>
 )

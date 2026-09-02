@@ -292,6 +292,39 @@ object Shifts : Table("shifts") {
     override val primaryKey = PrimaryKey(id)
 }
 
+/**
+ * The shift rows of a draft schedule as they stood immediately before an edit, kept
+ * so the edit can be undone.
+ *
+ * Only the shifts are stored. Metrics, violations and staffing requirements are all
+ * derived from the shift list — ShiftModificationService recomputes them on every
+ * edit — so snapshotting them would store nothing new and give the restore a second,
+ * possibly stale, source of truth to disagree with.
+ *
+ * Deliberately *not* a full version history: rows are trimmed to the newest
+ * [org.labormanagement.service.ScheduleUndoService.UNDO_DEPTH] per schedule on every
+ * write, so the table is bounded by (schedules x depth) rather than growing with edit
+ * count. That is the whole reason this exists as its own table instead of leaning on
+ * Schedules.version, which would have to retain every intermediate state to be useful.
+ */
+object ScheduleUndoSnapshots : Table("schedule_undo_snapshots") {
+    val id = uuid("id")
+    val scheduleId = uuid("schedule_id").references(Schedules.id)
+    // Monotonic per schedule; the newest snapshot is the one with the highest value.
+    // An explicit sequence rather than ordering on createdAt, whose resolution can tie
+    // when two edits land in the same instant.
+    val sequence = long("sequence")
+    val shifts = text("shifts") // JSON array of ShiftSnapshotDto
+    val createdAt = timestamp("created_at")
+    val createdBy = varchar("created_by", 100)
+
+    override val primaryKey = PrimaryKey(id)
+
+    init {
+        index(false, scheduleId, sequence)
+    }
+}
+
 object SwapRequests : Table("swap_requests") {
     val id = uuid("id")
     val businessId = uuid("business_id").references(Businesses.id)
