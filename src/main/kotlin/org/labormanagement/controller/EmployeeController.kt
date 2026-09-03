@@ -17,6 +17,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.put
 import io.ktor.server.routing.delete
 import org.labormanagement.config.EnvironmentConfig
+import org.labormanagement.dto.DATE_FORMATTER
 import org.labormanagement.dto.CreateEmployeeRequest
 import org.labormanagement.dto.CreateInviteRequest
 import org.labormanagement.dto.CreateInviteResponse
@@ -35,6 +36,8 @@ import org.labormanagement.service.UnauthorizedException
 import org.labormanagement.service.effectiveRoleOr
 import org.slf4j.LoggerFactory
 import java.time.Instant
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import java.util.*
 
 class EmployeeController(
@@ -396,10 +399,28 @@ class EmployeeController(
                         return@put
                     }
 
+                    // Sent as dd/MM/yyyy, the same shape the response uses, so a
+                    // record can be read and written back unchanged. Parsed here
+                    // rather than left to the copy below so a malformed date is
+                    // reported as a bad request - it used to be ignored outright,
+                    // which let the caller believe a birthday had been saved.
+                    val parsedDateOfBirth = request.dateOfBirth?.let { raw ->
+                        try {
+                            LocalDate.parse(raw.trim(), DATE_FORMATTER)
+                        } catch (e: DateTimeParseException) {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "Invalid date of birth '$raw' - expected dd/MM/yyyy")
+                            )
+                            return@put
+                        }
+                    }
+
                     val updated = existing.copy(
                         firstName = request.firstName ?: existing.firstName,
                         lastName = request.lastName ?: existing.lastName,
                         middleName = request.middleName ?: existing.middleName,
+                        dateOfBirth = parsedDateOfBirth ?: existing.dateOfBirth,
                         normalPayRate = request.normalPayRate ?: existing.normalPayRate,
                         overtimePayRate = request.overtimePayRate ?: existing.overtimePayRate,
                         productivity = request.productivity ?: existing.productivity,

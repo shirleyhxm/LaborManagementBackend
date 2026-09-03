@@ -9,10 +9,21 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.format.ResolverStyle
 import java.util.Locale
 import java.util.UUID
 
-val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH)
+/**
+ * The employee API's date format, day-first.
+ *
+ * STRICT so an impossible date is rejected rather than quietly moved: the
+ * default resolver clamps 31/02 to the 28th, which would store a birthday
+ * nobody typed. Strict resolution needs the era-independent `uuuu` in place
+ * of `yyyy`; for real dates the two format identically.
+ */
+val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter
+    .ofPattern("dd/MM/uuuu", Locale.ENGLISH)
+    .withResolverStyle(ResolverStyle.STRICT)
 
 data class CreateEmployeeRequest(
     val firstName: String,
