@@ -27,6 +27,7 @@ import org.labormanagement.model.EmployeeInvite
 import org.labormanagement.model.UserRole
 import org.labormanagement.repository.EmployeeInviteRepository
 import org.labormanagement.repository.EmployeeRepository
+import org.labormanagement.repository.UserRepository
 import org.labormanagement.service.ImportService
 import org.labormanagement.service.TenantContextHolder
 import org.labormanagement.service.ForbiddenException
@@ -40,7 +41,8 @@ class EmployeeController(
     private val employeeRepository: EmployeeRepository,
     private val importService: ImportService,
     private val employeeInviteRepository: EmployeeInviteRepository = EmployeeInviteRepository(),
-    private val frontendOrigin: String = EnvironmentConfig.get("FRONTEND_ORIGIN", "http://localhost:3000")
+    private val frontendOrigin: String = EnvironmentConfig.get("FRONTEND_ORIGIN", "http://localhost:3000"),
+    private val userRepository: UserRepository = UserRepository()
 ) {
     private val logger = LoggerFactory.getLogger(EmployeeController::class.java)
 
@@ -431,6 +433,25 @@ class EmployeeController(
                         call.respond(HttpStatusCode.NotFound, mapOf("error" to "Employee not found"))
                         return@put
                     }
+
+                    // The person's name lives on both the employee record and the
+                    // login account it is linked to, and the two are read in
+                    // different places - the portal header comes from the login
+                    // account, the roster from the employee record. Leaving them
+                    // to drift shows one name in the header and another on the
+                    // card, so carry a rename across to the account as well.
+                    val renamed = saved.firstName != existing.firstName || saved.lastName != existing.lastName
+                    if (renamed) {
+                        saved.userId?.let { linkedUserId ->
+                            userRepository.findById(linkedUserId)?.let { account ->
+                                userRepository.update(
+                                    linkedUserId,
+                                    account.copy(firstName = saved.firstName, lastName = saved.lastName)
+                                )
+                            }
+                        }
+                    }
+
                     call.respond(HttpStatusCode.OK, saved.toResponse())
                 } catch (e: Exception) {
                     call.application.log.error("Failed to update employee", e)
