@@ -2,6 +2,7 @@ package org.labormanagement.model
 
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalTime
 import java.util.UUID
 
 /**
@@ -55,7 +56,15 @@ data class BusinessSettings(
     val timezone: String = "America/New_York",
     val currency: String = "USD",
     val weekStartsOn: DayOfWeek = DayOfWeek.SUNDAY,
-    val dateFormat: String = "MM/dd/yyyy"
+    val dateFormat: String = "MM/dd/yyyy",
+    // When the business is open on an ordinary day. Schedule generation covers
+    // this window unless a caller sends explicit per-date hours, so it decides
+    // the span of every shift that can be created.
+    //
+    // The defaults reproduce what the client used to hardcode, so businesses
+    // that never set them keep generating exactly what they did before.
+    val defaultOpenTime: LocalTime = LocalTime.of(9, 0),
+    val defaultCloseTime: LocalTime = LocalTime.of(21, 0)
 )
 
 /**

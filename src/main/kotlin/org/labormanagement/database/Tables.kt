@@ -2,6 +2,7 @@ package org.labormanagement.database
 
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.*
+import java.time.LocalTime
 
 /**
  * Database table definitions using Exposed ORM.
@@ -68,6 +69,10 @@ object Businesses : Table("businesses") {
     val currency = varchar("currency", 10).default("USD")
     val weekStartsOn = varchar("week_starts_on", 20).default("SUNDAY")
     val dateFormat = varchar("date_format", 50).default("MM/dd/yyyy")
+    // Defaulted to the hours the client used to hardcode, so existing rows keep
+    // generating the schedules they did before this became configurable.
+    val defaultOpenTime = time("default_open_time").default(LocalTime.of(9, 0))
+    val defaultCloseTime = time("default_close_time").default(LocalTime.of(21, 0))
 
     override val primaryKey = PrimaryKey(id)
 }

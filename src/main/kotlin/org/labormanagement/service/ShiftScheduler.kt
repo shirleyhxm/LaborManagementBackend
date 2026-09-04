@@ -13,6 +13,7 @@ import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
 import org.labormanagement.optimization.OptimizationConverter
 import org.labormanagement.optimization.ScheduleOptimizer
+import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
 import org.labormanagement.repository.ScheduleRepository
@@ -49,6 +50,7 @@ class ShiftScheduler(
     private val salesForecastRepository: SalesForecastRepository = SalesForecastRepository(),
     private val constraintsService: ConstraintsService = ConstraintsService(),
     private val timeoffRepository: TimeoffRepository = TimeoffRepository(),
+    private val businessRepository: BusinessRepository = BusinessRepository(),
     private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
     private val log = LoggerFactory.getLogger(ShiftScheduler::class.java)
@@ -108,6 +110,32 @@ class ShiftScheduler(
         timeoffDates = timeoffExclusions,
         shiftsElsewhere = shiftsElsewhere
     )
+
+    /**
+     * When the business is open on each date of [schedulePeriod].
+     *
+     * Explicit per-date hours win, so a caller can still describe a day that differs from
+     * the norm. Anything they leave out falls back to the business's configured default
+     * opening hours rather than to a literal in this file.
+     *
+     * Both scheduling paths resolve hours through here so they cannot disagree about the
+     * span of the working day. They previously did: the CP-SAT path substituted 09:00-17:00
+     * for a missing date while the greedy path skipped that date entirely, so the same
+     * request produced either a short day or no shifts at all depending on which path ran.
+     */
+    private fun resolveOperatingHours(
+        businessId: UUID,
+        schedulePeriod: SchedulePeriod
+    ): Map<LocalDate, OperatingHours> {
+        val settings = businessRepository.findById(businessId)?.settings
+        val fallback = OperatingHours(
+            openTime = settings?.defaultOpenTime ?: LocalTime.of(9, 0),
+            closeTime = settings?.defaultCloseTime ?: LocalTime.of(21, 0)
+        )
+        return schedulePeriod.getAllDates().associateWith { date ->
+            schedulePeriod.operatingHours[date] ?: fallback
+        }
+    }
 
     /**
      * Hours these employees have already committed that this generation is not itself
@@ -213,10 +241,12 @@ class ShiftScheduler(
             }
             .toMutableMap()
 
+        val resolvedHours = resolveOperatingHours(businessId, input.schedulePeriod)
+
         // Generate candidate shifts for each day
         profile("generateSchedule.allDays") {
             input.schedulePeriod.getAllDates().forEach { date ->
-                val operatingHours = input.schedulePeriod.operatingHours[date] ?: return@forEach
+                val operatingHours = resolvedHours[date] ?: return@forEach
                 val (dayShifts, dayRequirements) = profile("generateSchedule.singleDay") {
                     generateShiftsForDay(
                         date,
@@ -296,11 +326,8 @@ class ShiftScheduler(
 
         // Build operating hours map
         val scheduleDates = input.schedulePeriod.getAllDates()
-        val operatingHoursMap = scheduleDates.associateWith { date ->
-            input.schedulePeriod.operatingHours[date]?.let { hours ->
-                Pair(hours.openTime, hours.closeTime)
-            } ?: Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))
-        }
+        val operatingHoursMap = resolveOperatingHours(businessId, input.schedulePeriod)
+            .mapValues { (_, hours) -> Pair(hours.openTime, hours.closeTime) }
 
         val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
             buildTimeoffExclusions(employees.map { it.id }, scheduleDates.min(), scheduleDates.max())
@@ -356,7 +383,8 @@ class ShiftScheduler(
                 employees,
                 input.schedulePeriod,
                 salesForecast,
-                timeoffExclusions
+                timeoffExclusions,
+                operatingHoursByDate = resolveOperatingHours(businessId, input.schedulePeriod)
             )
         }
 
@@ -1008,13 +1036,18 @@ class ShiftScheduler(
         employees: List<Employee>,
         schedulePeriod: org.labormanagement.model.SchedulePeriod,
         salesForecast: SalesForecast,
-        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap()
+        timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap(),
+        // The same resolved hours the shifts were generated against. Taken as a parameter
+        // rather than re-read from schedulePeriod so a date the caller left unspecified
+        // still reports its staffing, instead of being silently skipped and looking like a
+        // day with no demand at all.
+        operatingHoursByDate: Map<LocalDate, OperatingHours>
     ): List<StaffingRequirement> {
         val requirements = mutableListOf<StaffingRequirement>()
         val employeeMap = employees.associateBy { it.id }
 
         schedulePeriod.getAllDates().forEach { date ->
-            val operatingHours = schedulePeriod.operatingHours[date] ?: return@forEach
+            val operatingHours = operatingHoursByDate[date] ?: return@forEach
             val dayForecast = salesForecast.getForecastForDate(date)
             val schedulableEmployees = employees.filter { employee ->
                 date !in (timeoffExclusions[employee.id] ?: emptySet())

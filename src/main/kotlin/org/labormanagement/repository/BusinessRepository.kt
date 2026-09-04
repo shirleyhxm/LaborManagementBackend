@@ -46,6 +46,8 @@ class BusinessRepository {
             it[currency] = business.settings.currency
             it[weekStartsOn] = business.settings.weekStartsOn.name
             it[dateFormat] = business.settings.dateFormat
+            it[defaultOpenTime] = business.settings.defaultOpenTime
+            it[defaultCloseTime] = business.settings.defaultCloseTime
         }
 
         business
@@ -128,6 +130,8 @@ class BusinessRepository {
             it[currency] = business.settings.currency
             it[weekStartsOn] = business.settings.weekStartsOn.name
             it[dateFormat] = business.settings.dateFormat
+            it[defaultOpenTime] = business.settings.defaultOpenTime
+            it[defaultCloseTime] = business.settings.defaultCloseTime
         }
 
         business
@@ -248,7 +252,9 @@ class BusinessRepository {
                 timezone = this[Businesses.timezone],
                 currency = this[Businesses.currency],
                 weekStartsOn = DayOfWeek.valueOf(this[Businesses.weekStartsOn]),
-                dateFormat = this[Businesses.dateFormat]
+                dateFormat = this[Businesses.dateFormat],
+                defaultOpenTime = this[Businesses.defaultOpenTime],
+                defaultCloseTime = this[Businesses.defaultCloseTime]
             )
         )
     }

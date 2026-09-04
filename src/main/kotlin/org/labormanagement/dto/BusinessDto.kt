@@ -4,9 +4,14 @@ import org.labormanagement.model.Business
 import org.labormanagement.model.BusinessSettings
 import org.labormanagement.model.BusinessStatus
 import org.labormanagement.model.SubscriptionPlan
+import org.labormanagement.util.parseFlexibleTime
 import java.time.DayOfWeek
 import java.time.Instant
+import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+/** Business hours cross the wire as "HH:mm", the same shape as shift times. */
+private val WIRE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
  * Request to create a new business
@@ -61,7 +66,10 @@ data class BusinessSettingsDto(
     val timezone: String = "America/New_York",
     val currency: String = "USD",
     val weekStartsOn: String = "SUNDAY",
-    val dateFormat: String = "MM/dd/yyyy"
+    val dateFormat: String = "MM/dd/yyyy",
+    // "HH:mm", matching how shift times already cross the wire.
+    val defaultOpenTime: String = "09:00",
+    val defaultCloseTime: String = "21:00"
 )
 
 // Extension functions for conversion
@@ -105,7 +113,9 @@ fun BusinessSettings.toDto(): BusinessSettingsDto {
         timezone = this.timezone,
         currency = this.currency,
         weekStartsOn = this.weekStartsOn.name,
-        dateFormat = this.dateFormat
+        dateFormat = this.dateFormat,
+        defaultOpenTime = this.defaultOpenTime.format(WIRE_TIME),
+        defaultCloseTime = this.defaultCloseTime.format(WIRE_TIME)
     )
 }
 
@@ -117,7 +127,11 @@ fun BusinessSettingsDto.toModel(): BusinessSettings {
         timezone = this.timezone,
         currency = this.currency,
         weekStartsOn = DayOfWeek.valueOf(this.weekStartsOn.uppercase()),
-        dateFormat = this.dateFormat
+        dateFormat = this.dateFormat,
+        // parseFlexibleTime rather than LocalTime.parse: a business that closes at
+        // midnight is naturally written "24:00", which LocalTime rejects outright.
+        defaultOpenTime = parseFlexibleTime(this.defaultOpenTime),
+        defaultCloseTime = parseFlexibleTime(this.defaultCloseTime)
     )
 }
 
