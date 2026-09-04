@@ -247,6 +247,9 @@ object Schedules : Table("schedules") {
     val businessId = uuid("business_id").references(Businesses.id)
     val name = varchar("name", 255)
     val status = varchar("status", 50)
+    // Regular roster vs one-off special event. Defaulted so existing rows - all of
+    // which are regular schedules - migrate without a backfill.
+    val kind = varchar("kind", 20).default("REGULAR")
     val startDate = date("start_date")
     val endDate = date("end_date")
 

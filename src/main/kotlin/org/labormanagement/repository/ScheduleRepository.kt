@@ -31,12 +31,26 @@ class ScheduleRepository(
      * it will be removed and replaced with the new schedule.
      */
     fun save(schedule: Schedule): Schedule = transaction {
-        // Check if there's an existing schedule for this date range in this business
-        val existing = Schedules.selectAll().where {
-            (Schedules.businessId eq schedule.businessId) and
-            (Schedules.startDate eq schedule.schedulePeriod.startDate) and
-            (Schedules.endDate eq schedule.schedulePeriod.endDate)
-        }.singleOrNull()
+        // Replace-by-date-range applies to regular schedules only: there is one roster for
+        // a given period, so re-generating it supersedes what was there.
+        //
+        // Events are exempt. A business can legitimately run several on one day (a lunch
+        // private hire and an evening party), and they share a start and end date, so
+        // replacing by date range would silently delete the first one when the second is
+        // generated. Events are replaced explicitly via their own definition instead.
+        //
+        // Scoping by kind also stops an event from ever deleting the weekly schedule it
+        // happens to share dates with.
+        val existing = if (schedule.kind == ScheduleKind.REGULAR) {
+            Schedules.selectAll().where {
+                (Schedules.businessId eq schedule.businessId) and
+                (Schedules.kind eq ScheduleKind.REGULAR.name) and
+                (Schedules.startDate eq schedule.schedulePeriod.startDate) and
+                (Schedules.endDate eq schedule.schedulePeriod.endDate)
+            }.singleOrNull()
+        } else {
+            null
+        }
 
         if (existing != null && existing[Schedules.id] != schedule.id) {
             val existingScheduleId = existing[Schedules.id]
@@ -54,6 +68,7 @@ class ScheduleRepository(
             it[businessId] = schedule.businessId
             it[name] = schedule.name
             it[status] = schedule.status.name
+            it[kind] = schedule.kind.name
             it[startDate] = schedule.schedulePeriod.startDate
             it[endDate] = schedule.schedulePeriod.endDate
             it[employeeIds] = gson.toJson(schedule.employeeIds)
@@ -104,34 +119,81 @@ class ScheduleRepository(
     }
 
     /**
-     * Find all schedules for a business, sorted by creation date (newest first)
+     * Find schedules for a business, sorted by creation date (newest first).
+     *
+     * [kind] is required rather than defaulted because the two kinds of caller want
+     * opposite things and neither is safely the default: the schedule list wants regular
+     * schedules only, while retention and archival must see every schedule there is. A
+     * default would quietly exclude events from whichever of those it did not match -
+     * silently stranding them for TTL, which is the worse failure.
+     *
+     * Pass null for every kind.
      */
-    fun findAllByBusiness(businessId: UUID): List<Schedule> = transaction {
-        Schedules.selectAll().where { Schedules.businessId eq businessId }
+    fun findAllByBusiness(businessId: UUID, kind: ScheduleKind?): List<Schedule> = transaction {
+        val businessMatch = Schedules.businessId eq businessId
+        Schedules.selectAll()
+            .where { if (kind != null) businessMatch and (Schedules.kind eq kind.name) else businessMatch }
             .orderBy(Schedules.createdAt, SortOrder.DESC)
             .map { it.toSchedule() }
     }
 
     /**
-     * Find schedules by business and status
+     * Find schedules by business and status, restricted to one kind.
+     *
+     * Defaults to regular schedules: callers asking for "the business's schedules" mean
+     * its rosters, and mixing one-off events into that list would put them in the schedule
+     * history dropdown alongside the weeks they belong to.
      */
-    fun findByBusinessAndStatus(businessId: UUID, status: ScheduleStatus): List<Schedule> = transaction {
+    fun findByBusinessAndStatus(
+        businessId: UUID,
+        status: ScheduleStatus,
+        kind: ScheduleKind = ScheduleKind.REGULAR
+    ): List<Schedule> = transaction {
         Schedules.selectAll().where {
-            (Schedules.businessId eq businessId) and (Schedules.status eq status.name)
+            (Schedules.businessId eq businessId) and
+                (Schedules.status eq status.name) and
+                (Schedules.kind eq kind.name)
         }
             .orderBy(Schedules.createdAt, SortOrder.DESC)
             .map { it.toSchedule() }
     }
 
     /**
-     * Find schedule by business ID and date range (startDate and endDate)
+     * Find the regular schedule covering exactly this date range.
+     *
+     * Restricted to [ScheduleKind.REGULAR] for correctness, not just tidiness: the exact
+     * start/end match plus `singleOrNull` assumes at most one schedule per range, and an
+     * event sharing those dates would both be returned in place of the roster and, once a
+     * second one existed, make this throw.
      */
     fun findByBusinessAndDateRange(businessId: UUID, startDate: LocalDate, endDate: LocalDate): Schedule? = transaction {
         Schedules.selectAll().where {
             (Schedules.businessId eq businessId) and
+            (Schedules.kind eq ScheduleKind.REGULAR.name) and
             (Schedules.startDate eq startDate) and
             (Schedules.endDate eq endDate)
         }.singleOrNull()?.toSchedule()
+    }
+
+    /**
+     * Every event schedule overlapping the given range, soonest first.
+     *
+     * An overlap query rather than an exact match, and a list rather than a single row:
+     * a week can hold several events, and each spans only its own hours.
+     */
+    fun findEventsByBusinessAndDateRange(
+        businessId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<Schedule> = transaction {
+        Schedules.selectAll().where {
+            (Schedules.businessId eq businessId) and
+                (Schedules.kind eq ScheduleKind.EVENT.name) and
+                (Schedules.startDate lessEq endDate) and
+                (Schedules.endDate greaterEq startDate)
+        }
+            .orderBy(Schedules.startDate, SortOrder.ASC)
+            .map { it.toSchedule() }
     }
 
     /**
@@ -333,6 +395,7 @@ class ScheduleRepository(
             it[businessId] = schedule.businessId
             it[name] = schedule.name
             it[status] = schedule.status.name
+            it[kind] = schedule.kind.name
             it[startDate] = schedule.schedulePeriod.startDate
             it[endDate] = schedule.schedulePeriod.endDate
             it[employeeIds] = gson.toJson(schedule.employeeIds)
@@ -430,6 +493,7 @@ class ScheduleRepository(
             businessId = this[Schedules.businessId],
             name = this[Schedules.name],
             status = ScheduleStatus.valueOf(this[Schedules.status]),
+            kind = ScheduleKind.valueOf(this[Schedules.kind]),
             schedulePeriod = SchedulePeriod(
                 startDate = this[Schedules.startDate],
                 endDate = this[Schedules.endDate],

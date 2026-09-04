@@ -11,6 +11,7 @@ import io.ktor.server.routing.*
 import org.labormanagement.dto.createValidationErrorResponse
 import org.labormanagement.dto.toTeamShiftResponse
 import org.labormanagement.model.ScheduleInputPayload
+import org.labormanagement.model.ScheduleKind
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.service.ShiftModificationService
@@ -112,7 +113,10 @@ class ScheduleController(
                             return@get
                         }
                     } else {
-                        scheduleRepository.findAllByBusiness(businessId)
+                        // Regular schedules only: this backs the schedule list and its
+                        // history dropdown, which are about the business's rosters. Event
+                        // schedules are reached through the week's events, not here.
+                        scheduleRepository.findAllByBusiness(businessId, ScheduleKind.REGULAR)
                     }
 
                     call.respond(HttpStatusCode.OK, mapOf(

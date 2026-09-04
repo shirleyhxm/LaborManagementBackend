@@ -57,7 +57,7 @@ class ScheduleTtlService(
      * Performs cleanup for a specific business.
      */
     private fun cleanupForBusiness(businessId: UUID, cutoffDate: LocalDate, dryRun: Boolean): CleanupResult {
-        val allSchedules = scheduleRepository.findAllByBusiness(businessId)
+        val allSchedules = scheduleRepository.findAllByBusiness(businessId, kind = null)
         val schedulesToDelete = allSchedules.filter { schedule ->
             schedule.schedulePeriod.startDate.isBefore(cutoffDate)
         }
@@ -148,7 +148,7 @@ class ScheduleTtlService(
         val cutoffDate = calculateCutoffDate()
 
         if (businessId != null) {
-            val allSchedules = scheduleRepository.findAllByBusiness(businessId)
+            val allSchedules = scheduleRepository.findAllByBusiness(businessId, kind = null)
             val schedulesToDelete = allSchedules.filter { schedule ->
                 schedule.schedulePeriod.startDate.isBefore(cutoffDate)
             }
@@ -167,7 +167,7 @@ class ScheduleTtlService(
             var totalToCleanup = 0
 
             businesses.forEach { business ->
-                val allSchedules = scheduleRepository.findAllByBusiness(business.id)
+                val allSchedules = scheduleRepository.findAllByBusiness(business.id, kind = null)
                 val schedulesToDelete = allSchedules.filter { schedule ->
                     schedule.schedulePeriod.startDate.isBefore(cutoffDate)
                 }

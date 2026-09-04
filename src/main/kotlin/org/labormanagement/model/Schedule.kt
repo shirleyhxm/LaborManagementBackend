@@ -27,6 +27,7 @@ data class Schedule(
     val businessId: UUID,  // Multi-tenancy: Business this schedule belongs to
     val name: String,
     val status: ScheduleStatus = ScheduleStatus.DRAFT,
+    val kind: ScheduleKind = ScheduleKind.REGULAR,
     val schedulePeriod: SchedulePeriod,
 
     // Schedule data (formerly in SchedulingOutput)
@@ -75,6 +76,28 @@ data class Schedule(
     fun getShiftsByEmployee(employeeId: UUID): List<Shift> {
         return shifts.filter { it.employeeId == employeeId }
     }
+}
+
+/**
+ * What a schedule is *for*, which is independent of where it sits in its lifecycle.
+ *
+ * A special event (a one-night party, a private hire) is modelled as an ordinary schedule
+ * that happens to span a few hours, carrying its own employee pool, forecast, staffing
+ * requirements and objective. That reuses the whole generation, lifecycle and editing
+ * pipeline rather than growing a parallel one.
+ *
+ * The two populations have to stay disjoint, and this flag is the only thing keeping them
+ * so. Telling them apart by date span would not work: [ScheduleRepository.findByBusinessAndDateRange]
+ * matches start and end exactly and returns `singleOrNull`, so an event covering the same
+ * dates as a weekly schedule would both be mistaken for it and make that query throw once
+ * two rows matched.
+ */
+enum class ScheduleKind {
+    /** The recurring roster for a period - what "the schedule" means by default. */
+    REGULAR,
+
+    /** A one-off event, generated from a SpecialEvent definition. */
+    EVENT
 }
 
 /**
