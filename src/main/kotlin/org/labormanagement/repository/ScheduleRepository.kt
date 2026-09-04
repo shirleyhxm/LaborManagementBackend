@@ -271,20 +271,30 @@ class ScheduleRepository(
     }
 
     /**
-     * Published shifts these employees already hold at *other* locations,
-     * within a date range.
+     * Published shifts these employees already hold that the current generation is *not*
+     * itself allocating - at other locations, and on this location's other schedules.
      *
-     * Deliberately not scoped to one business: someone assigned to several
-     * locations is one person with one calendar, so generation at one location
-     * has to see what the others have already committed them to. Without this,
-     * two locations can book the same hours and neither notices.
+     * Deliberately not scoped to one business: someone assigned to several locations is one
+     * person with one calendar, so generation at one location has to see what the others
+     * have already committed them to. Without this, two locations can book the same hours
+     * and neither notices.
      *
-     * Only PUBLISHED shifts count. A draft elsewhere is a proposal, not a
-     * commitment, and letting drafts block each other would mean whichever
-     * location generated first silently won.
+     * The same reasoning holds within a business, which is why the exclusion is one
+     * schedule rather than one business. An employee's weekly cap is one budget for the
+     * person, not one per schedule, so a special event held the same week as their roster
+     * spends from that same budget. Excluding only the schedule being generated is what
+     * lets the event see the roster's hours and the roster see the event's.
+     *
+     * Only PUBLISHED shifts count. A draft is a proposal, not a commitment, and letting
+     * drafts block each other would mean whichever schedule generated first silently won.
+     * The corollary is that an event generated against an unpublished roster cannot see
+     * those hours - callers should say so rather than let it surprise a manager.
+     *
+     * @param excludeScheduleId the schedule being generated, whose own shifts must not
+     *   count against it. Null when generating something that has no row yet.
      */
-    fun findPublishedShiftsElsewhere(
-        excludeBusinessId: UUID,
+    fun findCommittedShiftsElsewhere(
+        excludeScheduleId: UUID?,
         employeeIds: List<UUID>,
         startDate: LocalDate,
         endDate: LocalDate
@@ -294,7 +304,14 @@ class ScheduleRepository(
         (ShiftsTable innerJoin Schedules)
             .selectAll()
             .where {
-                (Schedules.businessId neq excludeBusinessId) and
+                // Every schedule counts except the one being generated, which is the one
+                // whose hours this solve is deciding. With nothing to exclude, that is
+                // every schedule these employees appear on.
+                val notThisSchedule = excludeScheduleId
+                    ?.let { Schedules.id neq it }
+                    ?: Op.TRUE
+
+                notThisSchedule and
                     (ShiftsTable.employeeId inList employeeIds) and
                     (ShiftsTable.date greaterEq startDate) and
                     (ShiftsTable.date lessEq endDate) and

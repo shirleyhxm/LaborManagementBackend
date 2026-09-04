@@ -110,6 +110,41 @@ class ShiftScheduler(
     )
 
     /**
+     * Hours these employees have already committed that this generation is not itself
+     * allocating - at other locations, and on this business's other schedules.
+     *
+     * Widened to whole weeks rather than the schedule's own dates: a weekly cap is about
+     * the calendar week, so a Monday shift elsewhere has to count against a schedule that
+     * starts on Wednesday.
+     *
+     * The schedule about to replace this date range is excluded. It is still in the
+     * database at this point - save() only supersedes it afterwards - so counting it would
+     * charge the new schedule for the hours of the one it is replacing, and re-generating
+     * a published week would progressively starve itself of hours.
+     */
+    private fun findCommittedShiftsElsewhere(
+        businessId: UUID,
+        employees: List<Employee>,
+        schedulePeriod: SchedulePeriod
+    ): List<Shift> {
+        val scheduleDates = schedulePeriod.getAllDates()
+        if (scheduleDates.isEmpty() || employees.isEmpty()) return emptyList()
+
+        val supersededScheduleId = scheduleRepository.findByBusinessAndDateRange(
+            businessId,
+            schedulePeriod.startDate,
+            schedulePeriod.endDate
+        )?.id
+
+        return scheduleRepository.findCommittedShiftsElsewhere(
+            excludeScheduleId = supersededScheduleId,
+            employeeIds = employees.map { it.id },
+            startDate = scheduleDates.min().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
+            endDate = scheduleDates.max().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+        )
+    }
+
+    /**
      * Dates each employee is approved to be off, keyed by employee id.
      *
      * Looked up by employee rather than by business: someone who works at
@@ -165,16 +200,7 @@ class ShiftScheduler(
         // Whole weeks, not just the schedule's own dates - the weekly cap is
         // about the calendar week, so shifts elsewhere earlier in the same week
         // still count against it.
-        val shiftsElsewhere = if (scheduleDates.isNotEmpty()) {
-            scheduleRepository.findPublishedShiftsElsewhere(
-                excludeBusinessId = businessId,
-                employeeIds = employees.map { it.id },
-                startDate = scheduleDates.min().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
-                endDate = scheduleDates.max().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-            )
-        } else {
-            emptyList()
-        }
+        val shiftsElsewhere = findCommittedShiftsElsewhere(businessId, employees, input.schedulePeriod)
 
         // Track weekly hours across all days for overtime calculation and
         // contract limits. Seeded with hours already worked at other
@@ -285,20 +311,7 @@ class ShiftScheduler(
         // What these people are already committed to elsewhere. Feeds two
         // things: the slots they cannot be booked into, and the hours already
         // counted against their weekly cap.
-        //
-        // Widened to whole weeks rather than just the schedule's own dates: a
-        // weekly cap is about the calendar week, so a Monday shift at another
-        // location has to count against a schedule that starts on Wednesday.
-        val shiftsElsewhere = if (scheduleDates.isNotEmpty()) {
-            scheduleRepository.findPublishedShiftsElsewhere(
-                excludeBusinessId = businessId,
-                employeeIds = employees.map { it.id },
-                startDate = scheduleDates.min().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
-                endDate = scheduleDates.max().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-            )
-        } else {
-            emptyList()
-        }
+        val shiftsElsewhere = findCommittedShiftsElsewhere(businessId, employees, input.schedulePeriod)
 
         // Convert to optimization input
         val optimizationInput = profile("generateSchedule.buildOptimizationInput") {
