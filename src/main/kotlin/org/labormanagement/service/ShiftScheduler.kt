@@ -26,6 +26,8 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
+private const val MINUTES_PER_DAY = 24 * 60L
+
 /**
  * Scheduling approach to use when generating schedules.
  */
@@ -828,6 +830,17 @@ class ShiftScheduler(
         return intervals
     }
 
+    /**
+     * Minutes from [open] to [close], reading a close that is not after the open as
+     * belonging to the following day. A close equal to the open means a full 24 hours.
+     */
+    private fun minutesBetweenAllowingWrap(open: LocalTime, close: LocalTime): Long {
+        val openMinute = open.toSecondOfDay() / 60L
+        val closeMinute = close.toSecondOfDay() / 60L
+        return if (closeMinute > openMinute) closeMinute - openMinute
+        else MINUTES_PER_DAY - openMinute + closeMinute
+    }
+
     private fun calculateAverageSales(
         salesForecast: Map<LocalTime, Double>,
         startTime: LocalTime,
@@ -835,8 +848,15 @@ class ShiftScheduler(
     ): Double {
         if (salesForecast.isEmpty()) return 0.0
 
+        // Measured as minutes from the interval's start rather than as times of day, so
+        // an interval ending at (or running past) midnight still picks up its forecast.
+        // "Before 00:00" is false for every hour, which left the last hour before a
+        // midnight close looking like it had no demand at all.
+        val intervalMinutes = minutesBetweenAllowingWrap(startTime, endTime)
+        val startMinute = startTime.toSecondOfDay() / 60L
         val relevantForecasts = salesForecast.filter { (time, _) ->
-            !time.isBefore(startTime) && time.isBefore(endTime)
+            val offset = (time.toSecondOfDay() / 60L - startMinute + MINUTES_PER_DAY) % MINUTES_PER_DAY
+            offset < intervalMinutes
         }
 
         return if (relevantForecasts.isEmpty()) {

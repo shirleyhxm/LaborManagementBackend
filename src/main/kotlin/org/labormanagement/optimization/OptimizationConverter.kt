@@ -230,32 +230,64 @@ object OptimizationConverter {
         // The minimum shift length will be enforced as a constraint in the optimizer
         val slotDurationHours = 1.0
 
+        val slotDurationMinutes = (slotDurationHours * 60).toLong()
+
         for (date in dates) {
             val (openTime, closeTime) = operatingHoursMap[date] ?: continue
 
-            var currentTime = openTime
-            val slotDurationMinutes = (slotDurationHours * 60).toLong()
+            // Walk elapsed minutes from opening rather than comparing times of day. A
+            // business open 21:00-02:00 closes at a LocalTime *smaller* than the one it
+            // opened at, so `while (current < close)` ends before it starts and yields no
+            // slots at all - the solver is then handed nothing to assign and returns an
+            // empty schedule with no error to explain it.
+            val minutesOpen = minutesBetweenAllowingWrap(openTime, closeTime)
+            if (minutesOpen <= 0) continue
 
-            while (currentTime < closeTime) {
-                val slotEnd = currentTime.plusMinutes(slotDurationMinutes)
-                val actualEnd = if (slotEnd > closeTime) closeTime else slotEnd
+            var elapsed = 0L
+            while (elapsed < minutesOpen) {
+                val slotMinutes = minOf(slotDurationMinutes, minutesOpen - elapsed)
 
-                val actualDuration = ChronoUnit.MINUTES.between(currentTime, actualEnd) / 60.0
+                // Offsetting the opening instant keeps this correct across midnight:
+                // LocalTime wraps on its own, and the date advances with it.
+                val start = openTime.plusMinutes(elapsed)
+                val end = openTime.plusMinutes(elapsed + slotMinutes)
+                val startsNextDay = (openTime.toSecondOfDay() / 60L + elapsed) >= MINUTES_PER_DAY
 
                 timeSlots.add(
                     TimeSlot(
-                        date = date,
-                        startTime = currentTime,
-                        endTime = actualEnd,
-                        durationHours = actualDuration
+                        date = if (startsNextDay) date.plusDays(1) else date,
+                        startTime = start,
+                        endTime = end,
+                        durationHours = slotMinutes / 60.0,
+                        businessDate = date
                     )
                 )
 
-                currentTime = actualEnd
+                elapsed += slotMinutes
             }
         }
 
         return timeSlots
+    }
+
+    private const val MINUTES_PER_DAY = 24 * 60L
+
+    /**
+     * Minutes from [open] to [close], reading a close that is not after the open as
+     * belonging to the following day.
+     *
+     * A close equal to the open is the ambiguous case: it means a full 24 hours, not a
+     * zero-length day, since a business that opens and closes at the same moment is one
+     * that never shuts.
+     */
+    private fun minutesBetweenAllowingWrap(open: LocalTime, close: LocalTime): Long {
+        val openMinute = open.toSecondOfDay() / 60L
+        val closeMinute = close.toSecondOfDay() / 60L
+        return if (closeMinute > openMinute) {
+            closeMinute - openMinute
+        } else {
+            MINUTES_PER_DAY - openMinute + closeMinute
+        }
     }
 
     /**
@@ -323,9 +355,18 @@ object OptimizationConverter {
         return timeSlots.map { slot ->
             val dayForecast = salesForecast.getForecastForDate(slot.date)
 
-            // Find forecasts that fall within this time slot
+            // Find forecasts that fall within this time slot.
+            //
+            // Compared as minutes from the slot's start rather than as times of day: a
+            // slot ending at midnight has an endTime of 00:00, and "before 00:00" is
+            // false for every hour there is. The 23:00-00:00 slot would draw no demand
+            // at all, so the one hour before closing was never staffed - a gap in the
+            // middle of the night that looked like the solver simply declining to fill it.
+            val slotMinutes = (slot.durationHours * 60).toLong()
+            val slotStart = slot.startTime.toSecondOfDay() / 60L
             val relevantForecasts = dayForecast.filter { (time, _) ->
-                !time.isBefore(slot.startTime) && time.isBefore(slot.endTime)
+                val offset = (time.toSecondOfDay() / 60L - slotStart + MINUTES_PER_DAY) % MINUTES_PER_DAY
+                offset < slotMinutes
             }
 
             // Sum or average the forecasts for this slot
@@ -353,12 +394,17 @@ object OptimizationConverter {
             val prevSlot = timeSlots[sorted[i - 1]]
             val currSlot = timeSlots[sorted[i]]
 
-            // Check if consecutive AND on the same date AND times align
+            // Check if consecutive AND part of the same opening AND times align.
+            //
+            // Compared on businessDate rather than the calendar date, so a block running
+            // past midnight stays one shift. On the calendar date the 23:00-00:00 and
+            // 00:00-01:00 slots of one night look like different days, and a continuous
+            // stretch of work would be broken into two shifts at midnight.
             val isConsecutive = sorted[i] == sorted[i - 1] + 1
-            val isSameDate = prevSlot.date == currSlot.date
+            val isSameOpening = prevSlot.businessDate == currSlot.businessDate
             val timesAlign = prevSlot.endTime == currSlot.startTime
 
-            if (isConsecutive && isSameDate && timesAlign) {
+            if (isConsecutive && isSameOpening && timesAlign) {
                 // Consecutive - add to current group
                 currentGroup.add(sorted[i])
             } else {

@@ -54,13 +54,43 @@ data class Availability(
     val endMinuteOfDay: Int
         get() = if (endTime == LocalTime.MIDNIGHT) MINUTES_PER_DAY else endTime.toSecondOfDay() / 60
 
-    /** True when [start]..[end] falls entirely inside this window. */
+    /**
+     * True when this window runs past midnight into the following day, e.g. 18:00-02:00.
+     *
+     * A plain end-of-day window (something-to-00:00) is deliberately not counted as
+     * wrapping: [endMinuteOfDay] already reads that as the close of the day.
+     */
+    val isOvernight: Boolean
+        get() = endMinuteOfDay <= startTime.toSecondOfDay() / 60
+
+    /**
+     * True when [start]..[end] falls entirely inside this window.
+     *
+     * Times are compared as minutes from the window's own opening rather than from
+     * midnight, so a window that wraps past midnight is one continuous stretch rather
+     * than two disjoint pieces. Compared directly, an 18:00-02:00 window asks for
+     * `startMinute >= 1080 && endMinute <= 120`, which nothing can satisfy — someone
+     * available all evening would read as available never.
+     */
     fun covers(start: LocalTime, end: LocalTime): Boolean {
-        val startMinute = start.toSecondOfDay() / 60
+        val windowStart = startTime.toSecondOfDay() / 60
         // The requested end gets the same midnight treatment: a shift finishing at
         // 00:00 ends at the close of the day, not before it began.
-        val endMinute = if (end == LocalTime.MIDNIGHT) MINUTES_PER_DAY else end.toSecondOfDay() / 60
-        return startMinute >= this.startTime.toSecondOfDay() / 60 && endMinute <= endMinuteOfDay
+        val rawStart = start.toSecondOfDay() / 60
+        val rawEnd = if (end == LocalTime.MIDNIGHT) MINUTES_PER_DAY else end.toSecondOfDay() / 60
+
+        if (!isOvernight) {
+            return rawStart >= windowStart && rawEnd <= endMinuteOfDay
+        }
+
+        // Past midnight the request belongs to the next day, so measure it from this
+        // window's opening instead: 01:00 inside an 18:00-02:00 window is 7 hours in,
+        // not 17 hours before the window began.
+        val windowLength = MINUTES_PER_DAY - windowStart + endMinuteOfDay
+        val offsetStart = if (rawStart < windowStart) rawStart + MINUTES_PER_DAY - windowStart else rawStart - windowStart
+        val offsetEnd = if (rawEnd <= windowStart) rawEnd + MINUTES_PER_DAY - windowStart else rawEnd - windowStart
+
+        return offsetStart in 0..windowLength && offsetEnd <= windowLength && offsetStart <= offsetEnd
     }
 
     fun isAvailableOn(date: LocalDate, startTime: LocalTime, endTime: LocalTime): Boolean {

@@ -620,7 +620,11 @@ class ScheduleOptimizer {
     ) {
         if (maxConsecutiveDays <= 0) return
 
-        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].date }
+        // Grouped by businessDate, not the calendar date: the small hours of a late night
+        // belong to the night that opened, so a single 21:00-02:00 shift counts as one day
+        // worked. Counting it as two would let one shift eat two days of the allowance and
+        // trip this limit off a schedule nobody would call excessive.
+        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].businessDate }
         val sortedDates = slotsByDate.keys.sorted()
         if (sortedDates.size <= maxConsecutiveDays) return
 
@@ -662,7 +666,11 @@ class ScheduleOptimizer {
     ) {
         if (minWeeklyRestHours <= 0.0) return
 
-        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].date }
+        // By businessDate for the same reason as the consecutive-days rule: this is about
+        // whole days off, and the small hours of a late night are part of the night before.
+        // Keyed by calendar date, a Saturday shift running to 02:00 would mark Sunday as
+        // worked and leave the employee with no free day the rule could find.
+        val slotsByDate = input.timeSlots.indices.groupBy { input.timeSlots[it].businessDate }
         val sortedDates = slotsByDate.keys.sorted()
         val windowSize = 7
         if (sortedDates.size < windowSize) return
@@ -708,7 +716,13 @@ class ScheduleOptimizer {
         val (prevSlot, nextSlot) = buildAdjacentSlotIndex(slots)
 
         val slotStarts = slots.map { it.date.atTime(it.startTime) }
-        val slotEnds = slots.map { it.date.atTime(it.endTime) }
+        // A slot ending at midnight ends at the *close* of its date. Taken literally,
+        // 00:00 on the same date lands before the slot began, turning a real rest gap
+        // into a negative one that the constraint below then ignores.
+        val slotEnds = slots.map {
+            if (it.endTime <= it.startTime) it.date.plusDays(1).atTime(it.endTime)
+            else it.date.atTime(it.endTime)
+        }
 
         for (e in input.employees.indices) {
             // isBlockEnd[t] = worked(t) AND NOT worked(nextSlot(t)) (or no next
@@ -898,7 +912,13 @@ class ScheduleOptimizer {
         val minBreakHours = breakDurationMinutes / 60.0
         val (prevSlot, nextSlot) = buildAdjacentSlotIndex(slots)
         val slotStarts = slots.map { it.date.atTime(it.startTime) }
-        val slotEnds = slots.map { it.date.atTime(it.endTime) }
+        // A slot ending at midnight ends at the *close* of its date. Taken literally,
+        // 00:00 on the same date lands before the slot began, turning a real rest gap
+        // into a negative one that the constraint below then ignores.
+        val slotEnds = slots.map {
+            if (it.endTime <= it.startTime) it.date.plusDays(1).atTime(it.endTime)
+            else it.date.atTime(it.endTime)
+        }
 
         for (e in input.employees.indices) {
             val (isBlockStart, isBlockEnd) = buildBlockBoundaryVars(model, x, e, slots, prevSlot, nextSlot, "break")
@@ -1143,13 +1163,30 @@ data class OptimizationInput(
 /**
  * Represents a time slot in the schedule (e.g., a single hour or shift period).
  */
+/**
+ * One schedulable hour of a business day.
+ *
+ * [date] is the calendar date the slot actually falls on, so a business open 21:00-02:00
+ * produces slots on both the opening date and the one after. Hours therefore land on the
+ * day they are really worked.
+ *
+ * [businessDate] is the date whose opening the slot belongs to - the same for every slot
+ * of one night, including the ones past midnight. The two differ only after midnight, and
+ * keeping both is what lets "how many hours on Sunday" and "did they work Saturday night"
+ * be answered differently. Counting a 21:00-02:00 shift as two days worked would make one
+ * night out look like two, which trips the consecutive-days limit off a single shift.
+ */
 data class TimeSlot(
     val date: LocalDate,
     val startTime: LocalTime,
     val endTime: LocalTime,
-    val durationHours: Double
+    val durationHours: Double,
+    val businessDate: LocalDate = date
 ) {
     val dayOfWeek: DayOfWeek = date.dayOfWeek
+
+    /** True when this slot falls after midnight, in the tail of the previous day's opening. */
+    val isAfterMidnight: Boolean get() = date != businessDate
 }
 
 /**
