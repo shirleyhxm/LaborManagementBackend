@@ -1,16 +1,19 @@
 package org.labormanagement.service
 
 import org.labormanagement.model.Employee
+import org.labormanagement.model.EventContext
 import org.labormanagement.model.OperatingHours
 import org.labormanagement.model.OptimizationObjective
 import org.labormanagement.model.OvertimeSplitter
 import org.labormanagement.model.SalesForecast
 import org.labormanagement.model.Schedule
 import org.labormanagement.model.ScheduleInput
+import org.labormanagement.model.ScheduleKind
 import org.labormanagement.model.SchedulePeriod
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
+import org.labormanagement.model.WorkingHoursRules
 import org.labormanagement.optimization.OptimizationConverter
 import org.labormanagement.optimization.ScheduleOptimizer
 import org.labormanagement.repository.BusinessRepository
@@ -27,6 +30,15 @@ import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
 private const val MINUTES_PER_DAY = 24 * 60L
+
+/**
+ * How much of the projected demand an ordinary schedule aims to cover.
+ *
+ * Below 1.0 deliberately: staffing for every last unit of a forecast that is itself an
+ * estimate buys expensive cover for demand that may not arrive. Events can override it,
+ * since a party that runs short-staffed cannot be fixed the next day.
+ */
+private const val DEFAULT_COVERAGE_FRACTION = 0.8
 
 /**
  * Scheduling approach to use when generating schedules.
@@ -66,23 +78,85 @@ class ShiftScheduler(
         input: ScheduleInput,
         name: String = "Generated Schedule",
         generatedBy: String = "system",
-        businessId: UUID
+        businessId: UUID,
+        kind: ScheduleKind = ScheduleKind.REGULAR,
+        /** Present only for a special event; absent leaves the ordinary path untouched. */
+        eventContext: EventContext? = null
     ): Schedule = profile {
         // The labor cost cap is resolved from the business's saved weekly
         // budget (pro-rated to this schedule's length), not caller-supplied -
         // this is the single source of truth also surfaced in Configurations.
         // Uncapped when hardBudgetLimit is off or no budget has been saved.
-        val resolvedInput = input.copy(laborCostBudget = resolveLaborCostBudget(businessId, input.schedulePeriod))
+        //
+        // An event's own budget wins outright rather than being pro-rated. The business cap
+        // is a weekly figure, and a week's budget divided down to a five-hour event lands far
+        // below what staffing one actually costs - the solver would refuse to fill it and
+        // return a near-empty schedule with nothing to say why.
+        val eventBudget = eventContext?.ruleOverrides?.laborCostBudget
+        val resolvedInput = input.copy(
+            laborCostBudget = eventBudget ?: resolveLaborCostBudget(businessId, input.schedulePeriod)
+        )
 
         // Choose scheduling approach
         val schedule = when (schedulingApproach) {
-            SchedulingApproach.GREEDY -> generateScheduleGreedy(resolvedInput, name, generatedBy, businessId)
-            SchedulingApproach.OPTIMIZER -> generateScheduleOptimizer(resolvedInput, name, generatedBy, businessId)
+            SchedulingApproach.GREEDY ->
+                generateScheduleGreedy(resolvedInput, name, generatedBy, businessId, kind, eventContext)
+            SchedulingApproach.OPTIMIZER ->
+                generateScheduleOptimizer(resolvedInput, name, generatedBy, businessId, kind, eventContext)
         }
 
         scheduleRepository.save(schedule)
 
         return@profile schedule
+    }
+
+    /**
+     * The forecast generation should use, which for an event is its own expected revenue.
+     *
+     * An event's demand rarely resembles the ordinary trading pattern - a private hire can
+     * take almost nothing over the till while still needing a full team - so its figures
+     * replace the business forecast for that date rather than adding to it.
+     *
+     * Written as a date-specific entry because [SalesForecast.getForecastForDate] already
+     * prefers those over the weekly pattern, so nothing downstream has to know an event is
+     * involved. An event carrying no revenue figures falls back to the business forecast.
+     */
+    private fun resolveSalesForecast(
+        businessId: UUID,
+        schedulePeriod: SchedulePeriod,
+        eventContext: EventContext?
+    ): SalesForecast {
+        val businessForecast = salesForecastRepository.getByBusiness(businessId)
+        val revenue = eventContext?.expectedRevenue ?: return businessForecast
+        if (revenue.isEmpty()) return businessForecast
+
+        // Every date the event touches, so an overnight event's small hours carry demand too.
+        val eventDates = schedulePeriod.getAllDates()
+        return businessForecast.copy(
+            dateSpecificForecast = (businessForecast.dateSpecificForecast ?: emptyMap()) +
+                eventDates.associateWith { revenue }
+        )
+    }
+
+    /**
+     * The business's working-hours rules with an event's overrides laid on top.
+     *
+     * Only the fields an event is allowed to bend are overridable. Weekly caps, rest,
+     * consecutive days and breaks are absent from [EventRuleOverrides] by construction, so
+     * they arrive here untouched however the event was configured.
+     */
+    private fun resolveWorkingHoursRules(
+        businessId: UUID,
+        eventContext: EventContext?
+    ): WorkingHoursRules? {
+        val rules = constraintsService.getWorkingHoursRules(businessId)
+        val overrides = eventContext?.ruleOverrides ?: return rules
+        if (rules == null) return null
+
+        return rules.copy(
+            minShiftLength = overrides.minShiftLength ?: rules.minShiftLength,
+            maxShiftLength = overrides.maxShiftLength ?: rules.maxShiftLength
+        )
     }
 
     private fun resolveLaborCostBudget(businessId: UUID, schedulePeriod: SchedulePeriod): Double {
@@ -204,17 +278,19 @@ class ShiftScheduler(
         input: ScheduleInput,
         name: String,
         generatedBy: String,
-        businessId: UUID
+        businessId: UUID,
+        kind: ScheduleKind = ScheduleKind.REGULAR,
+        eventContext: EventContext? = null
     ): Schedule {
         val shifts = mutableListOf<Shift>()
         val staffingRequirements = mutableListOf<StaffingRequirement>()
 
-        // Get configuration from ConstraintsService and input
-        val minShiftDurationHours = constraintsService.getWorkingHoursRules(businessId)?.minShiftLength ?: 1.0
+        // Get configuration from ConstraintsService and input, with any event overrides
+        // laid on top so both scheduling paths honour the same limits.
+        val minShiftDurationHours = resolveWorkingHoursRules(businessId, eventContext)?.minShiftLength ?: 1.0
         val optimizationObjective = input.optimizationObjective
 
-        // Get sales forecast from repository
-        val salesForecast = salesForecastRepository.getByBusiness(businessId)
+        val salesForecast = resolveSalesForecast(businessId, input.schedulePeriod, eventContext)
 
         val employees = input.employeeIds.mapNotNull { id ->
             employeeRepository.findById(businessId, id)
@@ -298,6 +374,7 @@ class ShiftScheduler(
         return Schedule(
             businessId = businessId,
             name = name,
+            kind = kind,
             schedulePeriod = input.schedulePeriod,
             shifts = mergedShifts,
             metrics = metrics,
@@ -318,13 +395,15 @@ class ShiftScheduler(
         input: ScheduleInput,
         name: String,
         generatedBy: String,
-        businessId: UUID
+        businessId: UUID,
+        kind: ScheduleKind = ScheduleKind.REGULAR,
+        eventContext: EventContext? = null
     ): Schedule {
         val employees = input.employeeIds.mapNotNull { id ->
             employeeRepository.findById(businessId, id)
         }
 
-        val salesForecast = salesForecastRepository.getByBusiness(businessId)
+        val salesForecast = resolveSalesForecast(businessId, input.schedulePeriod, eventContext)
 
         // Build operating hours map
         val scheduleDates = input.schedulePeriod.getAllDates()
@@ -349,13 +428,16 @@ class ShiftScheduler(
                 salesForecast = salesForecast,
                 scheduleDates = scheduleDates,
                 operatingHoursMap = operatingHoursMap,
-                coverageFraction = 0.8,
+                // Events often want every bit of their projected demand covered rather than
+                // the ordinary day's slack, so their own target wins where one is set.
+                coverageFraction = eventContext?.ruleOverrides?.coverageFraction ?: DEFAULT_COVERAGE_FRACTION,
                 objective = input.optimizationObjective,
                 maxSolveTimeSeconds = 30.0,
                 constraintsService = constraintsService,
                 businessId = businessId,
                 timeoffExclusions = timeoffExclusions,
-                shiftsElsewhere = shiftsElsewhere
+                shiftsElsewhere = shiftsElsewhere,
+                workingHoursRulesOverride = resolveWorkingHoursRules(businessId, eventContext)
             )
         }
 
@@ -409,6 +491,7 @@ class ShiftScheduler(
         return Schedule(
             businessId = businessId,
             name = name,
+            kind = kind,
             schedulePeriod = input.schedulePeriod,
             shifts = shifts,
             metrics = metrics,

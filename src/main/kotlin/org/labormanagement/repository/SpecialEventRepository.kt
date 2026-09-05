@@ -9,6 +9,8 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.statements.UpdateBuilder
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.labormanagement.config.GsonConfig.createGson
+import org.labormanagement.database.Schedules
+import org.labormanagement.database.Shifts as ShiftsTable
 import org.labormanagement.database.SpecialEventRequirements
 import org.labormanagement.database.SpecialEvents
 import org.labormanagement.model.EventPayOverride
@@ -112,12 +114,34 @@ class SpecialEventRepository(
         } > 0
     }
 
+    /**
+     * Delete an event and the schedule generated from it.
+     *
+     * The schedule goes too because it only exists to serve this event - it is not a roster
+     * anyone would keep. Left behind it would be unreachable, since the switcher finds event
+     * schedules through their definitions, while its shifts carried on counting against
+     * everyone's weekly hours: staff would be unavailable for a party that no longer exists.
+     */
     fun delete(businessId: UUID, id: UUID): Boolean = transaction {
+        val scheduleId = SpecialEvents.selectAll()
+            .where { (SpecialEvents.id eq id) and (SpecialEvents.businessId eq businessId) }
+            .singleOrNull()
+            ?.get(SpecialEvents.scheduleId)
+
         // Requirements first: they reference the event.
         SpecialEventRequirements.deleteWhere { eventId eq id }
-        SpecialEvents.deleteWhere {
+        val deleted = SpecialEvents.deleteWhere {
             (SpecialEvents.id eq id) and (SpecialEvents.businessId eq businessId)
         } > 0
+
+        // After the event, so nothing still points at the schedule when it goes. Published
+        // or not - an event that is not happening should not hold anyone's hours.
+        if (deleted && scheduleId != null) {
+            ShiftsTable.deleteWhere { ShiftsTable.scheduleId eq scheduleId }
+            Schedules.deleteWhere { Schedules.id eq scheduleId }
+        }
+
+        deleted
     }
 
     /**

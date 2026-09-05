@@ -69,6 +69,20 @@ data class SpecialEvent(
 }
 
 /**
+ * The parts of an event that change how its schedule is generated.
+ *
+ * Passed to [org.labormanagement.service.ShiftScheduler] rather than having it reach for a
+ * SpecialEvent: generation needs the forecast, the rules and the staffing, and nothing about
+ * who created the event or which schedule it produced. Absent for a regular schedule, which
+ * is what keeps the ordinary path untouched.
+ */
+data class EventContext(
+    val expectedRevenue: Map<LocalTime, Double>?,
+    val requirements: List<EventStaffingRequirement>,
+    val ruleOverrides: EventRuleOverrides?
+)
+
+/**
  * How many people from one employee group the event needs, and what they are paid for it.
  *
  * Keyed by group name rather than by employee: a manager staffing a party thinks "two

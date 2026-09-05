@@ -41,11 +41,20 @@ object OptimizationConverter {
         constraintsService: org.labormanagement.service.ConstraintsService? = null,
         businessId: java.util.UUID,
         timeoffExclusions: Map<UUID, Set<LocalDate>> = emptyMap(),
-        shiftsElsewhere: List<org.labormanagement.model.Shift> = emptyList()
+        shiftsElsewhere: List<org.labormanagement.model.Shift> = emptyList(),
+        /**
+         * Working-hours rules to use instead of the business's saved ones.
+         *
+         * Supplied when a special event overrides some of them, so the solver sees the
+         * event's shift-length limits rather than the everyday ones. Null keeps the
+         * existing behaviour of reading them straight from the business.
+         */
+        workingHoursRulesOverride: org.labormanagement.model.WorkingHoursRules? = null
     ): OptimizationInput {
         // Fetch constraints from ConstraintsService if provided
         val budgetConstraints = constraintsService?.getBudgetConstraints(businessId)
-        val workingHoursRules = constraintsService?.getWorkingHoursRules(businessId)
+        val workingHoursRules = workingHoursRulesOverride
+            ?: constraintsService?.getWorkingHoursRules(businessId)
         val complianceRules = constraintsService?.getComplianceRules(businessId)
         val fairnessSettings = constraintsService?.getFairnessSettings(businessId)
 
@@ -311,10 +320,20 @@ object OptimizationConverter {
             val committed = shiftsByEmployee[employee.id] ?: emptyList()
 
             timeSlots.map { slot ->
-                val availableInPrinciple = slot.date !in excludedDates &&
-                    employee.availability.any { avail ->
-                        avail.isAvailableOn(slot.date, slot.startTime, slot.endTime)
-                    }
+                // Availability is matched against the business day too, not only the
+                // calendar date. Someone who says they work Saturday nights means the whole
+                // night: the 00:00-02:00 slots of a Saturday opening fall on Sunday, and
+                // matching them against Sunday alone leaves the end of every late night
+                // unstaffable by the very people who declared themselves free for it.
+                //
+                // Both dates are tried rather than only the business one, so a slot the
+                // employee covers under either reading still counts.
+                val available = { date: LocalDate ->
+                    date !in excludedDates &&
+                        employee.availability.any { it.isAvailableOn(date, slot.startTime, slot.endTime) }
+                }
+                val availableInPrinciple = available(slot.date) ||
+                    (slot.isAfterMidnight && available(slot.businessDate))
 
                 // Half-open overlap: a shift ending exactly when this slot
                 // starts does not collide with it.

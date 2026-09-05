@@ -65,6 +65,7 @@ import org.labormanagement.service.AuthService
 import org.labormanagement.service.BusinessService
 import org.labormanagement.service.ConstraintValidator
 import org.labormanagement.service.ConstraintsService
+import org.labormanagement.service.EventScheduler
 import org.labormanagement.service.ImportService
 import org.labormanagement.service.JwtService
 import org.labormanagement.service.OptimizationJobService
@@ -282,7 +283,8 @@ fun Application.module() {
     val salesForecastController = SalesForecastController(salesForecastRepository)
     val specialEventController = SpecialEventController(
         specialEventRepository = SpecialEventRepository(),
-        employeeGroupRepository = employeeGroupRepository
+        employeeGroupRepository = employeeGroupRepository,
+        eventScheduler = EventScheduler()
     )
     val testDataController = TestDataController(employeeRepository)
     val authController = AuthController(authService)

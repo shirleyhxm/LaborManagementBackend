@@ -17,19 +17,23 @@ import org.labormanagement.dto.toResponse
 import org.labormanagement.model.SpecialEvent
 import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.SpecialEventRepository
+import org.labormanagement.service.EventScheduler
 import org.labormanagement.service.TenantContextHolder
 import java.time.LocalDate
 import java.util.UUID
 
 /**
- * CRUD for special event definitions.
+ * Special event definitions, and generating the schedules they produce.
  *
- * Generation is deliberately not here: an event produces an ordinary schedule, so it goes
- * through the scheduling endpoints rather than growing a parallel path.
+ * Generation lives here because it starts from an event id, but it does not implement any
+ * scheduling of its own - EventScheduler translates the definition and hands it to the same
+ * ShiftScheduler that builds every other schedule. What comes back is an ordinary schedule,
+ * so the client reads and edits it through the existing schedule endpoints.
  */
 class SpecialEventController(
     private val specialEventRepository: SpecialEventRepository,
-    private val employeeGroupRepository: EmployeeGroupRepository
+    private val employeeGroupRepository: EmployeeGroupRepository,
+    private val eventScheduler: EventScheduler
 ) {
     fun Route.specialEventRoutes() {
         route("/api/businesses/{businessId}/events") {
@@ -141,6 +145,36 @@ class SpecialEventController(
                     call.application.log.error("Error updating event $id", e)
                     call.respond(HttpStatusCode.BadRequest, mapOf(
                         "error" to (e.message ?: "Invalid request")
+                    ))
+                }
+            }
+
+            /**
+             * Generate the schedule for an event.
+             *
+             * Returns the schedule itself, which is an ordinary one carrying
+             * ScheduleKind.EVENT - so the client renders and edits it through exactly the
+             * same path as any other.
+             */
+            post("/{id}/generate") {
+                val businessId = call.resolveBusinessId() ?: return@post
+                val id = call.resolveEventId() ?: return@post
+
+                try {
+                    val schedule = eventScheduler.generateForEvent(
+                        businessId = businessId,
+                        eventId = id,
+                        generatedBy = TenantContextHolder.getContext()?.userId ?: "system"
+                    )
+                    if (schedule == null) {
+                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Event not found"))
+                    } else {
+                        call.respond(HttpStatusCode.Created, schedule)
+                    }
+                } catch (e: Exception) {
+                    call.application.log.error("Error generating a schedule for event $id", e)
+                    call.respond(HttpStatusCode.InternalServerError, mapOf(
+                        "error" to "Failed to generate the event schedule: ${e.message}"
                     ))
                 }
             }
