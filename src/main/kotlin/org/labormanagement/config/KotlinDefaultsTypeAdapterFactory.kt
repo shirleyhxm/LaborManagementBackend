@@ -39,7 +39,15 @@ class KotlinDefaultsTypeAdapterFactory : TypeAdapterFactory {
         val elementAdapter = gson.getAdapter(com.google.gson.JsonElement::class.java)
 
         return object : TypeAdapter<T>() {
-            override fun write(out: JsonWriter, value: T) {
+            // This factory exists to change *deserialization* only, so writing hands
+            // straight back to the delegate.
+            //
+            // The parameter has to be nullable. Overriding it as non-null narrows what
+            // Gson's own contract allows, and Kotlin's generated null-check then throws
+            // the moment a nullable field of an intercepted class happens to be null -
+            // reported as "Parameter specified as non-null is null", naming this method
+            // rather than the field that was actually absent.
+            override fun write(out: JsonWriter, value: T?) {
                 delegate.write(out, value)
             }
 

@@ -1,9 +1,12 @@
 package org.labormanagement.config
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.labormanagement.controller.GenerateScheduleRequest
 import org.labormanagement.dto.CreateEmployeeRequest
+import org.labormanagement.dto.EventStaffingRequirementDto
+import org.labormanagement.dto.SpecialEventResponse
 import java.util.UUID
 
 class GsonConfigTest {
@@ -110,5 +113,37 @@ class GsonConfigTest {
         val businessId = UUID.randomUUID()
         val scheduleInput = request.input.toScheduleInput(businessId)
         assertEquals(businessId, scheduleInput.businessId)
+    }
+
+    @Test
+    fun `serializes a null field of a class carrying Kotlin defaults`() {
+        // KotlinDefaultsTypeAdapterFactory intercepts any class with an optional
+        // constructor parameter. Its write() override once declared the value as
+        // non-null, narrowing what Gson's contract allows, so serializing an object
+        // whose nullable field happened to be null threw "Parameter specified as
+        // non-null is null" - naming the adapter rather than the absent field, and
+        // surfacing as a 400 on a request that was perfectly valid.
+        val response = SpecialEventResponse(
+            id = "e1", businessId = "b1", name = "NYE Party",
+            date = "2026-12-31", startTime = "21:00", endTime = "02:00",
+            endDate = "2027-01-01", crossesMidnight = true,
+            notes = null,
+            employeeIds = emptyList(),
+            expectedRevenue = null,
+            objective = "BALANCED",
+            requirements = listOf(
+                // Defaulted params, so this nested type is intercepted too - and both
+                // of its pay fields are null whenever a group is paid its usual rate.
+                EventStaffingRequirementDto(groupName = "Bartender", count = 2)
+            ),
+            ruleOverrides = null,
+            scheduleId = null,
+            createdAt = "2026-09-05T00:00:00Z",
+            createdBy = "1"
+        )
+
+        val json = gson.toJson(response)
+        assertTrue(json.contains("\"name\":\"NYE Party\""), json)
+        assertTrue(json.contains("\"ruleOverrides\":null"), json)
     }
 }
