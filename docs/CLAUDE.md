@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Never push without being asked
+
+**Do not push to `main` — or any branch — until explicitly instructed to, every time.**
+
+Permission to push is per-push. "Push this" authorises that push and nothing after it: a
+later commit, even one continuing the same task, needs its own instruction. Do not infer
+standing permission from an earlier one, from the work being finished, or from tests passing.
+
+Committing is fine unasked. Pushing is not, because it publishes to a shared remote and is
+the point past which a mistake stops being local.
+
 ## Project Overview
 
 A Kotlin backend API for employee shift scheduling with mathematical optimization. The system generates optimal work schedules based on labor budgets, sales forecasts, employee availability, and various constraints.
