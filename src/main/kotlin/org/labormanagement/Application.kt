@@ -28,6 +28,7 @@ import org.labormanagement.controller.BusinessController
 import org.labormanagement.controller.BusinessMemberController
 import org.labormanagement.controller.EmployeeLocationController
 import org.labormanagement.controller.ConstraintsController
+import org.labormanagement.controller.SpecialEventController
 import org.labormanagement.controller.EmployeeContractController
 import org.labormanagement.controller.EmployeeController
 import org.labormanagement.controller.EmployeeGroupController
@@ -53,6 +54,7 @@ import org.labormanagement.repository.EmployeeGroupRepository
 import org.labormanagement.repository.PasswordResetRepository
 import org.labormanagement.repository.RefreshTokenRepository
 import org.labormanagement.repository.SalesForecastRepository
+import org.labormanagement.repository.SpecialEventRepository
 import org.labormanagement.repository.SalesRepository
 import org.labormanagement.repository.ScheduleRepository
 import org.labormanagement.repository.SwapRequestRepository
@@ -278,6 +280,10 @@ fun Application.module() {
         employeeRepository = employeeRepository
     )
     val salesForecastController = SalesForecastController(salesForecastRepository)
+    val specialEventController = SpecialEventController(
+        specialEventRepository = SpecialEventRepository(),
+        employeeGroupRepository = employeeGroupRepository
+    )
     val testDataController = TestDataController(employeeRepository)
     val authController = AuthController(authService)
     val constraintsController = ConstraintsController(constraintsService)
@@ -508,6 +514,10 @@ fun Application.module() {
 
         with(salesForecastController) {
             salesForecastRoutes()
+        }
+
+        with(specialEventController) {
+            specialEventRoutes()
         }
 
         with(testDataController) {

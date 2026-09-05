@@ -11,6 +11,7 @@ import org.labormanagement.config.GsonConfig.createGson
 import org.labormanagement.database.Businesses
 import org.labormanagement.database.Employees
 import org.labormanagement.database.Schedules
+import org.labormanagement.database.SpecialEvents
 import org.labormanagement.database.Shifts as ShiftsTable
 import org.labormanagement.model.*
 import org.slf4j.LoggerFactory
@@ -465,6 +466,14 @@ class ScheduleRepository(
         // Delete shifts first
         ShiftsTable.deleteWhere { ShiftsTable.scheduleId eq id }
 
+        // A special event points at the schedule generated from it. Clear that link rather
+        // than cascade: the event definition is the manager's work and outlives any one
+        // generation, so deleting the schedule leaves the event intact and simply not yet
+        // generated. Left in place the foreign key would refuse the delete outright.
+        SpecialEvents.update({ SpecialEvents.scheduleId eq id }) {
+            it[SpecialEvents.scheduleId] = null
+        }
+
         // Delete schedule
         Schedules.deleteWhere { Schedules.id eq id } > 0
     }
@@ -475,6 +484,14 @@ class ScheduleRepository(
     fun forceDelete(id: UUID): Boolean = transaction {
         // Delete shifts first
         ShiftsTable.deleteWhere { ShiftsTable.scheduleId eq id }
+
+        // A special event points at the schedule generated from it. Clear that link rather
+        // than cascade: the event definition is the manager's work and outlives any one
+        // generation, so deleting the schedule leaves the event intact and simply not yet
+        // generated. Left in place the foreign key would refuse the delete outright.
+        SpecialEvents.update({ SpecialEvents.scheduleId eq id }) {
+            it[SpecialEvents.scheduleId] = null
+        }
 
         // Delete schedule
         Schedules.deleteWhere { Schedules.id eq id } > 0

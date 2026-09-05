@@ -551,3 +551,50 @@ object EmployeeContractedHoursTable : Table("employee_contracted_hours") {
 
     override val primaryKey = PrimaryKey(id)
 }
+
+// ===== Special Event Tables =====
+
+/**
+ * A manager's definition of a one-off event, distinct from the schedule generated from it.
+ *
+ * scheduleId points at that generated schedule once one exists. Nullable because an event
+ * is defined before it is generated, and stays defined if the schedule is later deleted.
+ */
+object SpecialEvents : Table("special_events") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val name = varchar("name", 200)
+    val date = date("date")
+    // end_time may be earlier than start_time, meaning the event runs past midnight.
+    val startTime = time("start_time")
+    val endTime = time("end_time")
+    val notes = text("notes").nullable()
+    val employeeIds = text("employee_ids").default("[]")       // JSON array of UUIDs
+    val expectedRevenue = text("expected_revenue").nullable()  // JSON map of time -> amount
+    val objective = varchar("objective", 50)
+    val ruleOverrides = text("rule_overrides").nullable()      // JSON
+    val scheduleId = uuid("schedule_id").references(Schedules.id).nullable()
+    val createdAt = timestamp("created_at")
+    val createdBy = varchar("created_by", 100)
+
+    override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * How many people an event needs from one employee group, and their pay for it.
+ *
+ * pay_rate and pay_uplift are the two forms of EventPayOverride. At most one is ever set -
+ * the sealed class in the model is what enforces that; here they are simply two nullable
+ * columns, since a single column could not say which form the number was.
+ */
+object SpecialEventRequirements : Table("special_event_requirements") {
+    val eventId = uuid("event_id").references(SpecialEvents.id)
+    val groupName = varchar("group_name", 100)
+    val count = integer("count")
+    val payRate = double("pay_rate").nullable()
+    val payUplift = double("pay_uplift").nullable()
+
+    // One requirement per group per event: asking for "2 bartenders" twice is a
+    // contradiction rather than a total.
+    override val primaryKey = PrimaryKey(eventId, groupName)
+}

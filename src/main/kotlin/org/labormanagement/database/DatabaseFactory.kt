@@ -129,7 +129,10 @@ object DatabaseFactory {
             org.labormanagement.database.HourlyRateRules,
             org.labormanagement.database.CustomComplianceRules,
             org.labormanagement.database.SchedulingPriorities,
-            org.labormanagement.database.EmployeeContractedHoursTable
+            org.labormanagement.database.EmployeeContractedHoursTable,
+            // After Schedules: a special event points at the schedule generated from it.
+            org.labormanagement.database.SpecialEvents,
+            org.labormanagement.database.SpecialEventRequirements
         )
 
         SchemaUtils.create(*allTables)
@@ -154,6 +157,9 @@ object DatabaseFactory {
         transaction {
             // Drop tables in reverse order to handle foreign key constraints
             SchemaUtils.drop(
+                // Before Schedules, which they reference; requirements before their event.
+                org.labormanagement.database.SpecialEventRequirements,
+                org.labormanagement.database.SpecialEvents,
                 org.labormanagement.database.EmployeeContractedHoursTable,
                 org.labormanagement.database.SchedulingPriorities,
                 org.labormanagement.database.CustomComplianceRules,
