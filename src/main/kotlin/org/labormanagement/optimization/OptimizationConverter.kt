@@ -49,7 +49,12 @@ object OptimizationConverter {
          * event's shift-length limits rather than the everyday ones. Null keeps the
          * existing behaviour of reading them straight from the business.
          */
-        workingHoursRulesOverride: org.labormanagement.model.WorkingHoursRules? = null
+        workingHoursRulesOverride: org.labormanagement.model.WorkingHoursRules? = null,
+        /**
+         * Per-group headcount an event asks for. Empty for ordinary schedules, which is what
+         * leaves that path with no extra variables and an unchanged objective.
+         */
+        eventRequirements: List<org.labormanagement.model.EventStaffingRequirement> = emptyList()
     ): OptimizationInput {
         // Fetch constraints from ConstraintsService if provided
         val budgetConstraints = constraintsService?.getBudgetConstraints(businessId)
@@ -125,8 +130,41 @@ object OptimizationConverter {
             complianceRules = complianceRules,
             fairnessSettings = fairnessSettings,
             contractedHours = contractedHoursMap,
-            hoursCommittedElsewhere = hoursCommittedElsewhere
+            hoursCommittedElsewhere = hoursCommittedElsewhere,
+            eventRequirements = resolveEventRequirements(eventRequirements, employees, timeSlots)
         )
+    }
+
+    /**
+     * Resolves each group requirement to the employee and slot indices the solver works in.
+     *
+     * Every slot of an event schedule is an event slot - the schedule spans exactly the
+     * event's window and nothing else - so a requirement applies across all of them rather
+     * than to some sub-range that would have to be matched by time.
+     *
+     * Group matching is case-insensitive. Names come from the business's own groups on one
+     * side and employee tags on the other, and a requirement that silently matched nobody
+     * because of capitalisation would look exactly like an event nobody could staff.
+     */
+    private fun resolveEventRequirements(
+        requirements: List<org.labormanagement.model.EventStaffingRequirement>,
+        employees: List<Employee>,
+        timeSlots: List<TimeSlot>
+    ): List<EventSlotRequirement> {
+        if (requirements.isEmpty() || timeSlots.isEmpty()) return emptyList()
+
+        val allSlots = timeSlots.indices.toList()
+        return requirements.map { requirement ->
+            val members = employees.indices.filter { e ->
+                employees[e].groups.any { it.equals(requirement.groupName, ignoreCase = true) }
+            }
+            EventSlotRequirement(
+                groupName = requirement.groupName,
+                count = requirement.count,
+                employeeIndices = members,
+                slotIndices = allSlots
+            )
+        }
     }
 
     /**

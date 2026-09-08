@@ -1,5 +1,6 @@
 package org.labormanagement.service
 
+import org.labormanagement.model.ConstraintViolation
 import org.labormanagement.model.Employee
 import org.labormanagement.model.EventContext
 import org.labormanagement.model.OperatingHours
@@ -13,6 +14,7 @@ import org.labormanagement.model.SchedulePeriod
 import org.labormanagement.model.SchedulingMetrics
 import org.labormanagement.model.Shift
 import org.labormanagement.model.StaffingRequirement
+import org.labormanagement.model.ViolationType
 import org.labormanagement.model.WorkingHoursRules
 import org.labormanagement.optimization.OptimizationConverter
 import org.labormanagement.optimization.ScheduleOptimizer
@@ -157,6 +159,58 @@ class ShiftScheduler(
             minShiftLength = overrides.minShiftLength ?: rules.minShiftLength,
             maxShiftLength = overrides.maxShiftLength ?: rules.maxShiftLength
         )
+    }
+
+    /**
+     * Turns the solver's per-slot shortfalls into violations a manager can read.
+     *
+     * Consecutive slots short of the same group by the same amount are merged into one
+     * violation spanning them. A five-hour event reports "2 Bar, 1 short, 21:00-02:00" rather
+     * than five identical hourly rows, which is both what happened and what fits on screen.
+     * A gap that genuinely changes through the night still splits, because the amount short
+     * differs between the runs.
+     */
+    private fun eventShortfallViolations(
+        shortfalls: List<org.labormanagement.optimization.EventShortfall>,
+        optimizationInput: org.labormanagement.optimization.OptimizationInput
+    ): List<ConstraintViolation> {
+        if (shortfalls.isEmpty()) return emptyList()
+
+        return shortfalls
+            .groupBy { it.groupName }
+            .flatMap { (groupName, forGroup) ->
+                val ordered = forGroup.sortedBy { it.timeSlotIndex }
+                val runs = mutableListOf<MutableList<org.labormanagement.optimization.EventShortfall>>()
+                for (entry in ordered) {
+                    val current = runs.lastOrNull()
+                    val previous = current?.last()
+                    // Same size of gap in the very next slot continues the run; anything else
+                    // starts a new one.
+                    if (previous != null &&
+                        entry.timeSlotIndex == previous.timeSlotIndex + 1 &&
+                        entry.shortfall == previous.shortfall
+                    ) {
+                        current.add(entry)
+                    } else {
+                        runs.add(mutableListOf(entry))
+                    }
+                }
+
+                runs.map { run ->
+                    val first = optimizationInput.timeSlots[run.first().timeSlotIndex]
+                    val last = optimizationInput.timeSlots[run.last().timeSlotIndex]
+                    ConstraintViolation.TimeBlock(
+                        type = ViolationType.EVENT_UNDERSTAFFED,
+                        description = "$groupName: ${run.first().assigned} of " +
+                            "${run.first().required} scheduled (${run.first().shortfall} short)",
+                        // The business date, so a shortfall in the small hours is reported
+                        // against the night it belongs to rather than the following morning.
+                        date = first.businessDate,
+                        startTime = first.startTime,
+                        endTime = last.endTime
+                    )
+                }
+            }
     }
 
     private fun resolveLaborCostBudget(businessId: UUID, schedulePeriod: SchedulePeriod): Double {
@@ -437,7 +491,10 @@ class ShiftScheduler(
                 businessId = businessId,
                 timeoffExclusions = timeoffExclusions,
                 shiftsElsewhere = shiftsElsewhere,
-                workingHoursRulesOverride = resolveWorkingHoursRules(businessId, eventContext)
+                workingHoursRulesOverride = resolveWorkingHoursRules(businessId, eventContext),
+                // Empty for a regular schedule, so the solver builds exactly the model it did
+                // before events existed.
+                eventRequirements = eventContext?.requirements ?: emptyList()
             )
         }
 
@@ -481,7 +538,7 @@ class ShiftScheduler(
                 staffingRequirements,
                 planRules(businessId, timeoffExclusions, shiftsElsewhere)
             )
-        }
+        } + eventShortfallViolations(result.eventShortfalls, optimizationInput)
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {

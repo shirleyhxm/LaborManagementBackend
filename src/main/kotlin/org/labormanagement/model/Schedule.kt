@@ -197,7 +197,17 @@ enum class ViolationType {
     CONTRACT_HOURS_EXCEEDED,
     MISSING_BREAK,
     SHIFT_OVERLAP,
-    UNDERSTAFFING
+    UNDERSTAFFING,
+
+    /**
+     * An event asked for more people from a group than could be staffed.
+     *
+     * Distinct from [UNDERSTAFFING], which is about covering forecast demand: this one names
+     * a group and a shortfall ("2 Bar, 1 short"), and it is reported rather than prevented.
+     * The requirement is deliberately soft in the solver, so an event that cannot be fully
+     * staffed still produces a schedule a manager can work from and fix by hand.
+     */
+    EVENT_UNDERSTAFFED
 }
 
 data class StaffingRequirement(

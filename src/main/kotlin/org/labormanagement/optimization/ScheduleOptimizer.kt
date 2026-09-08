@@ -104,8 +104,11 @@ class ScheduleOptimizer {
         addContractedHoursConstraints(model, x, totalHours, input)
         addComplianceRulesConstraints(model, x, input)
 
+        // Per-group headcount for an event. Empty for ordinary schedules.
+        val eventShortfall = addEventStaffingConstraints(model, x, input)
+
         // Set objective based on optimization objective
-        setObjective(model, regular, overtime, coverage, hoursDeviation, input, slack)
+        setObjective(model, regular, overtime, coverage, hoursDeviation, input, slack, eventShortfall)
 
         // Solve the model
         val solver = CpSolver()
@@ -131,8 +134,31 @@ class ScheduleOptimizer {
             if (s > 0) log.debug("  Slot $t: Shortfall = $s")
         }
 
+        // Read back which group requirements the solver chose to leave short. Without this the
+        // slack is paid for in the objective and then thrown away, and the violation that is
+        // supposed to explain a thin event schedule never fires.
+        val shortfalls = mutableListOf<EventShortfall>()
+        input.eventRequirements.forEachIndexed { reqIndex, req ->
+            req.slotIndices.forEachIndexed { i, t ->
+                val missing = solver.value(eventShortfall[reqIndex][i]).toInt()
+                if (missing > 0) {
+                    shortfalls += EventShortfall(
+                        groupName = req.groupName,
+                        timeSlotIndex = t,
+                        required = req.count,
+                        assigned = req.count - missing
+                    )
+                    log.info(
+                        "[ScheduleOptimizer] Event shortfall: ${req.groupName} short $missing at slot $t"
+                    )
+                }
+            }
+        }
+
         // Extract solution
-        return extractSolution(solver, x, totalHours, input, status == CpSolverStatus.OPTIMAL)
+        return extractSolution(
+            solver, x, totalHours, input, status == CpSolverStatus.OPTIMAL, shortfalls
+        )
     }
 
     private fun addAvailabilityConstraints(
@@ -411,10 +437,25 @@ class ScheduleOptimizer {
         coverage: Array<IntVar>,
         hoursDeviation: Array<IntVar>,
         input: OptimizationInput,
-        slack: Array<IntVar>
+        slack: Array<IntVar>,
+        eventShortfall: List<Array<IntVar>>
     ) {
         val M_SLACK = 1_000_000L   // Primary → minimize coverage shortfall
         val M_OT    = 1_000L       // Optional: discourage overtime slightly
+        // Above coverage slack: a party booked for two bartenders wants two bartenders more
+        // than it wants the till covered, and an event's requirements are the manager's own
+        // explicit instruction rather than a figure derived from a forecast. Still finite, so
+        // an impossible requirement costs a lot rather than making the model infeasible.
+        val M_EVENT = 10_000_000L
+
+        // Penalty terms for unmet group headcount. Empty for ordinary schedules, so their
+        // objective is byte-for-byte what it was before events existed.
+        val eventTerms = mutableListOf<LinearExpr>()
+        for (shortfallVars in eventShortfall) {
+            for (shortfall in shortfallVars) {
+                eventTerms += LinearExpr.term(shortfall, M_EVENT)
+            }
+        }
 
         when (input.objective) {
             OptimizationObjective.MINIMIZE_LABOR_COST, OptimizationObjective.BALANCED -> {
@@ -432,13 +473,19 @@ class ScheduleOptimizer {
                     costTerms += LinearExpr.term(overtime[e], employee.overtimePayRate.toLong() + M_OT)
                 }
 
+                costTerms += eventTerms
                 model.minimize(LinearExpr.sum(costTerms.toTypedArray()))
             }
             OptimizationObjective.MAXIMIZE_SALES -> {
                 // Maximize Σ coverage[t]
                 val totalCoverage = LinearExpr.sum(coverage.asList().toTypedArray())
 
-                model.minimize(LinearExpr.term(totalCoverage, -1))
+                // The event penalty has to be carried here too. This branch ignores coverage
+                // slack entirely, so a requirement left out of it would cost nothing at all
+                // and the solver would staff whoever maximised takings regardless of group.
+                model.minimize(
+                    LinearExpr.sum((listOf(LinearExpr.term(totalCoverage, -1)) + eventTerms).toTypedArray())
+                )
             }
             OptimizationObjective.MAXIMIZE_FAIRNESS -> {
                 // Minimize hour deviations for fairness, but still penalize coverage shortfalls
@@ -454,7 +501,79 @@ class ScheduleOptimizer {
                     fairnessTerms += LinearExpr.term(hoursDeviation[e], 1)
                 }
 
+                fairnessTerms += eventTerms
                 model.minimize(LinearExpr.sum(fairnessTerms.toTypedArray()))
+            }
+        }
+    }
+
+    /**
+     * Requires each event group to have its headcount on shift, softly.
+     *
+     * Soft by construction: every slot gets a shortfall variable that counts toward the
+     * requirement, so the constraint can always be satisfied and the model can never be made
+     * infeasible by an event asking for more people than exist. The cost of using it is what
+     * discourages it, and what surfaces afterwards as an [EVENT_UNDERSTAFFED] violation.
+     *
+     * Returns the shortfall variables per requirement, in the order given, so the solved
+     * values can be read back out.
+     */
+    private fun addEventStaffingConstraints(
+        model: CpModel,
+        x: Array<Array<BoolVar>>,
+        input: OptimizationInput
+    ): List<Array<IntVar>> {
+        if (input.eventRequirements.isEmpty()) return emptyList()
+
+        // Which role each person is filling, rather than merely whether they are working.
+        //
+        // Someone tagged both Bar and FOH would otherwise count toward both requirements at
+        // once from the single x[e][t], so "2 Bar, 3 FOH" could be satisfied by three
+        // multi-skilled people and report no shortfall - when what the manager asked for, and
+        // is paying for, is five. Multi-group tagging is the norm rather than the exception,
+        // so this is the ordinary case and not a corner one.
+        val fills = input.eventRequirements.map { req ->
+            req.employeeIndices.associateWith { e ->
+                Array(input.timeSlots.size) { t ->
+                    model.newBoolVar("fills_${req.groupName}_${e}_$t")
+                }
+            }
+        }
+
+        // Filling a role means working that slot.
+        fills.forEach { perEmployee ->
+            perEmployee.forEach { (e, slots) ->
+                slots.indices.forEach { t -> model.addLessOrEqual(slots[t], x[e][t]) }
+            }
+        }
+
+        // And nobody fills more than one role in the same slot. Working while filling none is
+        // allowed - that is just someone rostered for coverage rather than for a requirement.
+        for (e in input.employees.indices) {
+            for (t in input.timeSlots.indices) {
+                val rolesHere = fills.mapNotNull { it[e]?.get(t) as LinearArgument? }
+                if (rolesHere.size > 1) {
+                    model.addLessOrEqual(LinearExpr.sum(rolesHere.toTypedArray()), 1L)
+                }
+            }
+        }
+
+        return input.eventRequirements.mapIndexed { reqIndex, req ->
+            Array(req.slotIndices.size) { i ->
+                val t = req.slotIndices[i]
+                val shortfall = model.newIntVar(0, req.count.toLong(), "event_short_${req.groupName}_$t")
+
+                // Nobody in the group is a real configuration - a group whose members all left,
+                // or whose availability rules them out. The shortfall then equals the whole
+                // requirement, which is exactly what should be reported.
+                val assigned = req.employeeIndices.map { e ->
+                    fills[reqIndex].getValue(e)[t] as LinearArgument
+                }
+                model.addGreaterOrEqual(
+                    LinearExpr.sum((assigned + shortfall).toTypedArray()),
+                    req.count.toLong()
+                )
+                shortfall
             }
         }
     }
@@ -1092,7 +1211,8 @@ class ScheduleOptimizer {
         x: Array<Array<BoolVar>>,
         totalHours: Array<IntVar>,
         input: OptimizationInput,
-        isOptimal: Boolean
+        isOptimal: Boolean,
+        eventShortfalls: List<EventShortfall> = emptyList()
     ): OptimizationResult {
         val assignments = mutableListOf<EmployeeAssignment>()
 
@@ -1119,7 +1239,8 @@ class ScheduleOptimizer {
         return OptimizationResult(
             assignments = assignments,
             objectiveValue = solver.objectiveValue(),
-            isOptimal = isOptimal
+            isOptimal = isOptimal,
+            eventShortfalls = eventShortfalls
         )
     }
 }
@@ -1148,7 +1269,15 @@ data class OptimizationInput(
     // Hours already committed at other locations in this window, by employee.
     // Weekly caps are one budget per person rather than one per location, so
     // these hours are spent before the solver allocates anything.
-    val hoursCommittedElsewhere: Map<UUID, Double> = emptyMap()
+    val hoursCommittedElsewhere: Map<UUID, Double> = emptyMap(),
+
+    /**
+     * Per-group headcount an event needs, already resolved to employee and slot indices.
+     *
+     * Empty for ordinary schedules, which is what keeps that path untouched: no requirements
+     * means no extra variables and an objective identical to before.
+     */
+    val eventRequirements: List<EventSlotRequirement> = emptyList()
 ) {
     fun isAvailable(employeeIndex: Int, timeSlotIndex: Int): Boolean {
         return availability[employeeIndex][timeSlotIndex]
@@ -1206,7 +1335,47 @@ data class TimeSlot(
 data class OptimizationResult(
     val assignments: List<EmployeeAssignment>,
     val objectiveValue: Double,
-    val isOptimal: Boolean
+    val isOptimal: Boolean,
+
+    /**
+     * Where an event's group requirements could not be met, by group and slot.
+     *
+     * Read back from the solver's slack rather than recomputed afterwards: the solver is what
+     * decided to leave the gap, and re-deriving it from the assignments would be a second
+     * implementation of the same rule, free to disagree with the first.
+     *
+     * Empty for ordinary schedules, and empty for events staffed in full.
+     */
+    val eventShortfalls: List<EventShortfall> = emptyList()
+)
+
+/**
+ * One group's unmet headcount in one slot.
+ *
+ * Kept per slot rather than summed over the event, because "one bartender short for the last
+ * hour" and "one short all night" are different problems and a total cannot tell them apart.
+ */
+data class EventShortfall(
+    val groupName: String,
+    val timeSlotIndex: Int,
+    val required: Int,
+    val assigned: Int
+) {
+    val shortfall: Int get() = maxOf(0, required - assigned)
+}
+
+/**
+ * An event's demand for one group, resolved against the model's index space.
+ *
+ * [employeeIndices] are the people carrying the group tag and [slotIndices] the slots the
+ * event covers, both resolved once by the converter rather than re-derived in the solver -
+ * which has no notion of groups, dates or names, only indices.
+ */
+data class EventSlotRequirement(
+    val groupName: String,
+    val count: Int,
+    val employeeIndices: List<Int>,
+    val slotIndices: List<Int>
 )
 
 /**
