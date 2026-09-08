@@ -372,7 +372,21 @@ object OptimizationConverter {
         timeSlots: List<TimeSlot>
     ): List<Double> {
         return timeSlots.map { slot ->
-            val dayForecast = salesForecast.getForecastForDate(slot.date)
+            // Demand for the small hours belongs to the night that opened, not to the
+            // morning it technically lands on. A Monday event running to 02:00 records its
+            // takings against Monday, so those slots have to be looked up under Monday.
+            //
+            // Specifically the *date-specific* entry for the business day, not just any
+            // forecast for it. Asking for the following morning does not come back empty -
+            // it falls through to that weekday's ordinary pattern, which covers trading
+            // hours and says nothing about 01:00. So the slots arrived carrying zero demand
+            // and went unstaffed, while every other input looked correct.
+            val businessDayFigures = if (slot.isAfterMidnight) {
+                salesForecast.dateSpecificForecast?.get(slot.businessDate)
+            } else {
+                null
+            }
+            val dayForecast = businessDayFigures ?: salesForecast.getForecastForDate(slot.date)
 
             // Find forecasts that fall within this time slot.
             //

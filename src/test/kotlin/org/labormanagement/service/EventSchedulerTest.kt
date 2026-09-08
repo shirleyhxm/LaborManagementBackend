@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.labormanagement.database.DatabaseFactory
 import org.labormanagement.model.*
+import org.labormanagement.optimization.OptimizationConverter
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
@@ -255,6 +256,54 @@ class EventSchedulerTest {
             0 in covered || 1 in covered,
             "the hours after midnight went unstaffed: covered=${covered.sorted()}"
         )
+    }
+
+    @Test
+    fun `an overnight event is staffed through to its closing hour`() {
+        // An event records its takings against the night it opens, but the slots after
+        // midnight fall on the following calendar date. Looked up under that date the
+        // figures are not there, so the last hours of the night reached the solver as zero
+        // demand and went unstaffed - the event filled normally to midnight and then simply
+        // stopped, with every other input looking correct.
+        // Asserted on the demand the solver was handed rather than on the shifts that came
+        // back. Which hours get worked also depends on the objective - MAXIMIZE_SALES fills
+        // every available slot whatever the forecast says, MINIMIZE_LABOR_COST fills as few
+        // as it can - so neither tells you whether the forecast arrived. The projected sales
+        // do, and they are exactly what was zero.
+        val alice = employee("Alice", from = "20:00", to = "04:00")
+        val monday = eventDate
+        val eveningRevenue = listOf(21, 22, 23, 0, 1).associate { LocalTime.of(it, 0) to 900.0 }
+
+        val input = OptimizationConverter.buildOptimizationInput(
+            employees = listOf(alice),
+            salesForecast = SalesForecast(
+                businessId = testBusinessId,
+                // Recorded against the night that opens, which is what an event does.
+                dateSpecificForecast = mapOf(monday to eveningRevenue),
+                // A weekly pattern is present too, as every real business has. It matters:
+                // asking for the following morning does not come back empty, it falls
+                // through to that weekday's ordinary trading hours - which say nothing
+                // about 01:00. A fallback that only triggered on an empty result would look
+                // correct here and still leave these slots at zero.
+                weeklyPattern = DayOfWeek.entries.associateWith {
+                    (9..16).associate { hour -> LocalTime.of(hour, 0) to 300.0 }
+                }
+            ),
+            scheduleDates = listOf(monday),
+            operatingHoursMap = mapOf(monday to Pair(LocalTime.of(21, 0), LocalTime.of(2, 0))),
+            businessId = testBusinessId
+        )
+
+        val afterMidnight = input.timeSlots.indices.filter { input.timeSlots[it].isAfterMidnight }
+        assertTrue(afterMidnight.isNotEmpty(), "no slots were generated after midnight")
+        afterMidnight.forEach { i ->
+            val slot = input.timeSlots[i]
+            assertTrue(
+                input.projectedSales[i] > 0.0,
+                "slot ${slot.startTime}-${slot.endTime} on ${slot.date} drew no demand, so " +
+                    "nothing would staff it"
+            )
+        }
     }
 
     @Test

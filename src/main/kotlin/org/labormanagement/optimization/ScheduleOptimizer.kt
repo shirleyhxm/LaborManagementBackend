@@ -190,10 +190,18 @@ class ScheduleOptimizer {
                     // First slot: shiftStart[e][0] == x[e][0]
                     model.addEquality(shiftStart[e][0], x[e][0])
                 } else {
-                    // Check if previous slot is on same day and consecutive
+                    // Check if the previous slot runs straight into this one.
+                    //
+                    // Compared on businessDate rather than the calendar date: at midnight
+                    // the date changes, so the 00:00 slot of a late night looked like the
+                    // start of a fresh shift. It then had to satisfy the minimum shift
+                    // length on its own, and the cheapest way to avoid that was to leave it
+                    // unworked - so every overnight block was cut off at midnight while the
+                    // hours before it filled normally.
                     val currSlot = input.timeSlots[t]
                     val prevSlot = input.timeSlots[t - 1]
-                    val isConsecutive = prevSlot.date == currSlot.date && prevSlot.endTime == currSlot.startTime
+                    val isConsecutive = prevSlot.businessDate == currSlot.businessDate &&
+                        prevSlot.endTime == currSlot.startTime
 
                     if (isConsecutive) {
                         // shiftStart[e][t] >= x[e][t] - x[e][t-1]
@@ -229,13 +237,16 @@ class ScheduleOptimizer {
                     } else {
                         val prevSlot = input.timeSlots[currentIdx - 1]
                         val currSlot = input.timeSlots[currentIdx]
-                        val isConsecutive = prevSlot.date == currSlot.date && prevSlot.endTime == currSlot.startTime
+                        // By businessDate, as above: midnight is not a break in the night,
+                        // so the window of consecutive slots has to run through it.
+                        val isConsecutive = prevSlot.businessDate == currSlot.businessDate &&
+                            prevSlot.endTime == currSlot.startTime
 
                         if (isConsecutive) {
                             window.add(x[e][currentIdx])
                             currentIdx++
                         } else {
-                            break // Hit a gap or day boundary
+                            break // Hit a gap or the end of the business day
                         }
                     }
                 }
