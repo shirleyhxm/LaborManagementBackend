@@ -6,6 +6,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -1095,6 +1096,72 @@ class HardConstraintTest {
             "Total labor cost $totalCost exceeds the pro-rated monthly cap of $cap"
         )
     }
+
+    // ===== Roster size =====
+
+    @Test
+    fun `does not roster extra people to make the hours divide by the headcount`() {
+        // Demand needing one person for three hours, offered rosters of one to five people.
+        // The hours actually needed never change, so neither should the hours assigned.
+        //
+        // They used to. The fairness helper defined the per-employee average as the exact
+        // equality `targetHours * n == totalAssignedHours`, which over integers is only
+        // satisfiable when the total divides by the headcount - so the solver rounded the
+        // total up to the next multiple and paid a real person to work the difference. Three
+        // hours across four employees became four, and the padding grew with the roster.
+        val slots = hourlySlots(19, 22)
+        // One employee at 100/hr covers 100; at coverageFraction 0.8 that clears demand of 100.
+        val demandNeedingOnePerson = List(slots.size) { 100.0 }
+
+        for (rosterSize in 1..5) {
+            val employees = List(rosterSize) {
+                employee(availability = listOf(fullDayAvailability()))
+            }
+            val result = ScheduleOptimizer().optimize(
+                buildInput(employees, slots, demandNeedingOnePerson)
+            )
+            assertNotNull(result, "roster of $rosterSize should be solvable")
+
+            val hoursAssigned = result.assignments.sumOf { it.timeSlotIndices.size }
+            assertEquals(
+                slots.size,
+                hoursAssigned,
+                "roster of $rosterSize: assigned $hoursAssigned hours for ${slots.size} hours of work"
+            )
+        }
+    }
+
+    @Test
+    fun `still spreads hours evenly when optimising for fairness`() {
+        // The guard on the above: relaxing that equality must not stop targetHours doing its
+        // job. Six slots needing two people each is twelve person-hours over three employees,
+        // which fairness should land as four hours each rather than six-six-nothing.
+        val slots = hourlySlots(12, 18)
+        val employees = List(3) { employee(availability = listOf(fullDayAvailability())) }
+
+        val result = ScheduleOptimizer().optimize(
+            buildInput(
+                employees,
+                slots,
+                projectedSales = List(slots.size) { 250.0 },
+                objective = OptimizationObjective.MAXIMIZE_FAIRNESS
+            )
+        )
+        assertNotNull(result)
+
+        val hours = employees.indices.map { e ->
+            result.assignments.find { it.employeeIndex == e }?.timeSlotIndices?.size ?: 0
+        }
+        assertEquals(0, hours.max() - hours.min(), "hours should be level, got $hours")
+    }
+
+    /** Available the whole of the schedule date. */
+    private fun fullDayAvailability() = Availability(
+        dayOfWeek = DayOfWeek.MONDAY,
+        startTime = LocalTime.of(0, 0),
+        endTime = LocalTime.of(23, 59),
+        availabilityType = AvailabilityType.WEEKLY_RECURRING
+    )
 
     /** Groups a sorted or unsorted list of hourly slot indices into consecutive runs. */
     private fun groupConsecutive(indices: List<Int>): List<List<Int>> {

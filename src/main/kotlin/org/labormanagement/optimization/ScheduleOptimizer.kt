@@ -412,8 +412,29 @@ class ScheduleOptimizer {
         }
         model.addEquality(totalAssignedHours, LinearExpr.sum(totalHourTerms.toTypedArray()))
 
-        // targetHours = totalAssignedHours / numEmployees
-        model.addEquality(LinearExpr.term(targetHours, input.employees.size.toLong()), totalAssignedHours)
+        // targetHours is the average hours per employee, floored.
+        //
+        // Written as a pair of bounds rather than as the exact equality
+        // `targetHours * n == totalAssignedHours`, which is only satisfiable when the total
+        // divides by the headcount - and being a hard constraint, it forced the total to a
+        // multiple of the roster size. Three hours of work across four employees had no
+        // solution at three hours, so the solver bought a fourth hour: an extra person on
+        // shift, paid for, to make an average come out even. It applied to every schedule,
+        // not only events, and grew with the size of the roster.
+        //
+        //     n * targetHours <= totalAssignedHours < n * (targetHours + 1)
+        //
+        // which admits any total and still pins targetHours to the floor of the average.
+        // With nobody to schedule there is no average to define, and the upper bound would
+        // read `0 < 0` and make an empty roster infeasible rather than trivially satisfied.
+        val employeeCount = input.employees.size.toLong()
+        if (employeeCount > 0) {
+            model.addLessOrEqual(LinearExpr.term(targetHours, employeeCount), totalAssignedHours)
+            model.addLessThan(
+                totalAssignedHours,
+                LinearExpr.affine(targetHours, employeeCount, employeeCount)
+            )
+        }
 
         for (e in input.employees.indices) {
             // deviation[e] ≥ assigned_hours - targetHours
