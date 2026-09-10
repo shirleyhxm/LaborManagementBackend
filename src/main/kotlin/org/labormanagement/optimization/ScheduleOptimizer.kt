@@ -105,10 +105,13 @@ class ScheduleOptimizer {
         addComplianceRulesConstraints(model, x, input)
 
         // Per-group headcount for an event. Empty for ordinary schedules.
-        val eventShortfall = addEventStaffingConstraints(model, x, input)
+        val eventStaffing = addEventStaffingConstraints(model, x, input)
 
         // Set objective based on optimization objective
-        setObjective(model, regular, overtime, coverage, hoursDeviation, input, slack, eventShortfall)
+        setObjective(
+            model, regular, overtime, coverage, hoursDeviation, input, slack,
+            eventStaffing.shortfalls, eventStaffing.fills
+        )
 
         // Solve the model
         val solver = CpSolver()
@@ -140,7 +143,7 @@ class ScheduleOptimizer {
         val shortfalls = mutableListOf<EventShortfall>()
         input.eventRequirements.forEachIndexed { reqIndex, req ->
             req.slotIndices.forEachIndexed { i, t ->
-                val missing = solver.value(eventShortfall[reqIndex][i]).toInt()
+                val missing = solver.value(eventStaffing.shortfalls[reqIndex][i]).toInt()
                 if (missing > 0) {
                     shortfalls += EventShortfall(
                         groupName = req.groupName,
@@ -155,9 +158,27 @@ class ScheduleOptimizer {
             }
         }
 
+        // Which role each person ended up filling, and so what they are paid for it. Read from
+        // the solved model rather than re-derived: the solver chose between the groups someone
+        // belongs to, and working that out again afterwards would be a second implementation
+        // of the same decision, free to disagree with the one that was actually costed.
+        val ratesByEmployeeSlot = mutableMapOf<Pair<Int, Int>, Double>()
+        input.eventRequirements.forEachIndexed { reqIndex, req ->
+            val override = req.payOverride ?: return@forEachIndexed
+            req.employeeIndices.forEach { e ->
+                val filled = eventStaffing.fills[reqIndex][e] ?: return@forEach
+                req.slotIndices.forEach { t ->
+                    if (solver.value(filled[t]) == 1L) {
+                        ratesByEmployeeSlot[e to t] = override.applyTo(input.employees[e].normalPayRate)
+                    }
+                }
+            }
+        }
+
         // Extract solution
         return extractSolution(
-            solver, x, totalHours, input, status == CpSolverStatus.OPTIMAL, shortfalls
+            solver, x, totalHours, input, status == CpSolverStatus.OPTIMAL, shortfalls,
+            ratesByEmployeeSlot
         )
     }
 
@@ -459,7 +480,8 @@ class ScheduleOptimizer {
         hoursDeviation: Array<IntVar>,
         input: OptimizationInput,
         slack: Array<IntVar>,
-        eventShortfall: List<Array<IntVar>>
+        eventShortfall: List<Array<IntVar>>,
+        eventFills: List<Map<Int, Array<BoolVar>>>
     ) {
         val M_SLACK = 1_000_000L   // Primary → minimize coverage shortfall
         val M_OT    = 1_000L       // Optional: discourage overtime slightly
@@ -475,6 +497,28 @@ class ScheduleOptimizer {
         for (shortfallVars in eventShortfall) {
             for (shortfall in shortfallVars) {
                 eventTerms += LinearExpr.term(shortfall, M_EVENT)
+            }
+        }
+
+        // What an event's pay overrides add on top of ordinary wages.
+        //
+        // The wage terms below are per-employee aggregates at the normal rate, which cannot
+        // express a rate that varies by role. The difference is charged separately instead,
+        // per hour actually filled - so the solver costs the premium it will really pay, and
+        // prefers the cheaper of two people who could fill the same role. Absolute rates can
+        // sit below the base rate, so this difference is signed rather than assumed positive.
+        val eventPayTerms = mutableListOf<LinearExpr>()
+        input.eventRequirements.forEachIndexed { reqIndex, req ->
+            val override = req.payOverride ?: return@forEachIndexed
+            req.employeeIndices.forEach { e ->
+                val filled = eventFills.getOrNull(reqIndex)?.get(e) ?: return@forEach
+                val base = input.employees[e].normalPayRate
+                val premium = (override.applyTo(base) - base).toLong()
+                if (premium != 0L) {
+                    req.slotIndices.forEach { t ->
+                        eventPayTerms += LinearExpr.term(filled[t], premium)
+                    }
+                }
             }
         }
 
@@ -495,6 +539,10 @@ class ScheduleOptimizer {
                 }
 
                 costTerms += eventTerms
+                // Only the cost-driven objectives pay attention to wages at all, so the
+                // premium belongs here and not in the coverage or fairness branches, whose
+                // objectives contain no money.
+                costTerms += eventPayTerms
                 model.minimize(LinearExpr.sum(costTerms.toTypedArray()))
             }
             OptimizationObjective.MAXIMIZE_SALES -> {
@@ -529,22 +577,26 @@ class ScheduleOptimizer {
     }
 
     /**
-     * Requires each event group to have its headcount on shift, softly.
+     * Staffs each event group to its headcount: at least that many, and never more.
      *
-     * Soft by construction: every slot gets a shortfall variable that counts toward the
-     * requirement, so the constraint can always be satisfied and the model can never be made
-     * infeasible by an event asking for more people than exist. The cost of using it is what
-     * discourages it, and what surfaces afterwards as an [EVENT_UNDERSTAFFED] violation.
+     * The floor is soft, the cap is hard, and the asymmetry is deliberate. Falling short is a
+     * fact about the world - too few people exist, or none are available - and must still
+     * produce a schedule, so it is absorbed by a shortfall variable and reported. Exceeding
+     * the count is a choice the solver would otherwise make on its own, chasing forecast
+     * coverage with staff the manager did not ask for, so it is simply disallowed.
      *
-     * Returns the shortfall variables per requirement, in the order given, so the solved
-     * values can be read back out.
+     * A hard cap cannot make the model infeasible: it only ever forbids assignments, and
+     * assigning nobody to a role is always available.
+     *
+     * Returns the shortfall variables per requirement and the role assignments behind them,
+     * so both the violations and the pay rates can be read back from the solved model.
      */
     private fun addEventStaffingConstraints(
         model: CpModel,
         x: Array<Array<BoolVar>>,
         input: OptimizationInput
-    ): List<Array<IntVar>> {
-        if (input.eventRequirements.isEmpty()) return emptyList()
+    ): EventStaffingVars {
+        if (input.eventRequirements.isEmpty()) return EventStaffingVars(emptyList(), emptyList())
 
         // Which role each person is filling, rather than merely whether they are working.
         //
@@ -561,25 +613,28 @@ class ScheduleOptimizer {
             }
         }
 
-        // Filling a role means working that slot.
-        fills.forEach { perEmployee ->
-            perEmployee.forEach { (e, slots) ->
-                slots.indices.forEach { t -> model.addLessOrEqual(slots[t], x[e][t]) }
-            }
-        }
-
-        // And nobody fills more than one role in the same slot. Working while filling none is
-        // allowed - that is just someone rostered for coverage rather than for a requirement.
+        // Nobody fills more than one role in the same slot, and on an event nobody works
+        // without filling one.
+        //
+        // The second half is what makes the headcount authoritative. Capping the roles alone
+        // would leave x free: the solver could still put a fourth person on shift chasing
+        // forecast coverage, filling nothing, and "1 x Bar" would read as one bartender plus
+        // whoever else the revenue justified. Tying x to the roles means the requirements
+        // decide the size of the roster outright, which is what asking for exactly one means.
         for (e in input.employees.indices) {
             for (t in input.timeSlots.indices) {
                 val rolesHere = fills.mapNotNull { it[e]?.get(t) as LinearArgument? }
-                if (rolesHere.size > 1) {
-                    model.addLessOrEqual(LinearExpr.sum(rolesHere.toTypedArray()), 1L)
+                if (rolesHere.isEmpty()) {
+                    // In none of the required groups, so there is no role for this person to
+                    // fill and no reason for the event to roster them at all.
+                    model.addEquality(x[e][t], 0)
+                } else {
+                    model.addEquality(LinearExpr.sum(rolesHere.toTypedArray()), x[e][t])
                 }
             }
         }
 
-        return input.eventRequirements.mapIndexed { reqIndex, req ->
+        val shortfalls = input.eventRequirements.mapIndexed { reqIndex, req ->
             Array(req.slotIndices.size) { i ->
                 val t = req.slotIndices[i]
                 val shortfall = model.newIntVar(0, req.count.toLong(), "event_short_${req.groupName}_$t")
@@ -594,9 +649,19 @@ class ScheduleOptimizer {
                     LinearExpr.sum((assigned + shortfall).toTypedArray()),
                     req.count.toLong()
                 )
+                // And no more than asked for. Without this the count reads as a minimum only,
+                // so a forecast calling for more coverage quietly staffs a second bartender
+                // against a requirement that says one - and lowering the number changes
+                // nothing, because it was never what decided the size of the roster.
+                model.addLessOrEqual(
+                    LinearExpr.sum(assigned.toTypedArray()),
+                    req.count.toLong()
+                )
                 shortfall
             }
         }
+
+        return EventStaffingVars(shortfalls, fills)
     }
 
     /**
@@ -1233,7 +1298,8 @@ class ScheduleOptimizer {
         totalHours: Array<IntVar>,
         input: OptimizationInput,
         isOptimal: Boolean,
-        eventShortfalls: List<EventShortfall> = emptyList()
+        eventShortfalls: List<EventShortfall> = emptyList(),
+        eventPayRates: Map<Pair<Int, Int>, Double> = emptyMap()
     ): OptimizationResult {
         val assignments = mutableListOf<EmployeeAssignment>()
 
@@ -1261,7 +1327,8 @@ class ScheduleOptimizer {
             assignments = assignments,
             objectiveValue = solver.objectiveValue(),
             isOptimal = isOptimal,
-            eventShortfalls = eventShortfalls
+            eventShortfalls = eventShortfalls,
+            eventPayRates = eventPayRates
         )
     }
 }
@@ -1367,7 +1434,17 @@ data class OptimizationResult(
      *
      * Empty for ordinary schedules, and empty for events staffed in full.
      */
-    val eventShortfalls: List<EventShortfall> = emptyList()
+    val eventShortfalls: List<EventShortfall> = emptyList(),
+
+    /**
+     * The hourly rate an event's pay override sets, keyed by (employee index, slot index).
+     *
+     * Only the slots where someone is filling a role carrying an override appear here;
+     * anything absent is paid at the employee's usual rate. Keyed per slot rather than per
+     * employee because someone in two groups may fill a different role - and so earn a
+     * different rate - from one hour to the next.
+     */
+    val eventPayRates: Map<Pair<Int, Int>, Double> = emptyMap()
 )
 
 /**
@@ -1396,7 +1473,51 @@ data class EventSlotRequirement(
     val groupName: String,
     val count: Int,
     val employeeIndices: List<Int>,
-    val slotIndices: List<Int>
+    val slotIndices: List<Int>,
+
+    /**
+     * What this group is paid for the event, if anything: an absolute rate replacing the
+     * employee's own, or an amount added to it. Null leaves everyone on their usual pay.
+     */
+    val payOverride: EventPayRate? = null
+)
+
+/**
+ * An event's pay arrangement for one group, in the form the solver and converter both use.
+ *
+ * A mirror of the domain's `EventPayOverride` rather than a reuse of it, keeping the
+ * optimization layer free of domain imports as the rest of this file is.
+ */
+sealed class EventPayRate {
+    /** Pay this instead of the employee's normal rate. */
+    data class Absolute(val rate: Double) : EventPayRate()
+
+    /** Add this to the employee's normal rate. */
+    data class Uplift(val amountPerHour: Double) : EventPayRate()
+
+    /**
+     * What an employee on [baseRate] earns under this arrangement.
+     *
+     * An uplift lands on the base rate before any overtime multiplier, so overtime is paid on
+     * the uplifted rate; an absolute rate replaces the base and the usual multiplier still
+     * applies on top. Both follow the semantics documented on the domain model.
+     */
+    fun applyTo(baseRate: Double): Double = when (this) {
+        is Absolute -> rate
+        is Uplift -> baseRate + amountPerHour
+    }
+}
+
+/**
+ * The event-staffing variables the solved model is read back through.
+ *
+ * [shortfalls] is per requirement then per slot, matching `eventRequirements` in order.
+ * [fills] is per requirement, keyed by employee index, then per slot - which of the group's
+ * members is filling that role at that moment, and so which rate their shift is paid at.
+ */
+private data class EventStaffingVars(
+    val shortfalls: List<Array<IntVar>>,
+    val fills: List<Map<Int, Array<BoolVar>>>
 )
 
 /**

@@ -146,6 +146,48 @@ object OptimizationConverter {
      * side and employee tags on the other, and a requirement that silently matched nobody
      * because of capitalisation would look exactly like an event nobody could staff.
      */
+    /**
+     * The employee as this block of work pays them, with any event override applied.
+     *
+     * Returns the employee unchanged when no override touches these slots, so ordinary
+     * schedules are handed exactly the object they always were.
+     *
+     * The overtime rate is scaled by the same proportion as the normal rate rather than left
+     * alone. `overtimePayRate` is stored outright rather than derived from a multiplier, so
+     * carrying it over untouched would pay an uplifted bartender their old overtime rate -
+     * and an absolute rate of half the usual pay would still bill overtime at full whack.
+     * Keeping the ratio is what makes "the usual multiplier still applies" true of a stored
+     * pair of numbers.
+     */
+    private fun payFor(
+        employee: Employee,
+        employeeIndex: Int,
+        slotGroup: List<Int>,
+        result: OptimizationResult
+    ): Employee {
+        if (result.eventPayRates.isEmpty()) return employee
+
+        // One block can only be paid one way, so where a block somehow spans slots at
+        // different rates the highest is used - erring toward paying someone more for hours
+        // they actually worked, rather than less. In practice an event's window is one role
+        // throughout, so this is a tie-break that should not come up.
+        val rate = slotGroup.mapNotNull { result.eventPayRates[employeeIndex to it] }.maxOrNull()
+            ?: return employee
+        if (rate == employee.normalPayRate) return employee
+
+        val overtimeRatio = if (employee.normalPayRate > 0.0) {
+            employee.overtimePayRate / employee.normalPayRate
+        } else {
+            // No base rate to take a ratio from. The statutory default is time and a half,
+            // and it beats billing overtime at the plain rate by accident.
+            1.5
+        }
+        return employee.copy(
+            normalPayRate = rate,
+            overtimePayRate = rate * overtimeRatio
+        )
+    }
+
     private fun resolveEventRequirements(
         requirements: List<org.labormanagement.model.EventStaffingRequirement>,
         employees: List<Employee>,
@@ -162,7 +204,14 @@ object OptimizationConverter {
                 groupName = requirement.groupName,
                 count = requirement.count,
                 employeeIndices = members,
-                slotIndices = allSlots
+                slotIndices = allSlots,
+                payOverride = when (val override = requirement.payOverride) {
+                    is org.labormanagement.model.EventPayOverride.AbsoluteRate ->
+                        EventPayRate.Absolute(override.rate)
+                    is org.labormanagement.model.EventPayOverride.Uplift ->
+                        EventPayRate.Uplift(override.amountPerHour)
+                    null -> null
+                }
             )
         }
     }
@@ -247,7 +296,11 @@ object OptimizationConverter {
 
                 shifts.addAll(
                     OvertimeSplitter.split(
-                        employee = employee,
+                        // Paid at whatever the role they are filling pays, if the event
+                        // overrides it. Applied by handing the splitter an employee carrying
+                        // the event's rates rather than by rewriting the shifts afterwards,
+                        // so the regular/overtime split keeps working off one set of numbers.
+                        employee = payFor(employee, assignment.employeeIndex, slotGroup, result),
                         date = startSlot.date,
                         startTime = startSlot.startTime,
                         endTime = endSlot.endTime,
