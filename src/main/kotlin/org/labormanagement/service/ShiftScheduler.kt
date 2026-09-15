@@ -132,11 +132,21 @@ class ShiftScheduler(
         val revenue = eventContext?.expectedRevenue ?: return businessForecast
         if (revenue.isEmpty()) return businessForecast
 
-        // Every date the event touches, so an overnight event's small hours carry demand too.
+        // Every date the event touches, including the morning after a night that runs past
+        // midnight: an event is stored against the single date it opens on, so its own dates
+        // stop at that date while its hours do not. Without the following day the small hours
+        // fell back to the business's ordinary pattern for a day the event is not even open
+        // on - dropping the event's own late-night revenue from its demand and from the
+        // takings its labour cost is measured against.
+        //
+        // Safe to add for the whole of the following day rather than only its small hours:
+        // this runs only for an event, and an event's schedule has slots only on the dates
+        // in its own operating hours, so nothing ever reads the surplus entries.
         val eventDates = schedulePeriod.getAllDates()
+        val overnightDates = eventDates.map { it.plusDays(1) }
         return businessForecast.copy(
             dateSpecificForecast = (businessForecast.dateSpecificForecast ?: emptyMap()) +
-                eventDates.associateWith { revenue }
+                (eventDates + overnightDates).associateWith { revenue }
         )
     }
 
@@ -421,7 +431,10 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(mergedShifts, employees, salesForecast, businessId)
+            calculateMetrics(
+                mergedShifts, employees, salesForecast, businessId,
+                resolveOperatingHours(businessId, input.schedulePeriod)
+            )
         }
 
         // Create and return Schedule with all data (starts as DRAFT)
@@ -542,7 +555,10 @@ class ShiftScheduler(
 
         // Calculate metrics
         val metrics = profile("generateSchedule.calculateMetrics") {
-            calculateMetrics(shifts, employees, salesForecast, businessId)
+            calculateMetrics(
+                shifts, employees, salesForecast, businessId,
+                resolveOperatingHours(businessId, input.schedulePeriod)
+            )
         }
 
         return Schedule(
@@ -1119,20 +1135,73 @@ class ShiftScheduler(
         }
     }
 
+    /**
+     * Forecast revenue across the hours this schedule actually covers.
+     *
+     * Summed over each date's operating hours rather than the whole day, so a schedule is
+     * measured against the takings of the hours it staffs - an evening event against that
+     * evening, not against the day it sits in.
+     *
+     * A close at or before the open means the day runs past midnight, and the hours after it
+     * belong to that opening: they are read from the *next* date's forecast, which is where
+     * those clock times live, but counted toward the night that opened.
+     *
+     * Falls back to the dates the shifts land on when no operating hours are supplied, so a
+     * caller that has none still gets a real figure rather than zero.
+     */
+    private fun estimatedSalesFrom(
+        salesForecast: SalesForecast,
+        operatingHours: Map<LocalDate, OperatingHours>,
+        shifts: List<Shift>
+    ): Double {
+        val hoursByDate = operatingHours.ifEmpty {
+            shifts.map { it.date }.distinct().associateWith {
+                OperatingHours(LocalTime.MIDNIGHT, LocalTime.MIDNIGHT)
+            }
+        }
+
+        return hoursByDate.entries.sumOf { (date, hours) ->
+            val open = hours.openTime
+            val close = hours.closeTime
+            val overnight = close <= open
+
+            // The part of the window falling on this date: open until midnight when it wraps,
+            // open until close when it does not.
+            val today = salesForecast.getForecastForDate(date)
+                .filterKeys { it >= open && (overnight || it < close) }
+                .values.sum()
+
+            // And the small hours, which carry the next date's clock times.
+            val tomorrow = if (overnight && close > LocalTime.MIDNIGHT) {
+                salesForecast.getForecastForDate(date.plusDays(1))
+                    .filterKeys { it < close }
+                    .values.sum()
+            } else {
+                0.0
+            }
+
+            today + tomorrow
+        }
+    }
+
     private fun calculateMetrics(
         shifts: List<Shift>,
         employees: List<Employee>,
         salesForecast: SalesForecast,
-        businessId: UUID
+        businessId: UUID,
+        operatingHours: Map<LocalDate, OperatingHours> = emptyMap()
     ): SchedulingMetrics {
         val totalLaborCost = shifts.sumOf { it.laborCost }
 
-        // Calculate estimated sales
-        val employeeMap = employees.associateBy { it.id }
-        val estimatedSales = shifts.sumOf { shift ->
-            val employee = employeeMap[shift.employeeId] ?: return@sumOf 0.0
-            shift.durationHours * employee.productivity
-        }
+        // Revenue the schedule is expected to take, from the forecast.
+        //
+        // Was the staff's *capacity* to sell - hours worked times productivity - which is a
+        // different quantity wearing the same name. Labour cost against it answered "what
+        // fraction of what these people could sell does paying them cost", where the figure
+        // every manager reads it as is cost against the takings that justify it. The two
+        // diverge badly: the demo week reported 1356%, and rostering more staff *lowered* the
+        // ratio, so an over-staffed schedule looked more efficient than a lean one.
+        val estimatedSales = estimatedSalesFrom(salesForecast, operatingHours, shifts)
 
         val laborCostPercentage = if (estimatedSales > 0) {
             (totalLaborCost / estimatedSales) * 100

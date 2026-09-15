@@ -141,6 +141,118 @@ class ShiftSchedulerTest {
     }
 
     @Test
+    fun `estimatedTotalSales is the forecast for the hours worked, not the staff's capacity`() {
+        // Productivity is set absurdly high relative to the forecast, so the two readings are
+        // far apart and cannot be confused: capacity would be 12h x 10_000 = 120_000, while
+        // the forecast for those hours is 2_000.
+        val employee = createEmployee(
+            firstName = "Casey",
+            productivity = 10_000.0,
+            payRate = 20.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(9, 0), LocalTime.of(21, 0))
+            )
+        )
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(9, 0) to 500.0,
+                    LocalTime.of(12, 0) to 500.0,
+                    LocalTime.of(15, 0) to 500.0,
+                    LocalTime.of(18, 0) to 500.0,
+                    // Outside the 09:00-21:00 window, so it must not be counted.
+                    LocalTime.of(22, 0) to 900.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 10000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(21, 0))
+                )
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        assertEquals(
+            2000.0,
+            output.metrics.estimatedTotalSales,
+            0.01,
+            "should sum the forecast across the open hours, excluding the 22:00 entry"
+        )
+        // And the ratio that reads off it stays in a range a manager would recognise, rather
+        // than the four-figure percentages the capacity reading produced.
+        assertTrue(
+            output.metrics.laborCostPercentage in 0.0..100.0,
+            "labour cost should be a sane percentage of takings, was ${output.metrics.laborCostPercentage}"
+        )
+    }
+
+    @Test
+    fun `estimatedTotalSales counts the small hours of a night that runs past midnight`() {
+        // A 21:00-02:00 opening: the hours after midnight carry the next day's clock times
+        // but belong to the night that opened, so they have to be read from Tuesday's
+        // forecast and still counted toward Monday's opening.
+        val employee = createEmployee(
+            firstName = "Devon",
+            productivity = 100.0,
+            payRate = 20.0,
+            availability = listOf(
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.MONDAY, null, null, LocalTime.of(0, 0), LocalTime.of(0, 0)),
+                Availability(AvailabilityType.WEEKLY_RECURRING, DayOfWeek.TUESDAY, null, null, LocalTime.of(0, 0), LocalTime.of(0, 0))
+            )
+        )
+        salesForecastRepository.updateForBusiness(
+            businessId = testBusinessId,
+            weeklyPattern = mapOf(
+                DayOfWeek.MONDAY to mapOf(
+                    LocalTime.of(21, 0) to 300.0,
+                    LocalTime.of(22, 0) to 300.0,
+                    LocalTime.of(23, 0) to 300.0,
+                    // Before the 21:00 open, so outside this night entirely.
+                    LocalTime.of(10, 0) to 999.0
+                ),
+                DayOfWeek.TUESDAY to mapOf(
+                    LocalTime.of(0, 0) to 200.0,
+                    LocalTime.of(1, 0) to 200.0,
+                    // At/after the 02:00 close.
+                    LocalTime.of(2, 0) to 999.0
+                )
+            )
+        )
+
+        val input = ScheduleInput(
+            businessId = testBusinessId,
+            employeeIds = listOf(employee.id),
+            laborCostBudget = 10000.0,
+            schedulePeriod = SchedulePeriod(
+                startDate = LocalDate.of(2024, 1, 1),  // Monday
+                endDate = LocalDate.of(2024, 1, 1),
+                operatingHours = mapOf(
+                    LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(21, 0), LocalTime.of(2, 0))
+                )
+            )
+        )
+
+        val output = scheduler.generateSchedule(input, businessId = testBusinessId)
+
+        assertEquals(
+            1300.0,
+            output.metrics.estimatedTotalSales,
+            0.01,
+            "21:00-23:00 on Monday plus 00:00-01:00 on Tuesday, and nothing outside the night"
+        )
+    }
+
+    @Test
     fun `generateSchedule should include employer on-cost when NI rules are enabled`() {
         val employee = createEmployee(
             firstName = "Charlie",
@@ -974,10 +1086,22 @@ class ShiftSchedulerTest {
         val maxSalesProductiveHours = maxSalesOutput.shifts.filter { it.employeeId == productiveEmployee.id }.sumOf { it.durationHours }
         val minCostCheapHours = minCostOutput.shifts.filter { it.employeeId == cheapEmployee.id }.sumOf { it.durationHours }
 
-        // Max sales should have higher estimated sales
+        // Compared on selling capacity rather than on estimatedTotalSales, which is now the
+        // forecast for these hours and so the same figure whatever the objective - asserting
+        // on it would hold by identity and test nothing.
+        val productivityOf = mapOf(
+            cheapEmployee.id to cheapEmployee.productivity,
+            productiveEmployee.id to productiveEmployee.productivity
+        )
+        val capacityOf = { output: Schedule ->
+            output.shifts.sumOf { it.durationHours * (productivityOf[it.employeeId] ?: 0.0) }
+        }
+        val maxSalesCapacity = capacityOf(maxSalesOutput)
+        val minCostCapacity = capacityOf(minCostOutput)
         assertTrue(
-            maxSalesOutput.metrics.estimatedTotalSales >= minCostOutput.metrics.estimatedTotalSales,
-            "MAXIMIZE_SALES should produce higher or equal estimated sales"
+            maxSalesCapacity >= minCostCapacity,
+            "MAXIMIZE_SALES should roster at least as much selling capacity " +
+                "(max sales: $maxSalesCapacity, min cost: $minCostCapacity)"
         )
 
         // Min cost should use cheaper employee more
@@ -1886,11 +2010,14 @@ class ShiftSchedulerTest {
             "MINIMIZE_LABOR_COST should favor cheaper employee (cheap: $minCostCheapHours, productive: $minCostProductiveHours)"
         )
 
-        // Verify objectives produce different results
+        // Verify objectives produce different results. Cost is the comparison that carries
+        // meaning here: estimatedTotalSales is now the forecast for these hours, identical
+        // under either objective, so including it would make this hold by identity.
         assertTrue(
-            maxSalesOutput.metrics.estimatedTotalSales >= minCostOutput.metrics.estimatedTotalSales ||
             minCostOutput.metrics.totalLaborCost <= maxSalesOutput.metrics.totalLaborCost,
-            "Different objectives should produce different optimization results"
+            "MINIMIZE_LABOR_COST should not cost more than MAXIMIZE_SALES " +
+                "(min cost: ${minCostOutput.metrics.totalLaborCost}, " +
+                "max sales: ${maxSalesOutput.metrics.totalLaborCost})"
         )
 
         // BALANCED should achieve reasonable performance on both metrics
