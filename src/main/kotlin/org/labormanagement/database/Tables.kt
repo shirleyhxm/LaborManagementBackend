@@ -598,3 +598,55 @@ object SpecialEventRequirements : Table("special_event_requirements") {
     // contradiction rather than a total.
     override val primaryKey = PrimaryKey(eventId, groupName)
 }
+
+// ===== Business Hours Tables =====
+
+/**
+ * When the business is open on each day of an ordinary week.
+ *
+ * Supersedes Businesses.defaultOpenTime/defaultCloseTime, which could only describe a
+ * business whose every day looked the same. Those columns are still read as the fallback
+ * for a business that has no rows here yet, so an existing database keeps generating the
+ * schedules it did before.
+ *
+ * close_time may be earlier than open_time, meaning the day runs past midnight - the same
+ * convention SpecialEvents uses. A closed day keeps its times rather than nulling them, so
+ * reopening a day restores the hours it last had instead of guessing.
+ */
+object BusinessHours : Table("business_hours") {
+    val businessId = uuid("business_id").references(Businesses.id)
+    val dayOfWeek = varchar("day_of_week", 20)
+    val openTime = time("open_time")
+    val closeTime = time("close_time")
+    val isClosed = bool("is_closed").default(false)
+    val updatedAt = timestamp("updated_at")
+
+    // One row per day per business: a week has exactly seven of these, and a
+    // second Monday would be a contradiction rather than a split shift.
+    override val primaryKey = PrimaryKey(businessId, dayOfWeek)
+}
+
+/**
+ * A specific date whose hours differ from the weekly pattern - a holiday closure, or a
+ * day opening late for stocktake.
+ *
+ * Beats the BusinessHours row for that weekday. Carries a label because "closed on 25 Dec"
+ * and "closed every Sunday" need to read differently in the UI: an override says why.
+ */
+object BusinessHourOverrides : Table("business_hour_overrides") {
+    val id = uuid("id")
+    val businessId = uuid("business_id").references(Businesses.id)
+    val date = date("date")
+    val openTime = time("open_time")
+    val closeTime = time("close_time")
+    val isClosed = bool("is_closed").default(false)
+    val label = varchar("label", 100).nullable()
+    val createdAt = timestamp("created_at")
+
+    override val primaryKey = PrimaryKey(id)
+
+    // One override per date: two rows would leave which one wins undefined.
+    init {
+        uniqueIndex(businessId, date)
+    }
+}

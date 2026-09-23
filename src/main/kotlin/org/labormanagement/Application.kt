@@ -25,6 +25,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.options
 import org.labormanagement.controller.AuthController
 import org.labormanagement.controller.BusinessController
+import org.labormanagement.controller.BusinessHoursController
 import org.labormanagement.controller.BusinessMemberController
 import org.labormanagement.controller.EmployeeLocationController
 import org.labormanagement.controller.ConstraintsController
@@ -62,6 +63,7 @@ import org.labormanagement.repository.TimeoffRepository
 import org.labormanagement.repository.UserRepository
 import org.labormanagement.service.AttendanceService
 import org.labormanagement.service.AuthService
+import org.labormanagement.service.BusinessHoursService
 import org.labormanagement.service.BusinessService
 import org.labormanagement.service.ConstraintValidator
 import org.labormanagement.service.ConstraintsService
@@ -249,6 +251,7 @@ fun Application.module() {
 
     // Initialize controllers
     val businessController = BusinessController(businessService)
+    val businessHoursController = BusinessHoursController(BusinessHoursService())
     val employeeLocationController = EmployeeLocationController(
         locationRepository = employeeLocationRepository,
         employeeRepository = employeeRepository,
@@ -484,6 +487,10 @@ fun Application.module() {
 
         with(businessController) {
             businessRoutes()
+        }
+
+        with(businessHoursController) {
+            businessHoursRoutes()
         }
 
         with(businessMemberController) {

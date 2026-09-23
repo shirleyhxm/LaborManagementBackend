@@ -130,6 +130,8 @@ object DatabaseFactory {
             org.labormanagement.database.CustomComplianceRules,
             org.labormanagement.database.SchedulingPriorities,
             org.labormanagement.database.EmployeeContractedHoursTable,
+            org.labormanagement.database.BusinessHours,
+            org.labormanagement.database.BusinessHourOverrides,
             // After Schedules: a special event points at the schedule generated from it.
             org.labormanagement.database.SpecialEvents,
             org.labormanagement.database.SpecialEventRequirements
@@ -160,6 +162,8 @@ object DatabaseFactory {
                 // Before Schedules, which they reference; requirements before their event.
                 org.labormanagement.database.SpecialEventRequirements,
                 org.labormanagement.database.SpecialEvents,
+                org.labormanagement.database.BusinessHourOverrides,
+                org.labormanagement.database.BusinessHours,
                 org.labormanagement.database.EmployeeContractedHoursTable,
                 org.labormanagement.database.SchedulingPriorities,
                 org.labormanagement.database.CustomComplianceRules,

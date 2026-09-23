@@ -18,6 +18,7 @@ import org.labormanagement.model.ViolationType
 import org.labormanagement.model.WorkingHoursRules
 import org.labormanagement.optimization.OptimizationConverter
 import org.labormanagement.optimization.ScheduleOptimizer
+import org.labormanagement.repository.BusinessHoursRepository
 import org.labormanagement.repository.BusinessRepository
 import org.labormanagement.repository.EmployeeRepository
 import org.labormanagement.repository.SalesForecastRepository
@@ -67,6 +68,7 @@ class ShiftScheduler(
     private val constraintsService: ConstraintsService = ConstraintsService(),
     private val timeoffRepository: TimeoffRepository = TimeoffRepository(),
     private val businessRepository: BusinessRepository = BusinessRepository(),
+    private val businessHoursRepository: BusinessHoursRepository = BusinessHoursRepository(),
     private val schedulingApproach: SchedulingApproach = SchedulingApproach.OPTIMIZER
 ) {
     private val log = LoggerFactory.getLogger(ShiftScheduler::class.java)
@@ -254,27 +256,32 @@ class ShiftScheduler(
     /**
      * When the business is open on each date of [schedulePeriod].
      *
-     * Explicit per-date hours win, so a caller can still describe a day that differs from
-     * the norm. Anything they leave out falls back to the business's configured default
-     * opening hours rather than to a literal in this file.
+     * Resolution runs most specific first: explicit per-date hours on the request, then a
+     * saved override for that date (a bank holiday), then the saved hours for that weekday,
+     * then the business's legacy default pair. A caller can still describe a day that
+     * differs from the norm, and anything they leave out falls back to what the owner
+     * configured rather than to a literal in this file.
      *
-     * Both scheduling paths resolve hours through here so they cannot disagree about the
-     * span of the working day. They previously did: the CP-SAT path substituted 09:00-17:00
-     * for a missing date while the greedy path skipped that date entirely, so the same
-     * request produced either a short day or no shifts at all depending on which path ran.
+     * A date the business is closed on is **absent from the map**, not present with a zero
+     * span. Both scheduling paths already skip a date they find no hours for - the greedy
+     * one with `?: return@forEach`, the CP-SAT one with `?: continue` in generateTimeSlots -
+     * so a closed day yields no candidate shifts on either path without either of them
+     * needing to know that closing is a thing.
+     *
+     * Both paths resolve hours through here so they cannot disagree about the span of the
+     * working day. They previously did: the CP-SAT path substituted 09:00-17:00 for a
+     * missing date while the greedy path skipped that date entirely, so the same request
+     * produced either a short day or no shifts at all depending on which path ran.
      */
     private fun resolveOperatingHours(
         businessId: UUID,
         schedulePeriod: SchedulePeriod
     ): Map<LocalDate, OperatingHours> {
-        val settings = businessRepository.findById(businessId)?.settings
-        val fallback = OperatingHours(
-            openTime = settings?.defaultOpenTime ?: LocalTime.of(9, 0),
-            closeTime = settings?.defaultCloseTime ?: LocalTime.of(21, 0)
-        )
-        return schedulePeriod.getAllDates().associateWith { date ->
-            schedulePeriod.operatingHours[date] ?: fallback
-        }
+        val configured = businessHoursRepository.findByBusinessId(businessId)
+        return schedulePeriod.getAllDates().mapNotNull { date ->
+            val hours = schedulePeriod.operatingHours[date] ?: configured.resolve(date)
+            hours?.let { date to it }
+        }.toMap()
     }
 
     /**
