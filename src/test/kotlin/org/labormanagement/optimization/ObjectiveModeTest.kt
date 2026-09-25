@@ -94,7 +94,7 @@ class ObjectiveModeTest {
             employees = listOf(cheapEmployee, expensiveEmployee),
             salesForecast = salesForecast,
             scheduleDates = listOf(scheduleDate),
-            operatingHoursMap = mapOf(scheduleDate to Pair(LocalTime.of(9, 0), LocalTime.of(17, 0))),
+            operatingHoursMap = mapOf(scheduleDate to OperatingHours(LocalTime.of(9, 0), LocalTime.of(17, 0))),
             coverageFraction = 0.8,
             objective = objective,
             businessId = testBusinessId

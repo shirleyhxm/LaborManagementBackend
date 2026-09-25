@@ -233,7 +233,7 @@ class OvernightHoursTest {
             employees = listOf(alice),
             salesForecast = SalesForecastRepository().getByBusiness(testBusinessId),
             scheduleDates = listOf(monday),
-            operatingHoursMap = mapOf(monday to Pair(LocalTime.of(21, 0), LocalTime.of(2, 0))),
+            operatingHoursMap = mapOf(monday to OperatingHours(LocalTime.of(21, 0), LocalTime.of(2, 0))),
             businessId = testBusinessId
         )
 

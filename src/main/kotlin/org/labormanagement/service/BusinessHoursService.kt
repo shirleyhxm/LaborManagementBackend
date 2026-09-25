@@ -5,6 +5,7 @@ import org.labormanagement.dto.BusinessHoursResponse
 import org.labormanagement.dto.UpdateBusinessHoursRequest
 import org.labormanagement.dto.toModel
 import org.labormanagement.dto.toResponse
+import org.labormanagement.model.invalidIntervalsReason
 import org.labormanagement.repository.BusinessHoursRepository
 import org.labormanagement.repository.BusinessRepository
 import org.slf4j.LoggerFactory
@@ -44,11 +45,11 @@ class BusinessHoursService(
             )
         }
 
-        week.filterNot { it.isClosed }.forEach {
-            if (it.openTime == it.closeTime) {
-                throw IllegalArgumentException(
-                    "${it.dayOfWeek}: opening and closing time are the same - mark the day closed instead"
-                )
+        // A closed day is not checked: it keeps whatever times it had so reopening restores
+        // them, and those are not being traded on.
+        week.filterNot { it.isClosed }.forEach { day ->
+            invalidIntervalsReason(day.toOperatingHours()!!.openIntervals())?.let { reason ->
+                throw IllegalArgumentException("${day.dayOfWeek}: $reason")
             }
         }
 
@@ -61,10 +62,10 @@ class BusinessHoursService(
         requireOwner(userId, businessId)
 
         val override = dto.toModel(businessId)
-        if (!override.isClosed && override.openTime == override.closeTime) {
-            throw IllegalArgumentException(
-                "Opening and closing time are the same - mark the date closed instead"
-            )
+        if (!override.isClosed) {
+            invalidIntervalsReason(override.toOperatingHours()!!.openIntervals())?.let { reason ->
+                throw IllegalArgumentException(reason)
+            }
         }
 
         businessHoursRepository.saveOverride(override)

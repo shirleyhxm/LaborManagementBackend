@@ -52,7 +52,7 @@ class ScheduleOptimizerTest {
             salesForecast = salesForecast,
             scheduleDates = listOf(LocalDate.of(2024, 1, 1)),
             operatingHoursMap = mapOf(
-                LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(11, 0))
+                LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(11, 0))
             ),
             coverageFraction = 0.8,
             businessId = testBusinessId
@@ -106,7 +106,7 @@ class ScheduleOptimizerTest {
             salesForecast = salesForecast,
             scheduleDates = listOf(LocalDate.of(2024, 1, 1)),
             operatingHoursMap = mapOf(
-                LocalDate.of(2024, 1, 1) to Pair(LocalTime.of(9, 0), LocalTime.of(12, 0))
+                LocalDate.of(2024, 1, 1) to OperatingHours(LocalTime.of(9, 0), LocalTime.of(12, 0))
             ),
             businessId = testBusinessId
         )

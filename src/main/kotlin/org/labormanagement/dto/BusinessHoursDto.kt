@@ -3,23 +3,37 @@ package org.labormanagement.dto
 import org.labormanagement.model.BusinessDayHours
 import org.labormanagement.model.BusinessHourOverride
 import org.labormanagement.model.BusinessHours
+import org.labormanagement.model.OpenInterval
 import org.labormanagement.util.parseFlexibleTime
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 private val WIRE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+/** One open stretch of a day, "HH:mm" to "HH:mm". */
+data class OpenIntervalDto(
+    val openTime: String,
+    val closeTime: String
+)
+
 /**
  * One day of the weekly pattern. Times are "HH:mm", matching how shift times already
  * cross the wire.
+ *
+ * [intervals] is always filled on the way out - one entry for an ordinary day - so a
+ * client reads a single shape. On the way in it is optional: a client that only knows
+ * [openTime]/[closeTime] still describes a single-stretch day correctly. When both are
+ * sent, [intervals] wins and [openTime]/[closeTime] are recomputed from it.
  */
 data class BusinessDayHoursDto(
     val dayOfWeek: String,
     val openTime: String = "09:00",
     val closeTime: String = "21:00",
-    val isClosed: Boolean = false
+    val isClosed: Boolean = false,
+    val intervals: List<OpenIntervalDto>? = null
 )
 
 data class BusinessHourOverrideDto(
@@ -28,7 +42,8 @@ data class BusinessHourOverrideDto(
     val openTime: String = "09:00",
     val closeTime: String = "21:00",
     val isClosed: Boolean = false,
-    val label: String? = null
+    val label: String? = null,
+    val intervals: List<OpenIntervalDto>? = null
 )
 
 /**
@@ -49,21 +64,47 @@ data class UpdateBusinessHoursRequest(
     val week: List<BusinessDayHoursDto>
 )
 
+/** The stretches as sent, or the single [open]..[close] stretch when none were. */
+private fun parseIntervals(
+    intervals: List<OpenIntervalDto>?,
+    open: String,
+    close: String
+): List<OpenInterval> =
+    intervals?.takeIf { it.isNotEmpty() }
+        // parseFlexibleTime rather than LocalTime.parse: a business that closes at
+        // midnight is naturally written "24:00", which LocalTime rejects outright.
+        ?.map { OpenInterval(parseFlexibleTime(it.openTime), parseFlexibleTime(it.closeTime)) }
+        ?: listOf(OpenInterval(parseFlexibleTime(open), parseFlexibleTime(close)))
+
+/** Every stretch of the day, including the single one an ordinary day has. */
+private fun renderIntervals(
+    intervals: List<OpenInterval>,
+    open: LocalTime,
+    close: LocalTime
+): List<OpenIntervalDto> =
+    intervals.ifEmpty { listOf(OpenInterval(open, close)) }
+        .map { OpenIntervalDto(it.openTime.format(WIRE_TIME), it.closeTime.format(WIRE_TIME)) }
+
 fun BusinessDayHours.toDto() = BusinessDayHoursDto(
     dayOfWeek = dayOfWeek.name,
     openTime = openTime.format(WIRE_TIME),
     closeTime = closeTime.format(WIRE_TIME),
-    isClosed = isClosed
+    isClosed = isClosed,
+    intervals = renderIntervals(intervals, openTime, closeTime)
 )
 
-fun BusinessDayHoursDto.toModel() = BusinessDayHours(
-    dayOfWeek = DayOfWeek.valueOf(dayOfWeek.uppercase()),
-    // parseFlexibleTime rather than LocalTime.parse: a business that closes at midnight
-    // is naturally written "24:00", which LocalTime rejects outright.
-    openTime = parseFlexibleTime(openTime),
-    closeTime = parseFlexibleTime(closeTime),
-    isClosed = isClosed
-)
+fun BusinessDayHoursDto.toModel(): BusinessDayHours {
+    val stretches = parseIntervals(intervals, openTime, closeTime)
+    return BusinessDayHours(
+        dayOfWeek = DayOfWeek.valueOf(dayOfWeek.uppercase()),
+        // The span is derived rather than trusted, so a client that sends stretches and a
+        // stale open/close cannot leave the two disagreeing.
+        openTime = stretches.first().openTime,
+        closeTime = stretches.last().closeTime,
+        isClosed = isClosed,
+        intervals = stretches.takeIf { it.size > 1 } ?: emptyList()
+    )
+}
 
 fun BusinessHourOverride.toDto() = BusinessHourOverrideDto(
     id = id.toString(),
@@ -71,18 +112,23 @@ fun BusinessHourOverride.toDto() = BusinessHourOverrideDto(
     openTime = openTime.format(WIRE_TIME),
     closeTime = closeTime.format(WIRE_TIME),
     isClosed = isClosed,
-    label = label
+    label = label,
+    intervals = renderIntervals(intervals, openTime, closeTime)
 )
 
-fun BusinessHourOverrideDto.toModel(businessId: UUID) = BusinessHourOverride(
-    id = id?.let { UUID.fromString(it) } ?: UUID.randomUUID(),
-    businessId = businessId,
-    date = LocalDate.parse(date),
-    openTime = parseFlexibleTime(openTime),
-    closeTime = parseFlexibleTime(closeTime),
-    isClosed = isClosed,
-    label = label?.takeIf { it.isNotBlank() }
-)
+fun BusinessHourOverrideDto.toModel(businessId: UUID): BusinessHourOverride {
+    val stretches = parseIntervals(intervals, openTime, closeTime)
+    return BusinessHourOverride(
+        id = id?.let { UUID.fromString(it) } ?: UUID.randomUUID(),
+        businessId = businessId,
+        date = LocalDate.parse(date),
+        openTime = stretches.first().openTime,
+        closeTime = stretches.last().closeTime,
+        isClosed = isClosed,
+        label = label?.takeIf { it.isNotBlank() },
+        intervals = stretches.takeIf { it.size > 1 } ?: emptyList()
+    )
+}
 
 /**
  * Render hours for the client, filling in any weekday the business has not saved.
@@ -100,7 +146,8 @@ fun BusinessHours.toResponse(): BusinessHoursResponse {
                 dayOfWeek = day.name,
                 openTime = fallback.openTime.format(WIRE_TIME),
                 closeTime = fallback.closeTime.format(WIRE_TIME),
-                isClosed = false
+                isClosed = false,
+                intervals = renderIntervals(emptyList(), fallback.openTime, fallback.closeTime)
             )
         },
         overrides = overrides.map { it.toDto() }

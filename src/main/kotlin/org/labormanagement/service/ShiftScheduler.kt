@@ -481,8 +481,9 @@ class ShiftScheduler(
 
         // Build operating hours map
         val scheduleDates = input.schedulePeriod.getAllDates()
+        // Passed whole rather than flattened to an open/close pair: the pair is the span,
+        // and a day that closes over lunch would lose its gap on the way to the solver.
         val operatingHoursMap = resolveOperatingHours(businessId, input.schedulePeriod)
-            .mapValues { (_, hours) -> Pair(hours.openTime, hours.closeTime) }
 
         val timeoffExclusions = if (scheduleDates.isNotEmpty()) {
             buildTimeoffExclusions(employees.map { it.id }, scheduleDates.min(), scheduleDates.max())
@@ -750,7 +751,11 @@ class ShiftScheduler(
 
         // Generate hourly evaluation intervals for hour-by-hour analysis
         val evaluationSlots = profile("generateShiftsForDay.generateIntervals") {
-            generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, minShiftDurationHours)
+            // Per open stretch: a lunch closure contributes no hours, so nobody is put on
+            // it and no demand is chased through it.
+            operatingHours.openIntervals().flatMap {
+                generateEvaluationIntervals(it.openTime, it.closeTime, minShiftDurationHours)
+            }
         }
 
         // Track sales coverage hour-by-hour: for each hour interval, track remaining uncovered sales
@@ -1055,7 +1060,11 @@ class ShiftScheduler(
         currentInterval: Pair<LocalTime, LocalTime>
     ): Pair<LocalTime, LocalTime>? {
         val currentIndex = this.indexOf(currentInterval)
-        return if (currentIndex > 0) this[currentIndex - 1] else null
+        val previous = if (currentIndex > 0) this[currentIndex - 1] else null
+        // Only the hour that actually ends where this one starts. With the day split by a
+        // closure, the entry before 13:00-14:00 in this list is 11:00-12:00, and preferring
+        // whoever worked it would treat the far side of lunch as a continuation.
+        return previous?.takeIf { it.second == currentInterval.first }
     }
 
     /**
@@ -1167,28 +1176,40 @@ class ShiftScheduler(
             }
         }
 
+        // Summed per open stretch rather than across the span: forecast sales inside a
+        // lunch closure are sales the business will not take, and counting them would
+        // flatter labour cost as a percentage of revenue.
         return hoursByDate.entries.sumOf { (date, hours) ->
-            val open = hours.openTime
-            val close = hours.closeTime
-            val overnight = close <= open
-
-            // The part of the window falling on this date: open until midnight when it wraps,
-            // open until close when it does not.
-            val today = salesForecast.getForecastForDate(date)
-                .filterKeys { it >= open && (overnight || it < close) }
-                .values.sum()
-
-            // And the small hours, which carry the next date's clock times.
-            val tomorrow = if (overnight && close > LocalTime.MIDNIGHT) {
-                salesForecast.getForecastForDate(date.plusDays(1))
-                    .filterKeys { it < close }
-                    .values.sum()
-            } else {
-                0.0
+            hours.openIntervals().sumOf { stretch ->
+                salesWithin(salesForecast, date, stretch.openTime, stretch.closeTime)
             }
-
-            today + tomorrow
         }
+    }
+
+    private fun salesWithin(
+        salesForecast: SalesForecast,
+        date: LocalDate,
+        open: LocalTime,
+        close: LocalTime
+    ): Double {
+        val overnight = close <= open
+
+        // The part of the window falling on this date: open until midnight when it wraps,
+        // open until close when it does not.
+        val today = salesForecast.getForecastForDate(date)
+            .filterKeys { it >= open && (overnight || it < close) }
+            .values.sum()
+
+        // And the small hours, which carry the next date's clock times.
+        val tomorrow = if (overnight && close > LocalTime.MIDNIGHT) {
+            salesForecast.getForecastForDate(date.plusDays(1))
+                .filterKeys { it < close }
+                .values.sum()
+        } else {
+            0.0
+        }
+
+        return today + tomorrow
     }
 
     private fun calculateMetrics(
@@ -1290,7 +1311,12 @@ class ShiftScheduler(
             }
 
             // Generate hourly intervals
-            val intervals = generateEvaluationIntervals(operatingHours.openTime, operatingHours.closeTime, 1.0)
+            // Open stretches only. Walked across the whole span, a lunch closure with
+            // forecast demand in it came out as an understaffed hour - a violation for
+            // failing to staff a time the business is shut.
+            val intervals = operatingHours.openIntervals().flatMap {
+                generateEvaluationIntervals(it.openTime, it.closeTime, 1.0)
+            }
 
             intervals.forEach { (startTime, endTime) ->
                 val expectedSales = calculateAverageSales(dayForecast, startTime, endTime)

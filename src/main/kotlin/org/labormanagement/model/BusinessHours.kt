@@ -20,11 +20,17 @@ data class BusinessDayHours(
     val openTime: LocalTime = LocalTime.of(9, 0),
     val closeTime: LocalTime = LocalTime.of(21, 0),
     val isClosed: Boolean = false,
-    val updatedAt: Instant = Instant.now()
+    val updatedAt: Instant = Instant.now(),
+    /**
+     * The open stretches of a day that closes in the middle - 9-12 and 13-17. Empty for
+     * the usual single stretch, which [openTime]..[closeTime] already describes; when set,
+     * those two are the span from first opening to last closing.
+     */
+    val intervals: List<OpenInterval> = emptyList()
 ) {
     /** The open window, or null on a day the business is shut. */
     fun toOperatingHours(): OperatingHours? =
-        if (isClosed) null else OperatingHours(openTime, closeTime)
+        if (isClosed) null else operatingHoursOf(openTime, closeTime, intervals)
 }
 
 /**
@@ -43,10 +49,48 @@ data class BusinessHourOverride(
     val closeTime: LocalTime = LocalTime.of(21, 0),
     val isClosed: Boolean = false,
     val label: String? = null,
-    val createdAt: Instant = Instant.now()
+    val createdAt: Instant = Instant.now(),
+    /** As [BusinessDayHours.intervals]: empty unless the date closes in the middle. */
+    val intervals: List<OpenInterval> = emptyList()
 ) {
     fun toOperatingHours(): OperatingHours? =
-        if (isClosed) null else OperatingHours(openTime, closeTime)
+        if (isClosed) null else operatingHoursOf(openTime, closeTime, intervals)
+}
+
+private fun operatingHoursOf(
+    openTime: LocalTime,
+    closeTime: LocalTime,
+    intervals: List<OpenInterval>
+): OperatingHours =
+    if (intervals.size > 1) OperatingHours.of(intervals) else OperatingHours(openTime, closeTime)
+
+/**
+ * Why [intervals] is not a day the business could be open, or null if it is.
+ *
+ * In order and not overlapping, each a real stretch of time, and only the last allowed to
+ * run past midnight - a stretch that wrapped and was then followed by another would open
+ * the next one at a time already inside it. Shared so the API and anything else that
+ * accepts hours reject the same shapes.
+ */
+fun invalidIntervalsReason(intervals: List<OpenInterval>): String? {
+    if (intervals.isEmpty()) return "An open day needs at least one opening time"
+
+    intervals.forEachIndexed { i, interval ->
+        if (interval.openTime == interval.closeTime) {
+            return "Opening and closing time are the same - remove that time or mark the day closed"
+        }
+        val wraps = interval.closeTime < interval.openTime
+        if (wraps && i != intervals.lastIndex) {
+            return "Only the last opening of a day can run past midnight"
+        }
+        if (i > 0) {
+            val previous = intervals[i - 1]
+            if (interval.openTime < previous.closeTime) {
+                return "Opening times overlap or are out of order"
+            }
+        }
+    }
+    return null
 }
 
 /**

@@ -12,6 +12,7 @@ import org.labormanagement.database.Businesses
 import org.labormanagement.model.BusinessDayHours
 import org.labormanagement.model.BusinessHourOverride
 import org.labormanagement.model.BusinessHours
+import org.labormanagement.model.OpenInterval
 import org.labormanagement.model.OperatingHours
 import org.slf4j.LoggerFactory
 import java.time.DayOfWeek
@@ -77,6 +78,7 @@ class BusinessHoursRepository {
                 it[openTime] = day.openTime
                 it[closeTime] = day.closeTime
                 it[isClosed] = day.isClosed
+                it[intervals] = encodeIntervals(day.intervals)
                 it[updatedAt] = now
             }
         }
@@ -103,6 +105,7 @@ class BusinessHoursRepository {
             it[closeTime] = override.closeTime
             it[isClosed] = override.isClosed
             it[label] = override.label
+            it[intervals] = encodeIntervals(override.intervals)
             it[createdAt] = override.createdAt
         }
         override
@@ -138,6 +141,7 @@ class BusinessHoursRepository {
         openTime = this[BusinessHoursTable.openTime],
         closeTime = this[BusinessHoursTable.closeTime],
         isClosed = this[BusinessHoursTable.isClosed],
+        intervals = decodeIntervals(this[BusinessHoursTable.intervals]),
         updatedAt = this[BusinessHoursTable.updatedAt]
     )
 
@@ -149,6 +153,28 @@ class BusinessHoursRepository {
         closeTime = this[BusinessHourOverrides.closeTime],
         isClosed = this[BusinessHourOverrides.isClosed],
         label = this[BusinessHourOverrides.label],
+        intervals = decodeIntervals(this[BusinessHourOverrides.intervals]),
         createdAt = this[BusinessHourOverrides.createdAt]
     )
+
+    /**
+     * "09:00-12:00,13:00-17:00", or null for a single stretch.
+     *
+     * Plain text rather than JSON: two times per stretch needs no parser, and it keeps
+     * the column legible when read straight out of the database. Null rather than one
+     * stretch for the usual day, so the column only carries something when the day
+     * actually closes in the middle and every pre-existing row stays valid as it is.
+     */
+    private fun encodeIntervals(intervals: List<OpenInterval>): String? =
+        intervals.takeIf { it.size > 1 }
+            ?.joinToString(",") { "${it.openTime}-${it.closeTime}" }
+
+    private fun decodeIntervals(raw: String?): List<OpenInterval> =
+        raw?.takeIf { it.isNotBlank() }
+            ?.split(",")
+            ?.map { part ->
+                val (open, close) = part.split("-")
+                OpenInterval(LocalTime.parse(open), LocalTime.parse(close))
+            }
+            ?: emptyList()
 }

@@ -22,7 +22,8 @@ object OptimizationConverter {
      * @param employees List of employees to schedule
      * @param salesForecast Sales forecast data for the week
      * @param scheduleDates Dates to include in the schedule
-     * @param operatingHoursMap Operating hours for each date
+     * @param operatingHoursMap Operating hours for each date. Slots are only generated inside
+     *   its open stretches, so a lunch closure has no slots and nobody can be put on it.
      * @param coverageFraction What fraction of projected sales should be covered (default: 0.8)
      * @param objective Optimization objective (default: MINIMIZE_LABOR_COST)
      * @param constraintsService Optional ConstraintsService to fetch scheduling constraints
@@ -34,7 +35,7 @@ object OptimizationConverter {
         employees: List<Employee>,
         salesForecast: SalesForecast,
         scheduleDates: List<LocalDate>,
-        operatingHoursMap: Map<LocalDate, Pair<LocalTime, LocalTime>>,
+        operatingHoursMap: Map<LocalDate, org.labormanagement.model.OperatingHours>,
         coverageFraction: Double = 0.8,
         objective: OptimizationObjective = OptimizationObjective.MINIMIZE_LABOR_COST,
         maxSolveTimeSeconds: Double = 5.0,
@@ -322,7 +323,7 @@ object OptimizationConverter {
      */
     private fun generateTimeSlots(
         dates: List<LocalDate>,
-        operatingHoursMap: Map<LocalDate, Pair<LocalTime, LocalTime>>,
+        operatingHoursMap: Map<LocalDate, org.labormanagement.model.OperatingHours>,
     ): List<TimeSlot> {
         val timeSlots = mutableListOf<TimeSlot>()
 
@@ -333,37 +334,47 @@ object OptimizationConverter {
         val slotDurationMinutes = (slotDurationHours * 60).toLong()
 
         for (date in dates) {
-            val (openTime, closeTime) = operatingHoursMap[date] ?: continue
+            val hours = operatingHoursMap[date] ?: continue
 
-            // Walk elapsed minutes from opening rather than comparing times of day. A
-            // business open 21:00-02:00 closes at a LocalTime *smaller* than the one it
-            // opened at, so `while (current < close)` ends before it starts and yields no
-            // slots at all - the solver is then handed nothing to assign and returns an
-            // empty schedule with no error to explain it.
-            val minutesOpen = minutesBetweenAllowingWrap(openTime, closeTime)
-            if (minutesOpen <= 0) continue
+            // One run of slots per open stretch, none in between. The solver needs nothing
+            // else to respect a lunch closure: every constraint that cares about
+            // continuity - shift starts, minimum length, the continuous-hours cap, rest and
+            // break boundaries - already compares slot times rather than slot indices, so
+            // 11:00-12:00 followed by 13:00-14:00 reads as two blocks, not one.
+            for (stretch in hours.openIntervals()) {
+                val openTime = stretch.openTime
+                val closeTime = stretch.closeTime
 
-            var elapsed = 0L
-            while (elapsed < minutesOpen) {
-                val slotMinutes = minOf(slotDurationMinutes, minutesOpen - elapsed)
+                // Walk elapsed minutes from opening rather than comparing times of day. A
+                // business open 21:00-02:00 closes at a LocalTime *smaller* than the one it
+                // opened at, so `while (current < close)` ends before it starts and yields no
+                // slots at all - the solver is then handed nothing to assign and returns an
+                // empty schedule with no error to explain it.
+                val minutesOpen = minutesBetweenAllowingWrap(openTime, closeTime)
+                if (minutesOpen <= 0) continue
 
-                // Offsetting the opening instant keeps this correct across midnight:
-                // LocalTime wraps on its own, and the date advances with it.
-                val start = openTime.plusMinutes(elapsed)
-                val end = openTime.plusMinutes(elapsed + slotMinutes)
-                val startsNextDay = (openTime.toSecondOfDay() / 60L + elapsed) >= MINUTES_PER_DAY
+                var elapsed = 0L
+                while (elapsed < minutesOpen) {
+                    val slotMinutes = minOf(slotDurationMinutes, minutesOpen - elapsed)
 
-                timeSlots.add(
-                    TimeSlot(
-                        date = if (startsNextDay) date.plusDays(1) else date,
-                        startTime = start,
-                        endTime = end,
-                        durationHours = slotMinutes / 60.0,
-                        businessDate = date
+                    // Offsetting the opening instant keeps this correct across midnight:
+                    // LocalTime wraps on its own, and the date advances with it.
+                    val start = openTime.plusMinutes(elapsed)
+                    val end = openTime.plusMinutes(elapsed + slotMinutes)
+                    val startsNextDay = (openTime.toSecondOfDay() / 60L + elapsed) >= MINUTES_PER_DAY
+
+                    timeSlots.add(
+                        TimeSlot(
+                            date = if (startsNextDay) date.plusDays(1) else date,
+                            startTime = start,
+                            endTime = end,
+                            durationHours = slotMinutes / 60.0,
+                            businessDate = date
+                        )
                     )
-                )
 
-                elapsed += slotMinutes
+                    elapsed += slotMinutes
+                }
             }
         }
 

@@ -620,9 +620,14 @@ object BusinessHours : Table("business_hours") {
     val closeTime = time("close_time")
     val isClosed = bool("is_closed").default(false)
     val updatedAt = timestamp("updated_at")
+    // A day that closes in the middle, as "09:00-12:00,13:00-17:00". Null for the usual
+    // single stretch, which open_time/close_time describe on their own - so every row that
+    // existed before this column still reads correctly without a backfill.
+    val intervals = text("intervals").nullable()
 
-    // One row per day per business: a week has exactly seven of these, and a
-    // second Monday would be a contradiction rather than a split shift.
+    // One row per day per business: a week has exactly seven of these. A day with a
+    // lunch closure is still one row - its stretches are in `intervals` - rather than a
+    // second Monday, which would leave "which row is Monday" undefined.
     override val primaryKey = PrimaryKey(businessId, dayOfWeek)
 }
 
@@ -642,6 +647,8 @@ object BusinessHourOverrides : Table("business_hour_overrides") {
     val isClosed = bool("is_closed").default(false)
     val label = varchar("label", 100).nullable()
     val createdAt = timestamp("created_at")
+    // As BusinessHours.intervals.
+    val intervals = text("intervals").nullable()
 
     override val primaryKey = PrimaryKey(id)
 
